@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# prototype: local SQLite database (not source)
+/prisma/*.db
+/prisma/*.db-journal
+/prisma/*.db-wal
+
+# generated feature-walkthrough artifact source (large; republish from here, don't version)
+/ecs-walkthrough.html
+
+# scratch scripts
+/_*.mjs

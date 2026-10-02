@@ -1,0 +1,406 @@
+// ECS Pre-Trip Travel Request — transactional data model (Build Pack §7.1, §13.1)
+// NOTE: SQLite does not support Prisma enums; status/type fields are Strings whose
+// allowed values are documented in src/shared/enums.ts. Reference masters (expense
+// types, caps, ODA rates, workflow bands, FX, roles, etc.) are NOT stored here — per
+// §13.18 they live in src/data as read-only seed consumed by the mock ECS services.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+/// Single-row module configuration (§2.2, §3.4, TR-19). Runtime-togglable (AC03).
+model ModuleSettings {
+  id                     String  @id @default("SETTINGS")
+  sameRouteResearch      Boolean @default(false)  // §3.4 same route research/non-research
+  expenseScope           String  @default("ALL")  // MAJOR_ONLY | ALL
+  hotelEstimateBasis     String  @default("LOWER") // QUOTED | CAP | LOWER
+  airfareTreatment       String  @default("IN_TE") // DIRECT_SAP | IN_TE | REFERENCE
+  teLinkageMandatory     String  @default("CONDITIONAL") // YES | NO | CONDITIONAL
+  approvalAmountBasis    String  @default("NET_NTU")     // GROSS | NET_NTU | MAJOR_COST | ALLOCATION
+  groupTravelEnabled     Boolean @default(true)   // §13.14
+  groupSubItineraries    Boolean @default(true)   // §13.20 per-traveller sub-itineraries (D3)
+  exceptionApproverRequired Boolean @default(true) // §26 insert an Exception Approver step for policy exceptions (else surface to DOA)
+  crossBaThresholdSgd    Int     @default(500)    // §18 cross-business-area concurrence threshold (AC5)
+  selfBookingEnabled     Boolean @default(true)   // §13.17
+  // §43 Settings breadth
+  selfApprovalLimitSgd   Int     @default(0)      // approval amount at/below which a traveller-approver self-approves (0 = never)
+  attachmentMaxMb        Int     @default(7)      // §2 max upload size per file
+  chargingSplitMode      String  @default("PERCENT") // §17 PERCENT | AMOUNT entry mode for charging
+  declarationText        String  @default("I confirm that the trip is for official purposes, the estimated costs are reasonable, and the itinerary and personal travel days are accurate.")
+  coiText                String  @default("I declare no conflict of interest arising from this trip or its funding source.")
+  sftpConfig             String  @default("sftp://tmc-gateway.example:22 (key: ECS_TMC_2026)") // §43 transport config (display only)
+  authorisationValidityDays Int  @default(30)     // §13.3
+  bookingDeadlineDays    Int     @default(14)     // §13.3
+  updatedAt              DateTime @updatedAt
+}
+
+/// §13.8/§13.9 Integration Contract override — admin-editable per-field decision on
+/// what is sent to the TMC and how it is treated when synced to the expense claim.
+/// Rows overlay the CONTRACT_FIELDS defaults (src/config/integrationContracts.ts);
+/// the OutSystems equivalent is a site-property / exposed-REST field flag.
+model IntegrationFieldSetting {
+  key         String   @id                       // matches ContractField.key
+  includeTmc  Boolean  @default(false)           // sent in the TMC booking instruction?
+  teTreatment String   @default("EXCLUDED")      // LOCKED | EDITABLE | REFERENCE | EXCLUDED
+  updatedAt   DateTime @updatedAt
+}
+
+/// §13.9 Integration message guard — admin-editable parameter filter deciding when an
+/// outbound booking instruction is sent / an inbound TMC response is accepted. Overlays
+/// the CONTRACT_GUARDS defaults.
+model IntegrationGuardSetting {
+  key       String   @id                         // matches ContractGuard.key
+  enabled   Boolean  @default(true)              // is the filter active?
+  value     String   @default("")                // overridden value for editable guards
+  updatedAt DateTime @updatedAt
+}
+
+/// §7.1 TravelRequest — header and lifecycle record
+model TravelRequest {
+  id                String   @id @default(cuid())
+  requestNumber     String   @unique               // TR-YYYY-NNNNNN
+  authorisationNo   String?  @unique               // TA-YYYY-NNNNNN (§13.3), on final approval
+  status            String   @default("Draft")     // §13.1 approval state machine
+  bookingStatus     String   @default("Not Sent")  // §13.1 booking status
+  isGroup           Boolean  @default(false)
+
+  // ECS-derived context (by shared identifier into mock ECS services)
+  requestorId       String                          // creator (may be non-traveller)
+  travellerId       String                          // primary traveller ('GUEST' for a non-employee, §8)
+  travellerType     String   @default("EMPLOYEE")    // §8 EMPLOYEE | GUEST (non-employee, no ECS profile)
+  guestName         String?                          // §8 guest identity capture (no HR record)
+  guestEmail        String?
+  guestOrg          String?                          // guest's home organisation / affiliation
+  additionalApproverId String?                       // §23 optional traveller-selected Additional Approver (any AD person)
+  entityId          String?
+  departmentId      String?
+  isResearch        Boolean  @default(false)
+
+  // Trip header (§4.4, §5.1 trip header)
+  purposeId         String?
+  description       String?
+  destCountry       String?
+  destCity          String?
+  startDate         DateTime?
+  endDate           DateTime?
+  personalStart     DateTime?                       // personal extension (§13.18)
+  personalEnd       DateTime?
+  personalAck       Boolean  @default(false)         // §12 traveller acknowledges personal portion is at own cost
+  eventStartDate    DateTime?                        // §10 event/conference dates (may differ from travel dates)
+  eventEndDate      DateTime?
+  invitationRef     String?                          // §10 invitation / acceptance reference
+  travelClassId     String?
+  entitledClassId   String?                         // §13.19 derived entitlement (individual)
+  classBasis        String?                         // derivation basis text
+  classJustification String?                        // required when chosen class > entitlement
+  bookingMethod     String?                         // §2.2 proposed booking method
+
+  // Derived approval routing snapshot
+  approvalAmountSgd  Float?                         // amount basis result (SGD, §13.4)
+  bookingDeadline    DateTime?
+  authorisationExpiry DateTime?
+
+  currentVersion    Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  travellers        TravelRequestTraveller[]
+  versions          TravelRequestVersion[]
+  legs              ItineraryLeg[]
+  expenses          EstimatedExpense[]
+  allocations       ChargingAllocation[]
+  policyChecks      PolicyCheck[]
+  approvalSteps     ApprovalStep[]
+  bookings          TravelBooking[]
+  deviations        BookingDeviation[]
+  teLinks           TravelExpenseLink[]
+  claims            TravelExpenseClaim[]
+  messages          IntegrationMessage[]
+  auditEvents       AuditEvent[]
+  attachments       Attachment[]
+}
+
+/// §13.14 group travellers — one request, many travellers
+model TravelRequestTraveller {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  employeeId    String
+  confirmed     Boolean @default(false)   // §13.13 inclusion confirmation
+  confirmedAt   DateTime?
+  sharePct      Float   @default(100)     // derived share of NTU-funded cost
+  isRequestor   Boolean @default(false)
+  // §13.19 per-traveller travel-class entitlement / choice for group requests
+  entitledClassId String?
+  chosenClassId   String?
+  classBasis      String?                 // derivation basis text (register/policy group or default)
+  classJustification String?              // required when chosen > entitled
+  // §13.20 per-traveller itinerary override (e.g. a different return date)
+  ownStartDate    DateTime?
+  ownEndDate      DateTime?
+  legOverrideNote String?
+}
+
+/// §7.1 / §13.1 immutable submitted/approved snapshots
+model TravelRequestVersion {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  version       Int
+  reason        String                     // SUBMISSION | REAPPROVAL
+  approved      Boolean @default(false)
+  snapshot      String                     // JSON snapshot of the request + lines
+  createdAt     DateTime @default(now())
+}
+
+/// §7.1 / §13.20 ItineraryLeg — ordered multi-leg itinerary
+model ItineraryLeg {
+  id             String  @id @default(cuid())
+  requestId      String
+  request        TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  travellerId    String?                    // §13.20 null = shared group leg; set = that traveller's own sub-itinerary
+  seq            Int
+  originCode     String
+  destCode       String
+  departDate     DateTime?
+  arriveDate     DateTime?
+  transportMode  String  @default("AIR")   // AIR | RAIL | OTHER (§13.20)
+  durationHours  Float?                     // estimated flight/travel duration
+  departTime     String?                    // §11 indicative departure time (HH:MM)
+  bookingRequired Boolean @default(true)    // §11 does this leg need a TMC booking?
+  isPersonal     Boolean @default(false)    // personal-extension leg (excluded from ODA)
+  nights         Int     @default(0)        // nights of stay at destination
+  travelClassId  String?
+  entitledClassId String?                   // §13.19 per-leg entitlement (duration-conditioned)
+  chosenClassId  String?
+}
+
+/// §7.1 EstimatedExpense — common estimate aligned to TE expense types
+model EstimatedExpense {
+  id             String  @id @default(cuid())
+  requestId      String
+  request        TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  travellerId    String?                    // attributed traveller (group); null = requestor/shared owner
+  category       String                     // AIRFARE | ACCOMMODATION | ODA | CONFERENCE | OTHER
+  expenseTypeId  String                     // shared ECS expense-type ID
+  currency       String  @default("SGD")
+  foreignAmount  Float   @default(0)
+  sgdAmount      Float   @default(0)
+  sponsorForeign Float   @default(0)
+  sponsorSgd     Float   @default(0)
+  estimateBasis  String?                    // QUOTED | CAP | LOWER | RATE
+  expectedDate   DateTime?
+  isShared       Boolean @default(false)    // §13.14 shared apportioned line
+  shareMap       String?                    // JSON {employeeId: pct}
+  notes          String?
+
+  // Airfare-specific (§4.5)
+  originCode     String?
+  destCode       String?
+  proposedClassId String?
+  fareCeiling    Float?
+  handoffStatus  String?
+
+  accommodation  AccommodationEstimate?
+  oda            ODAEstimate?
+}
+
+/// §7.1 AccommodationEstimate — hotel estimate and cap result (§4.5)
+model AccommodationEstimate {
+  id            String  @id @default(cuid())
+  expenseId     String  @unique
+  expense       EstimatedExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  city          String
+  checkIn       DateTime?
+  checkOut      DateTime?
+  nights        Int     @default(0)
+  personalNights Int    @default(0)
+  quotedNightly Float   @default(0)
+  capNightly    Float   @default(0)         // from ECS policy (§13.7)
+  budgetedNightly Float @default(0)         // per hotelEstimateBasis
+  capVariance   Float   @default(0)
+  conferenceHotel Boolean @default(false)
+  exceptionOutcome String?                  // PASS | EXCEPTION
+}
+
+/// §7.1 ODAEstimate — indicative ODA by destination and dates (§4.5)
+model ODAEstimate {
+  id            String  @id @default(cuid())
+  expenseId     String  @unique
+  expense       EstimatedExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  country       String
+  city          String?
+  arrive        DateTime?
+  depart        DateTime?
+  eligibleDays  Int     @default(0)
+  personalDays  Int     @default(0)
+  dailyRate     Float   @default(0)         // from ECS ODA rate table
+  ratePct       Float   @default(100)       // travel-period percentage
+}
+
+/// §7.1 ChargingAllocation — funding split (must total 100%, AC06)
+model ChargingAllocation {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  companyCode   String?
+  businessArea  String?
+  chargingType  String                      // CC | WBS
+  chargingCode  String                      // CC/WBS id (shared ECS master)
+  isResearch    Boolean @default(false)
+  percent       Float   @default(0)
+  amountSgd     Float?                       // §17 amount-split entry (converted to percent at save)
+}
+
+/// §7.1 PolicyCheck — result of common + pre-trip policy rules (§6.3)
+model PolicyCheck {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  code          String
+  label         String
+  outcome       String                      // PASS | WARNING | EXCEPTION | HARD_STOP
+  detail        String?
+  travellerId   String?                     // §13.14 per-traveller check
+  resolved      Boolean @default(false)     // exception approved
+}
+
+/// §7.1 ApprovalStep — workflow step and decision (§6.2, §13.1)
+model ApprovalStep {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  seq           Int
+  roleType      String                      // RO | DOA | RESEARCH_DOA | EXCEPTION | FUNDING_OWNER
+  approverId    String?
+  onBehalfOf    String?                     // delegation principal (§13.5)
+  status        String  @default("Pending") // Pending | Approved | Rejected | SentBack | Skipped
+  decidedAt     DateTime?
+  comments      String?
+}
+
+/// §7.1 TravelBooking — booking header (from TMC/self-booked)
+model TravelBooking {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  travellerId   String?                     // §9.3 per-traveller booking in a group fan-out (AC15)
+  pnr           String?
+  ticketNo      String?
+  channel       String?                     // TMC | SELF_BOOKED
+  fare          Float?
+  taxes         Float?
+  fees          Float?
+  hotelRate     Float?
+  status        String  @default("Booked")
+  segments      BookingSegment[]
+}
+
+/// §7.1 BookingSegment — booked air/hotel segment
+model BookingSegment {
+  id            String  @id @default(cuid())
+  bookingId     String
+  booking       TravelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type          String                      // AIR | HOTEL
+  originCode    String?
+  destCode      String?
+  bookedClassId String?
+  departDate    DateTime?
+  arriveDate    DateTime?
+  amount        Float?
+}
+
+/// §7.1 BookingDeviation — approval-to-booking variance (§6.4, AC10)
+model BookingDeviation {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  field         String
+  approvedValue String?
+  bookedValue   String?
+  material      Boolean @default(false)
+  action        String?                     // Reapproval | LogOnly | UpdateBooking
+}
+
+/// Mock TE claim (§4.4, §13.8) — draft claim created from an approved request
+model TravelExpenseClaim {
+  id            String  @id @default(cuid())
+  claimNumber   String  @unique
+  requestId     String?
+  request       TravelRequest? @relation(fields: [requestId], references: [id])
+  claimantId    String
+  status        String  @default("Draft")   // Draft | Submitted
+  createdAt     DateTime @default(now())
+  lines         TEExpenseLine[]
+  link          TravelExpenseLink?
+}
+
+/// TE claim expense line with approved/actual for estimate-to-actual (TR-17)
+model TEExpenseLine {
+  id            String  @id @default(cuid())
+  claimId       String
+  claim         TravelExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  category      String
+  expenseTypeId String
+  treatment     String                      // LOCKED | EDITABLE | REFERENCE | EXCLUDED (§13.8)
+  approvedSgd   Float   @default(0)
+  bookedSgd     Float?                       // null / self-booked = N/A
+  actualSgd     Float   @default(0)
+  varianceSgd   Float   @default(0)
+  receiptOk     Boolean @default(false)
+}
+
+/// §7.1 TravelExpenseLink — links Travel Request to one or more TE claims
+model TravelExpenseLink {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  claimId       String  @unique
+  claim         TravelExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  travellerId   String?
+  createdAt     DateTime @default(now())
+}
+
+/// §7.1 IntegrationMessage — outbound/inbound payload tracking (§13.9)
+model IntegrationMessage {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  direction     String                      // OUTBOUND | INBOUND
+  kind          String                      // TMC_HANDOFF | TMC_RESPONSE
+  payload       String                      // canonical JSON
+  createdAt     DateTime @default(now())
+}
+
+/// §7.1 AuditEvent — field, workflow and integration history (AC13). User comments
+/// (§13.21) are stored here with kind = COMMENT so the comments feed and audit trail
+/// are one chronological stream.
+model AuditEvent {
+  id            String  @id @default(cuid())
+  requestId     String?
+  request       TravelRequest? @relation(fields: [requestId], references: [id])
+  actorId       String?
+  onBehalfOf    String?
+  kind          String                      // CREATE | SUBMIT | APPROVE | REJECT | SENDBACK | AMEND | INTEGRATION | TE_LINK | STATUS | COMMENT
+  summary       String
+  createdAt     DateTime @default(now())
+}
+
+/// §13.21 Attachment panel (mock — metadata only; no real file storage).
+model Attachment {
+  id            String  @id @default(cuid())
+  requestId     String
+  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  docType       String                      // Quotation | Conference Invitation | Approval Evidence | Other
+  fileName      String
+  sizeKb        Int     @default(0)
+  contentType   String?                     // §2 real upload — MIME type of the stored bytes
+  content       Bytes?                      // §2 real upload — the file content (prototype stores in-row)
+  uploadedById  String?
+  createdAt     DateTime @default(now())
+}
