@@ -203,24 +203,23 @@ export async function saveTrip(id: string, fd: FormData) {
   const req0 = await loadRequest(id);
   const start = dateOrNull(fd, 'startDate');
   const end = dateOrNull(fd, 'endDate');
-  // §4.4 trip type drives the itinerary. Round-trip/One-way capture one destination; Multi-city
-  // submits the legs built in the form and the main destination is derived from them (longest stay).
+  // §4.4/§13.20 ONE always-on itinerary for every trip type. The leg builder submits the legs;
+  // the trip type is only a preset/label (Round-trip = 2 legs, One-way = 1, Multi-city = user-
+  // determined). The main destination is derived uniformly from the longest-stay non-personal leg.
   const tripType = str(fd, 'tripType') === 'ONE_WAY' ? 'ONE_WAY' : str(fd, 'tripType') === 'MULTI_CITY' ? 'MULTI_CITY' : 'ROUND_TRIP';
-  let multiLegs: { originCode: string; destCode: string; departDate: string; arriveDate: string; nights: number; durationHours: string; isPersonal: boolean }[] = [];
-  if (tripType === 'MULTI_CITY') { try { multiLegs = (JSON.parse(str(fd, 'legsJson') || '[]') as typeof multiLegs).filter((l) => l.destCode); } catch { multiLegs = []; } }
+  type FormLeg = { originCode: string; destCode: string; departDate: string; arriveDate: string; nights: number; durationHours: string; isPersonal: boolean };
+  let formLegs: FormLeg[] = [];
+  try { formLegs = (JSON.parse(str(fd, 'legsJson') || '[]') as FormLeg[]).filter((l) => l.destCode); } catch { formLegs = []; }
   const cityOf = (ap: string) => EcsReference.airport(ap)?.cityCode ?? ap;
   const countryOf = (city: string) => EcsReference.city(city)?.countryCode ?? '';
-  let destCity = str(fd, 'destCity');
-  let destCountry = str(fd, 'destCountry');
-  if (tripType === 'MULTI_CITY') {
-    const mainLeg = [...multiLegs].filter((l) => !l.isPersonal).sort((a, b) => b.nights - a.nights)[0] ?? multiLegs[0];
-    if (mainLeg) { destCity = cityOf(mainLeg.destCode); destCountry = countryOf(destCity); }
-  }
+  // Main destination = longest-stay non-personal leg (fall back to the first leg), for all types.
+  const mainLeg = [...formLegs].filter((l) => !l.isPersonal).sort((a, b) => b.nights - a.nights)[0] ?? formLegs[0];
+  let destCity = ''; let destCountry = '';
+  if (mainLeg) { destCity = cityOf(mainLeg.destCode); destCountry = countryOf(destCity); }
   // Server-side validation (the browser `required` attributes are only a first gate).
   const missing: string[] = [];
   if (!purposeId) missing.push('travel purpose');
-  if (tripType === 'MULTI_CITY') { if (multiLegs.length === 0) missing.push('at least one itinerary leg'); }
-  else if (!destCountry || !destCity) missing.push('destination');
+  if (formLegs.length === 0) missing.push('at least one itinerary leg with a destination');
   if (!start || !end) missing.push('travel dates');
   if (start && end && start > end) missing.push('a return date on or after departure');
   if (!str(fd, 'bookingArrangement')) missing.push('booking arrangement');
@@ -258,20 +257,19 @@ export async function saveTrip(id: string, fd: FormData) {
       classJustification: str(fd, 'classJustification') || null,
     },
   });
-  // §4.4/§13.20 Rebuild the shared itinerary from the trip type. Multi-city uses the legs
-  // built in the form; Round-trip/One-way derive the legs from the single destination.
+  // §4.4/§13.20 Rebuild the shared itinerary from the submitted legs (same for every trip type).
+  // Each leg's flight duration is derived from its destination city (not trusted from the form).
   await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: null } });
-  const origin = str(fd, 'originCode') || 'SIN';
-  const destAirport = str(fd, 'destAirport');
   type NewLeg = { originCode: string; destCode: string; departDate: Date | null; arriveDate: Date | null; durationHours: number | null; nights: number; isPersonal: boolean };
-  const newLegs: NewLeg[] = [];
-  if (tripType === 'MULTI_CITY') {
-    for (const l of multiLegs) newLegs.push({ originCode: l.originCode || 'SIN', destCode: l.destCode, departDate: l.departDate ? new Date(l.departDate) : null, arriveDate: l.arriveDate ? new Date(l.arriveDate) : (l.departDate ? new Date(l.departDate) : null), durationHours: l.durationHours ? Number(l.durationHours) : null, nights: l.nights || 0, isPersonal: !!l.isPersonal });
-  } else if (destAirport) {
-    const nights = start && end ? Math.max(Math.round((end.getTime() - start.getTime()) / 86400000), 0) : 0;
-    newLegs.push({ originCode: origin, destCode: destAirport, departDate: start, arriveDate: start, durationHours: hours, nights, isPersonal: false });
-    if (tripType === 'ROUND_TRIP') newLegs.push({ originCode: destAirport, destCode: origin, departDate: end, arriveDate: end, durationHours: hours, nights: 0, isPersonal: false });
-  }
+  const newLegs: NewLeg[] = formLegs.map((l) => ({
+    originCode: l.originCode || 'SIN',
+    destCode: l.destCode,
+    departDate: l.departDate ? new Date(l.departDate) : null,
+    arriveDate: l.arriveDate ? new Date(l.arriveDate) : (l.departDate ? new Date(l.departDate) : null),
+    durationHours: EcsReference.flightHours(cityOf(l.destCode)),
+    nights: l.nights || 0,
+    isPersonal: !!l.isPersonal,
+  }));
   let seq = 1;
   for (const l of newLegs) {
     const ent = EcsTravelClassRegister.entitledForDuration(req0?.travellerId ?? 'E-TRAV', l.durationHours ?? hours, start ?? new Date());

@@ -8,7 +8,7 @@ import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip } from '@/modules/pretrip/actions';
 import { travelPurposes } from '@/data/travelPurposes';
 import { activeProviders } from '@/data/tmcProviders';
-import { countries, cities, airports } from '@/data/locations';
+import { airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS } from '@/shared/enums';
 import { BookingFields } from '@/components/BookingFields';
@@ -39,8 +39,6 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const entitledName = travelClasses.find((c) => c.id === entitledId)?.name ?? 'Economy';
   const sortedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   const tripType = (req.tripType === 'ONE_WAY' || req.tripType === 'MULTI_CITY' ? req.tripType : 'ROUND_TRIP') as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
-  const initialOrigin = sortedLegs[0]?.originCode ?? 'SIN';
-  const initialDestAirport = sortedLegs.find((l) => l.destCode !== 'SIN')?.destCode ?? '';
   const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
 
   return (
@@ -93,13 +91,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
         <Card title="Destination & Itinerary">
           <TripItinerary
             airports={airports.map((a) => ({ code: a.code, name: a.name }))}
-            countries={countries.map((c) => ({ code: c.code, name: c.name }))}
-            cities={cities.filter((c) => c.code !== 'SIN').map((c) => ({ code: c.code, name: c.name }))}
             initialTripType={tripType}
-            initialOrigin={initialOrigin}
-            initialDestCountry={req.destCountry ?? ''}
-            initialDestCity={req.destCity ?? ''}
-            initialDestAirport={initialDestAirport}
             initialLegs={initialLegs}
             disabled={!canEdit}
           />
