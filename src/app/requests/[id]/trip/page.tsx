@@ -12,7 +12,7 @@ import { travelClasses } from '@/data/travelClass';
 import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS } from '@/shared/enums';
 import { BookingFields } from '@/components/BookingFields';
 import { TripPlanner } from '@/components/TripPlanner';
-import { EcsReference, EcsTravelClassRegister } from '@/shared/ecs/services';
+import { EcsReference, EcsTravelClassRegister, EcsIdentity } from '@/shared/ecs/services';
 import { Card, Stepper } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -26,17 +26,32 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   if (!req) notFound();
   const canEdit = canEditRequest(await currentPersonaId(), req);
 
-  // §13.19 entitlement pre-fill for the (single-destination) trip.
   const onDate = req.startDate ?? new Date();
-  const hours = req.destCity ? EcsReference.flightHours(req.destCity) : 12;
-  const derived = req.destCity
-    ? EcsTravelClassRegister.entitledForItinerary(req.travellerId, [{ durationHours: hours, destCode: req.destCity }], onDate)
-    : null;
-  const entitledId = req.entitledClassId ?? derived?.classId ?? 'TC-ECO';
-  const basis = req.classBasis ?? derived?.basis ?? 'Select a destination to derive the entitlement';
+  const sortedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+  // §13.19 entitlement is derived across the WHOLE itinerary, not just the main destination:
+  // each flown (non-personal) leg's duration gives its entitled class and the HIGHEST wins —
+  // i.e. the longest-duration leg drives the class (important for multi-city trips).
+  const cityOfAirport = (ap: string) => EcsReference.airport(ap)?.cityCode ?? ap;
+  const flownLegs = sortedLegs.filter((l) => !l.isPersonal).map((l) => {
+    const city = cityOfAirport(l.destCode);
+    return { durationHours: EcsReference.flightHours(city), destCode: city };
+  });
+  const legsForEntitlement = flownLegs.length ? flownLegs : (req.destCity ? [{ durationHours: EcsReference.flightHours(req.destCity), destCode: req.destCity }] : []);
+  const derived = legsForEntitlement.length ? EcsTravelClassRegister.entitledForItinerary(req.travellerId, legsForEntitlement, onDate) : null;
+  const entitledId = derived?.classId ?? req.entitledClassId ?? 'TC-ECO';
+  const basis = derived?.basis ?? req.classBasis ?? 'Add an itinerary leg to derive the entitlement';
   const prefillClass = req.travelClassId ?? entitledId;
   const entitledName = travelClasses.find((c) => c.id === entitledId)?.name ?? 'Economy';
-  const sortedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+  // §13.14 group entitlement differs per traveller — compute each member's entitled class for
+  // this same itinerary so the form shows WHO is entitled to what (the group still travels on
+  // one shared selected class; anyone below it needs the higher-class justification).
+  const clsName = (cid: string) => travelClasses.find((c) => c.id === cid)?.name ?? cid;
+  const groupEntitlements = req.isGroup && legsForEntitlement.length
+    ? req.travellers.map((t) => {
+        const ent = EcsTravelClassRegister.entitledForItinerary(t.employeeId, legsForEntitlement, onDate);
+        return { name: EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId, className: clsName(ent.classId), classId: ent.classId };
+      })
+    : [];
   const tripType = (req.tripType === 'ONE_WAY' || req.tripType === 'MULTI_CITY' ? req.tripType : 'ROUND_TRIP') as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
   const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
   // airport → city/country names, so the leg builder can show the derived main destination.
@@ -101,6 +116,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           prefillClass={prefillClass}
           entitledName={entitledName}
           basis={basis}
+          groupEntitlements={groupEntitlements}
           initialJustification={req.classJustification ?? ''}
           continueHref={`/requests/${id}/estimates`}
           disabled={!canEdit}

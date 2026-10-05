@@ -51,7 +51,12 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     ? computeOda({ countryCode: req.destCountry, arrive: req.startDate, depart: req.endDate, personalDays: 0 })
     : null;
   const isGroup = req.isGroup;
-  const gTravellers: [string, string][] = req.travellers.map((t) => [t.employeeId, EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId]);
+  // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
+  // (creates one line per traveller in a single submit) to speed up group request creation.
+  const gTravellers: [string, string][] = [
+    ['__ALL__', `All travellers (${req.travellers.length}) — one line each`],
+    ...req.travellers.map((t) => [t.employeeId, EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId] as [string, string]),
+  ];
   const attribution = (e: { isShared: boolean; travellerId: string | null }) =>
     e.isShared ? 'Shared (apportioned)' : (EcsIdentity.employee(e.travellerId ?? '')?.name ?? '—');
 

@@ -254,9 +254,13 @@ export async function saveTrip(id: string, fd: FormData) {
     if (dDep) prevDepart = dDep;
   });
   if (invalid.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please fix the dates: ' + invalid.join('; ') + '.')}`);
-  // §13.19 derive the entitled class for the (single-destination) trip and pre-fill it.
+  // §13.19 entitlement is derived across the WHOLE itinerary — each flown leg's duration gives
+  // its entitled class and the highest wins (longest-duration leg drives the class), not just
+  // the main destination. Falls back to the main destination when no legs carry a duration.
   const hours = EcsReference.flightHours(destCity);
-  const derived = EcsTravelClassRegister.entitledForItinerary(req0?.travellerId ?? 'E-TRAV', [{ durationHours: hours, destCode: destCity }], start ?? new Date());
+  const flownLegs = formLegs.filter((l) => !l.isPersonal).map((l) => { const c = cityOf(l.destCode); return { durationHours: EcsReference.flightHours(c), destCode: c }; });
+  const legsForEntitlement = flownLegs.length ? flownLegs : [{ durationHours: hours, destCode: destCity }];
+  const derived = EcsTravelClassRegister.entitledForItinerary(req0?.travellerId ?? 'E-TRAV', legsForEntitlement, start ?? new Date());
   const chosenClass = str(fd, 'travelClassId') || derived.classId;
   const bookingArr = str(fd, 'bookingArrangement') || BOOKING_ARRANGEMENT.Auto;
 
@@ -427,6 +431,16 @@ export async function moveLeg(id: string, legId: string, dir: 'up' | 'down') {
 }
 
 /* ------------------------------------------------- estimates (TR-05..08) */
+/** §13.14 group fan-out for an individual estimate line. When the traveller select is set to
+ *  the "All travellers" sentinel, return one id per group traveller so the caller creates a
+ *  line for each; otherwise the single chosen traveller (or null for a non-group request). */
+const ALL_TRAVELLERS = '__ALL__';
+async function travellerFanout(id: string, fd: FormData): Promise<(string | null)[]> {
+  if (str(fd, 'travellerId') !== ALL_TRAVELLERS) return [str(fd, 'travellerId') || null];
+  const ts = await prisma.travelRequestTraveller.findMany({ where: { requestId: id } });
+  return ts.length ? ts.map((t) => t.employeeId) : [null];
+}
+
 export async function addAirfare(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
   const currency = str(fd, 'currency') || 'SGD';
@@ -435,19 +449,22 @@ export async function addAirfare(id: string, fd: FormData) {
   const now = new Date();
   const sgd = EcsFx.toSgd(foreign, currency, now); // §13.4 converted at the entry-date rate; re-locked at submission
   const spForeign = num(fd, 'sponsorship');
-  await prisma.estimatedExpense.create({
-    data: {
-      requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR',
-      currency, foreignAmount: foreign, sgdAmount: sgd,
-      sponsorForeign: spForeign, sponsorSgd: EcsFx.toSgd(spForeign, currency, now),
-      estimateBasis: 'QUOTED', expectedDate: dateOrNull(fd, 'expectedDate'),
-      originCode: str(fd, 'originCode'), destCode: str(fd, 'destCode'),
-      proposedClassId: str(fd, 'proposedClassId'), fareCeiling: sgd, handoffStatus: 'Pending',
-      notes: str(fd, 'notes'),
-      travellerId: str(fd, 'travellerId') || null, // §13.14 airfare is always individual
-    },
-  });
-  await audit(id, 'AMEND', `Airfare estimate added (${currency} ${foreign})`);
+  const tids = await travellerFanout(id, fd);
+  for (const tid of tids) {
+    await prisma.estimatedExpense.create({
+      data: {
+        requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR',
+        currency, foreignAmount: foreign, sgdAmount: sgd,
+        sponsorForeign: spForeign, sponsorSgd: EcsFx.toSgd(spForeign, currency, now),
+        estimateBasis: 'QUOTED', expectedDate: dateOrNull(fd, 'expectedDate'),
+        originCode: str(fd, 'originCode'), destCode: str(fd, 'destCode'),
+        proposedClassId: str(fd, 'proposedClassId'), fareCeiling: sgd, handoffStatus: 'Pending',
+        notes: str(fd, 'notes'),
+        travellerId: tid, // §13.14 airfare is always individual
+      },
+    });
+  }
+  await audit(id, 'AMEND', `Airfare estimate added (${currency} ${foreign})${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
 }
 
@@ -460,25 +477,30 @@ export async function addAccommodation(id: string, fd: FormData) {
   const quotedNightly = num(fd, 'quotedNightly');
   if (!city || nights <= 0 || quotedNightly <= 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
   const calc = computeAccommodation({ cityCode: city, nights, personalNights, quotedNightly, basis: settings.hotelEstimateBasis });
-  const exp = await prisma.estimatedExpense.create({
-    data: {
-      requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC',
-      currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount,
-      estimateBasis: settings.hotelEstimateBasis, expectedDate: dateOrNull(fd, 'checkIn'),
-      notes: str(fd, 'notes'),
-      travellerId: str(fd, 'shared') === 'on' ? null : (str(fd, 'travellerId') || null),
-      isShared: str(fd, 'shared') === 'on', // §13.14 hotel may be a shared apportioned line
-    },
-  });
-  await prisma.accommodationEstimate.create({
-    data: {
-      expenseId: exp.id, city, checkIn: dateOrNull(fd, 'checkIn'), checkOut: dateOrNull(fd, 'checkOut'),
-      nights, personalNights, quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly,
-      capVariance: calc.capVariance, conferenceHotel: str(fd, 'conferenceHotel') === 'on',
-      exceptionOutcome: calc.outcome,
-    },
-  });
-  await audit(id, 'AMEND', `Accommodation estimate added (${city}, ${nights} nights)`);
+  // §13.14 a shared line is one apportioned row; otherwise create per selected traveller (or all).
+  const isShared = str(fd, 'shared') === 'on';
+  const tids = isShared ? [null] : await travellerFanout(id, fd);
+  for (const tid of tids) {
+    const exp = await prisma.estimatedExpense.create({
+      data: {
+        requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC',
+        currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount,
+        estimateBasis: settings.hotelEstimateBasis, expectedDate: dateOrNull(fd, 'checkIn'),
+        notes: str(fd, 'notes'),
+        travellerId: tid,
+        isShared,
+      },
+    });
+    await prisma.accommodationEstimate.create({
+      data: {
+        expenseId: exp.id, city, checkIn: dateOrNull(fd, 'checkIn'), checkOut: dateOrNull(fd, 'checkOut'),
+        nights, personalNights, quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly,
+        capVariance: calc.capVariance, conferenceHotel: str(fd, 'conferenceHotel') === 'on',
+        exceptionOutcome: calc.outcome,
+      },
+    });
+  }
+  await audit(id, 'AMEND', `Accommodation estimate added (${city}, ${nights} nights)${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
 }
 
@@ -490,18 +512,21 @@ export async function addOda(id: string, fd: FormData) {
   const personalDays = Math.round(num(fd, 'personalDays'));
   if (!country || !arrive || !depart || depart < arrive) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('ODA needs a country and arrive/depart dates (depart on or after arrive).')}`);
   const calc = computeOda({ countryCode: country, arrive, depart, personalDays });
-  const exp = await prisma.estimatedExpense.create({
-    data: {
-      requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA',
-      currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount,
-      estimateBasis: 'RATE', expectedDate: arrive, notes: str(fd, 'notes'),
-      travellerId: str(fd, 'travellerId') || null, // §13.14 ODA is always individual
-    },
-  });
-  await prisma.oDAEstimate.create({
-    data: { expenseId: exp.id, country, city: str(fd, 'city'), arrive, depart, eligibleDays: calc.eligibleDays, personalDays, dailyRate: calc.dailyRate, ratePct: 100 },
-  });
-  await audit(id, 'AMEND', `ODA estimate added (${country}, ${calc.eligibleDays} eligible days)`);
+  const tids = await travellerFanout(id, fd);
+  for (const tid of tids) {
+    const exp = await prisma.estimatedExpense.create({
+      data: {
+        requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA',
+        currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount,
+        estimateBasis: 'RATE', expectedDate: arrive, notes: str(fd, 'notes'),
+        travellerId: tid, // §13.14 ODA is always individual
+      },
+    });
+    await prisma.oDAEstimate.create({
+      data: { expenseId: exp.id, country, city: str(fd, 'city'), arrive, depart, eligibleDays: calc.eligibleDays, personalDays, dailyRate: calc.dailyRate, ratePct: 100 },
+    });
+  }
+  await audit(id, 'AMEND', `ODA estimate added (${country}, ${calc.eligibleDays} eligible days)${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
 }
 
@@ -512,16 +537,20 @@ export async function addOther(id: string, fd: FormData) {
   if (foreign <= 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Amount must be greater than 0.')}`);
   const typeId = str(fd, 'expenseTypeId') || 'ET-OTH';
   const type = EcsReference.expenseType(typeId);
-  await prisma.estimatedExpense.create({
-    data: {
-      requestId: id, category: type?.category ?? EXPENSE_CATEGORY.Other, expenseTypeId: typeId,
-      currency, foreignAmount: foreign, sgdAmount: EcsFx.toSgd(foreign, currency, new Date()),
-      estimateBasis: 'QUOTED', notes: str(fd, 'notes'),
-      travellerId: str(fd, 'shared') === 'on' ? null : (str(fd, 'travellerId') || null),
-      isShared: str(fd, 'shared') === 'on',
-    },
-  });
-  await audit(id, 'AMEND', `${type?.name ?? 'Other'} estimate added`);
+  const isShared = str(fd, 'shared') === 'on';
+  const tids = isShared ? [null] : await travellerFanout(id, fd);
+  for (const tid of tids) {
+    await prisma.estimatedExpense.create({
+      data: {
+        requestId: id, category: type?.category ?? EXPENSE_CATEGORY.Other, expenseTypeId: typeId,
+        currency, foreignAmount: foreign, sgdAmount: EcsFx.toSgd(foreign, currency, new Date()),
+        estimateBasis: 'QUOTED', notes: str(fd, 'notes'),
+        travellerId: tid,
+        isShared,
+      },
+    });
+  }
+  await audit(id, 'AMEND', `${type?.name ?? 'Other'} estimate added${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
 }
 

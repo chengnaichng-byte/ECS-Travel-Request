@@ -49,7 +49,7 @@ const toD = (s: string) => (s ? new Date(s + 'T00:00:00') : null);
 export function TripPlanner({
   airports, airportMeta, initialTripType, initialLegs,
   initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
-  travelClasses, prefillClass, entitledName, basis, initialJustification, continueHref, disabled,
+  travelClasses, prefillClass, entitledName, basis, groupEntitlements, initialJustification, continueHref, disabled,
 }: {
   airports: Opt[];
   airportMeta: Record<string, AirportMeta>;
@@ -57,7 +57,9 @@ export function TripPlanner({
   initialLegs: LegIn[];
   initialStart: string; initialEnd: string; initialEventStart: string; initialEventEnd: string; initialPersonalStart: string; initialPersonalEnd: string;
   travelClasses: ClassOpt[];
-  prefillClass: string; entitledName: string; basis: string; initialJustification: string;
+  prefillClass: string; entitledName: string; basis: string;
+  groupEntitlements: { name: string; className: string; classId: string }[];
+  initialJustification: string;
   continueHref: string;
   disabled?: boolean;
 }) {
@@ -81,6 +83,10 @@ export function TripPlanner({
     const m = airportMeta?.[main.destCode];
     return m ? { code: main.destCode, city: m.city, country: m.country, nights: main.nights } : null;
   }, [legs, airportMeta]);
+
+  const [travelClass, setTravelClass] = useState(prefillClass);
+  // Class rank proxy = position in the (rank-ordered) travelClasses list; higher index = higher class.
+  const rankOf = (cid: string) => { const i = travelClasses.findIndex((c) => c.id === cid); return i < 0 ? 0 : i; };
 
   const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => ls.map((l, j) => j === i ? { ...l, ...p } : l));
   const addLeg = () => setLegs((ls) => [...ls, blank(ls[ls.length - 1]?.destCode || 'SIN')]);
@@ -226,8 +232,8 @@ export function TripPlanner({
 
           <div className="grid md:grid-cols-3 gap-4 border-t border-[var(--ecs-border)] pt-4">
             <div>
-              <label className="label">Travel class</label>
-              <select name="travelClassId" defaultValue={prefillClass} disabled={disabled} className="field">
+              <label className="label">Travel class{groupEntitlements.length > 0 ? ' (whole group)' : ''}</label>
+              <select name="travelClassId" value={travelClass} onChange={(e) => setTravelClass(e.target.value)} disabled={disabled} className="field">
                 {travelClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledName}</strong> · <span className="italic">{basis}</span> (§13.19)</p>
@@ -237,6 +243,26 @@ export function TripPlanner({
               <textarea name="classJustification" defaultValue={initialJustification} rows={2} disabled={disabled} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
             </div>
           </div>
+
+          {groupEntitlements.length > 0 && (
+            <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3">
+              <div className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mb-1">Per-traveller entitlement (group)</div>
+              <p className="text-xs text-[var(--ecs-muted)] mb-2">The group travels on one shared class (<strong>{travelClasses.find((c) => c.id === travelClass)?.name}</strong>). Entitlement is derived per person for this itinerary (longest-duration leg); anyone whose entitlement is below the selected class needs the higher-class justification above.</p>
+              <ul className="text-sm space-y-1">
+                {groupEntitlements.map((g, i) => {
+                  const above = rankOf(travelClass) > rankOf(g.classId);
+                  return (
+                    <li key={i} className="flex items-center justify-between gap-3">
+                      <span>{g.name}</span>
+                      <span className={above ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}>
+                        entitled: {g.className}{above ? ' · selected class is above entitlement — justify' : ''}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           {blocking && (
             <div className="card p-3 text-sm text-red-800 bg-red-50 border-red-200">
