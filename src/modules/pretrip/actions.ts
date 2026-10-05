@@ -229,9 +229,15 @@ export async function saveTrip(id: string, fd: FormData) {
   // run in order, and the personal extension cannot overlap the official travel dates.
   const pStart = dateOrNull(fd, 'personalStart');
   const pEnd = dateOrNull(fd, 'personalEnd');
+  const evStart = dateOrNull(fd, 'eventStartDate');
+  const evEnd = dateOrNull(fd, 'eventEndDate');
   const parse = (s: string) => (s ? new Date(s) : null);
   const invalid: string[] = [];
   if (start && end && end < start) invalid.push('the official end date is before the official start date');
+  if (evStart && evEnd && evEnd < evStart) invalid.push('the event end is before the event start');
+  // §10 the event is a segment within the official travel window.
+  if (start && end && evStart && (evStart < start || evStart > end)) invalid.push('the event start is outside the official travel dates');
+  if (start && end && evEnd && (evEnd < start || evEnd > end)) invalid.push('the event end is outside the official travel dates');
   if (pStart && pEnd && pEnd < pStart) invalid.push('the personal extension end is before its start');
   if (start && end && (pStart || pEnd)) {
     const pS = pStart ?? pEnd!, pE = pEnd ?? pStart!;

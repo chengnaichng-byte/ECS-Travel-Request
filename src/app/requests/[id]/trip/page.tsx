@@ -7,7 +7,7 @@ import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip } from '@/modules/pretrip/actions';
 import { travelPurposes } from '@/data/travelPurposes';
 import { activeProviders } from '@/data/tmcProviders';
-import { airports } from '@/data/locations';
+import { airports, cities, countries } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS } from '@/shared/enums';
 import { BookingFields } from '@/components/BookingFields';
@@ -39,6 +39,13 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const sortedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   const tripType = (req.tripType === 'ONE_WAY' || req.tripType === 'MULTI_CITY' ? req.tripType : 'ROUND_TRIP') as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
   const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
+  // airport → city/country names, so the leg builder can show the derived main destination.
+  const airportMeta: Record<string, { city: string; country: string }> = {};
+  for (const a of airports) {
+    const city = cities.find((c) => c.code === a.cityCode);
+    const country = city ? countries.find((c) => c.code === city.countryCode) : undefined;
+    airportMeta[a.code] = { city: city?.name ?? a.cityCode, country: country?.name ?? '' };
+  }
 
   return (
     <div>
@@ -66,14 +73,6 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               <label className="label">Description / justification</label>
               <textarea name="description" defaultValue={req.description ?? ''} rows={2} className="field" placeholder="e.g. Presenting a paper at IEEE conference" />
             </div>
-            <div>
-              <label className="label">Event start (§10)</label>
-              <input type="date" name="eventStartDate" defaultValue={d(req.eventStartDate)} className="field" />
-            </div>
-            <div>
-              <label className="label">Event end</label>
-              <input type="date" name="eventEndDate" defaultValue={d(req.eventEndDate)} className="field" />
-            </div>
             <div className="md:col-span-3">
               <label className="label">Invitation / acceptance reference</label>
               <input name="invitationRef" defaultValue={req.invitationRef ?? ''} className="field" placeholder="e.g. IEEE-2027-ACCEPT-4821" />
@@ -89,10 +88,13 @@ export default async function TripStep({ params, searchParams }: { params: Promi
 
         <TripPlanner
           airports={airports.map((a) => ({ code: a.code, name: a.name }))}
+          airportMeta={airportMeta}
           initialTripType={tripType}
           initialLegs={initialLegs}
           initialStart={d(req.startDate)}
           initialEnd={d(req.endDate)}
+          initialEventStart={d(req.eventStartDate)}
+          initialEventEnd={d(req.eventEndDate)}
           initialPersonalStart={d(req.personalStart)}
           initialPersonalEnd={d(req.personalEnd)}
           travelClasses={travelClasses.map((c) => ({ id: c.id, name: c.name }))}

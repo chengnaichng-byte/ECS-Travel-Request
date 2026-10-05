@@ -16,6 +16,7 @@ import { Card } from './ui';
 
 export interface Opt { code: string; name: string }
 export interface ClassOpt { id: string; name: string }
+export interface AirportMeta { city: string; country: string }
 export interface LegIn { originCode: string; destCode: string; departDate: string; arriveDate: string; nights: number; durationHours: string; isPersonal: boolean }
 
 type TripType = 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
@@ -46,14 +47,15 @@ function legLabel(type: TripType, i: number): string {
 const toD = (s: string) => (s ? new Date(s + 'T00:00:00') : null);
 
 export function TripPlanner({
-  airports, initialTripType, initialLegs,
-  initialStart, initialEnd, initialPersonalStart, initialPersonalEnd,
+  airports, airportMeta, initialTripType, initialLegs,
+  initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
   travelClasses, prefillClass, entitledName, basis, initialJustification, continueHref, disabled,
 }: {
   airports: Opt[];
+  airportMeta: Record<string, AirportMeta>;
   initialTripType: TripType;
   initialLegs: LegIn[];
-  initialStart: string; initialEnd: string; initialPersonalStart: string; initialPersonalEnd: string;
+  initialStart: string; initialEnd: string; initialEventStart: string; initialEventEnd: string; initialPersonalStart: string; initialPersonalEnd: string;
   travelClasses: ClassOpt[];
   prefillClass: string; entitledName: string; basis: string; initialJustification: string;
   continueHref: string;
@@ -61,11 +63,24 @@ export function TripPlanner({
 }) {
   const [start, setStartRaw] = useState(initialStart);
   const [end, setEndRaw] = useState(initialEnd);
+  const [eventStart, setEventStart] = useState(initialEventStart);
+  const [eventEnd, setEventEnd] = useState(initialEventEnd);
   const [pStart, setPStart] = useState(initialPersonalStart);
   const [pEnd, setPEnd] = useState(initialPersonalEnd);
   const [type, setType] = useState<TripType>(initialTripType);
   const [legs, setLegs] = useState<LegIn[]>(() => reshape(initialTripType, initialLegs));
   const multi = type === 'MULTI_CITY';
+
+  // §13.14 main destination — derived from the longest-stay non-personal leg (same rule the
+  // server applies on save), shown read-only so the traveller sees what the review/approval
+  // pages will record without a second editable destination field to keep in sync.
+  const mainDest = useMemo(() => {
+    const withDest = legs.filter((l) => l.destCode);
+    if (!withDest.length) return null;
+    const main = [...withDest].filter((l) => !l.isPersonal).sort((a, b) => b.nights - a.nights)[0] ?? withDest[0];
+    const m = airportMeta[main.destCode];
+    return m ? { code: main.destCode, city: m.city, country: m.country, nights: main.nights } : null;
+  }, [legs, airportMeta]);
 
   const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => ls.map((l, j) => j === i ? { ...l, ...p } : l));
   const addLeg = () => setLegs((ls) => [...ls, blank(ls[ls.length - 1]?.destCode || 'SIN')]);
@@ -88,8 +103,12 @@ export function TripPlanner({
   // Live cross-field validation (mirrored server-side in saveTrip as the authority).
   const errors = useMemo(() => {
     const e: string[] = [];
-    const os = toD(start), oe = toD(end), ps = toD(pStart), pe = toD(pEnd);
+    const os = toD(start), oe = toD(end), ps = toD(pStart), pe = toD(pEnd), evs = toD(eventStart), eve = toD(eventEnd);
     if (os && oe && oe < os) e.push('Official end date must be on or after the official start date.');
+    if (evs && eve && eve < evs) e.push('Event end date must be on or after the event start date.');
+    // The event sits inside the official travel window (§10).
+    if (os && oe && evs && (evs < os || evs > oe)) e.push('Event start date must fall within the official travel dates.');
+    if (os && oe && eve && (eve < os || eve > oe)) e.push('Event end date must fall within the official travel dates.');
     if (ps && pe && pe < ps) e.push('Personal extension end must be on or after its start.');
     if (os && oe && (ps || pe)) {
       const pS = ps ?? pe!, pE = pe ?? ps!;
@@ -107,7 +126,7 @@ export function TripPlanner({
       if (d) prevDepart = d;
     });
     return e;
-  }, [start, end, pStart, pEnd, legs, type]);
+  }, [start, end, eventStart, eventEnd, pStart, pEnd, legs, type]);
 
   const blocking = errors.length > 0;
 
@@ -127,6 +146,14 @@ export function TripPlanner({
             <input type="date" name="endDate" value={end} onChange={(e) => setEnd(e.target.value)} disabled={disabled} className="field" required />
           </div>
           <div>
+            <label className="label">Event start (§10)</label>
+            <input type="date" name="eventStartDate" value={eventStart} onChange={(e) => setEventStart(e.target.value)} disabled={disabled} className="field" />
+          </div>
+          <div>
+            <label className="label">Event end</label>
+            <input type="date" name="eventEndDate" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)} disabled={disabled} className="field" />
+          </div>
+          <div>
             <label className="label">Personal extension start</label>
             <input type="date" name="personalStart" value={pStart} onChange={(e) => setPStart(e.target.value)} disabled={disabled} className="field" />
           </div>
@@ -135,7 +162,7 @@ export function TripPlanner({
             <input type="date" name="personalEnd" value={pEnd} onChange={(e) => setPEnd(e.target.value)} disabled={disabled} className="field" />
           </div>
         </div>
-        <p className="text-xs text-[var(--ecs-muted)] mt-2">Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5, AC18). Set the official dates first — the outbound and return legs below pre-fill from them.</p>
+        <p className="text-xs text-[var(--ecs-muted)] mt-2">Official dates frame the whole trip; the event (§10) is a segment within them and personal days (§4.5, AC18) extend before or after — personal days are excluded from ODA and personal nights from the accommodation budget. Set the official dates first — the outbound and return legs below pre-fill from them.</p>
       </Card>
 
       <Card title="Destination & Itinerary">
@@ -153,6 +180,13 @@ export function TripPlanner({
             <p className="text-xs text-[var(--ecs-muted)] mt-1">
               {type === 'ROUND_TRIP' ? 'There and back to one destination — two legs (a personal segment is allowed).' : type === 'ONE_WAY' ? 'A single outbound journey, no return — one leg.' : 'Several stops — multiple cities and/or countries, including open-jaw. Add as many legs as needed.'}
             </p>
+          </div>
+
+          <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] px-3 py-2 text-sm">
+            <span className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mr-2">Main destination</span>
+            {mainDest
+              ? <span><strong>{mainDest.city}, {mainDest.country}</strong> <span className="text-[var(--ecs-muted)]">· derived from the longest-stay leg ({mainDest.code}{mainDest.nights ? `, ${mainDest.nights} night${mainDest.nights > 1 ? 's' : ''}` : ''})</span></span>
+              : <span className="text-[var(--ecs-muted)] italic">Select a destination in the legs below.</span>}
           </div>
 
           <div>

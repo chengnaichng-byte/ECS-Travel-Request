@@ -34,7 +34,7 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
       <div className="chev-row overflow-x-auto">
         <div className="flex items-center"><div className="chev chev-done"><div className="font-semibold">Traveller</div><div className="opacity-80">submits</div></div></div>
         {addName && chev('Additional Approver', addName, 'todo')}
-        {fixedSteps.map((s, i) => chev(s.label, s.name, 'todo'))}
+        {fixedSteps.map((s, i) => <div key={i} className="contents">{chev(s.label, s.name, 'todo')}</div>)}
         {chev(doaRoleLabel, doaName ?? 'Select the DOA', doa ? 'todo' : 'current')}
       </div>
 
