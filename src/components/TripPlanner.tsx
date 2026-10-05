@@ -84,10 +84,6 @@ export function TripPlanner({
     return m ? { code: main.destCode, city: m.city, country: m.country, nights: main.nights } : null;
   }, [legs, airportMeta]);
 
-  const [travelClass, setTravelClass] = useState(prefillClass);
-  // Class rank proxy = position in the (rank-ordered) travelClasses list; higher index = higher class.
-  const rankOf = (cid: string) => { const i = travelClasses.findIndex((c) => c.id === cid); return i < 0 ? 0 : i; };
-
   const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => ls.map((l, j) => j === i ? { ...l, ...p } : l));
   const addLeg = () => setLegs((ls) => [...ls, blank(ls[ls.length - 1]?.destCode || 'SIN')]);
   const delLeg = (i: number) => setLegs((ls) => ls.filter((_, j) => j !== i));
@@ -230,37 +226,34 @@ export function TripPlanner({
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-4 border-t border-[var(--ecs-border)] pt-4">
-            <div>
-              <label className="label">Travel class{groupEntitlements.length > 0 ? ' (whole group)' : ''}</label>
-              <select name="travelClassId" value={travelClass} onChange={(e) => setTravelClass(e.target.value)} disabled={disabled} className="field">
-                {travelClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledName}</strong> · <span className="italic">{basis}</span> (§13.19)</p>
-            </div>
-            <div className="md:col-span-2">
-              <label className="label">Justification for higher class (required if above entitlement — §13.19)</label>
-              <textarea name="classJustification" defaultValue={initialJustification} rows={2} disabled={disabled} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
-            </div>
-          </div>
-
-          {groupEntitlements.length > 0 && (
-            <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3">
-              <div className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mb-1">Per-traveller entitlement (group)</div>
-              <p className="text-xs text-[var(--ecs-muted)] mb-2">The group travels on one shared class (<strong>{travelClasses.find((c) => c.id === travelClass)?.name}</strong>). Entitlement is derived per person for this itinerary (longest-duration leg); anyone whose entitlement is below the selected class needs the higher-class justification above.</p>
+          {groupEntitlements.length > 0 ? (
+            // §13.14 Group: each traveller books at their OWN entitled class — no shared selector
+            // and no justification (the requestor can't justify an upgrade on a traveller's behalf).
+            <div className="border-t border-[var(--ecs-border)] pt-4">
+              <div className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mb-1">Travel class — per traveller</div>
+              <p className="text-xs text-[var(--ecs-muted)] mb-2">Group travel books each traveller at their own entitled class for this itinerary (longest-duration leg). The requestor does not set or justify a class on travellers&apos; behalf. An upgrade for one person is handled by removing them from the group and raising a single travel request.</p>
               <ul className="text-sm space-y-1">
-                {groupEntitlements.map((g, i) => {
-                  const above = rankOf(travelClass) > rankOf(g.classId);
-                  return (
-                    <li key={i} className="flex items-center justify-between gap-3">
-                      <span>{g.name}</span>
-                      <span className={above ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}>
-                        entitled: {g.className}{above ? ' · selected class is above entitlement — justify' : ''}
-                      </span>
-                    </li>
-                  );
-                })}
+                {groupEntitlements.map((g, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3">
+                    <span>{g.name}</span>
+                    <span className="font-medium">{g.className}</span>
+                  </li>
+                ))}
               </ul>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-4 border-t border-[var(--ecs-border)] pt-4">
+              <div>
+                <label className="label">Travel class</label>
+                <select name="travelClassId" defaultValue={prefillClass} disabled={disabled} className="field">
+                  {travelClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledName}</strong> · <span className="italic">{basis}</span> (§13.19)</p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Justification for higher class (required if above entitlement — §13.19)</label>
+                <textarea name="classJustification" defaultValue={initialJustification} rows={2} disabled={disabled} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
+              </div>
             </div>
           )}
 

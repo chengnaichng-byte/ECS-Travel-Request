@@ -261,7 +261,12 @@ export async function saveTrip(id: string, fd: FormData) {
   const flownLegs = formLegs.filter((l) => !l.isPersonal).map((l) => { const c = cityOf(l.destCode); return { durationHours: EcsReference.flightHours(c), destCode: c }; });
   const legsForEntitlement = flownLegs.length ? flownLegs : [{ durationHours: hours, destCode: destCity }];
   const derived = EcsTravelClassRegister.entitledForItinerary(req0?.travellerId ?? 'E-TRAV', legsForEntitlement, start ?? new Date());
-  const chosenClass = str(fd, 'travelClassId') || derived.classId;
+  const isGroupReq = !!req0?.isGroup;
+  // §13.14/§13.19 Group travel books EACH traveller at their own entitled class (the requestor
+  // can't justify an upgrade on a traveller's behalf). For a group there is no shared chosen
+  // class or justification; the request-level class carries the lead's entitlement for display.
+  // Individual requests keep the traveller-chosen class + any higher-class justification.
+  const chosenClass = isGroupReq ? derived.classId : (str(fd, 'travelClassId') || derived.classId);
   const bookingArr = str(fd, 'bookingArrangement') || BOOKING_ARRANGEMENT.Auto;
 
   await prisma.travelRequest.update({
@@ -288,9 +293,19 @@ export async function saveTrip(id: string, fd: FormData) {
       travelClassId: chosenClass,
       entitledClassId: derived.classId,
       classBasis: derived.basis,
-      classJustification: str(fd, 'classJustification') || null,
+      classJustification: isGroupReq ? null : (str(fd, 'classJustification') || null),
     },
   });
+  // §13.14 Group: set each traveller's booked class to their OWN entitlement for this itinerary
+  // (longest-duration leg). No per-traveller upgrade here — that is handled by removing the
+  // traveller from the group and raising a single request.
+  if (isGroupReq) {
+    const travellers = await prisma.travelRequestTraveller.findMany({ where: { requestId: id } });
+    for (const t of travellers) {
+      const ent = EcsTravelClassRegister.entitledForItinerary(t.employeeId, legsForEntitlement, start ?? new Date());
+      await prisma.travelRequestTraveller.update({ where: { id: t.id }, data: { chosenClassId: ent.classId, entitledClassId: ent.classId } });
+    }
+  }
   // §4.4/§13.20 Rebuild the shared itinerary from the submitted legs (same for every trip type).
   // Each leg's flight duration is derived from its destination city (not trusted from the form).
   await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: null } });
@@ -450,6 +465,13 @@ export async function addAirfare(id: string, fd: FormData) {
   const sgd = EcsFx.toSgd(foreign, currency, now); // §13.4 converted at the entry-date rate; re-locked at submission
   const spForeign = num(fd, 'sponsorship');
   const tids = await travellerFanout(id, fd);
+  // §13.14 for a group, default each line's proposed class to that traveller's booked (entitled)
+  // class so estimates match what each person will fly, without re-keying per traveller.
+  const classByTraveller: Record<string, string | null> = {};
+  if (tids.some((t) => t)) {
+    const ts = await prisma.travelRequestTraveller.findMany({ where: { requestId: id } });
+    ts.forEach((t) => { classByTraveller[t.employeeId] = t.chosenClassId; });
+  }
   for (const tid of tids) {
     await prisma.estimatedExpense.create({
       data: {
@@ -458,7 +480,7 @@ export async function addAirfare(id: string, fd: FormData) {
         sponsorForeign: spForeign, sponsorSgd: EcsFx.toSgd(spForeign, currency, now),
         estimateBasis: 'QUOTED', expectedDate: dateOrNull(fd, 'expectedDate'),
         originCode: str(fd, 'originCode'), destCode: str(fd, 'destCode'),
-        proposedClassId: str(fd, 'proposedClassId'), fareCeiling: sgd, handoffStatus: 'Pending',
+        proposedClassId: (tid && classByTraveller[tid]) || str(fd, 'proposedClassId'), fareCeiling: sgd, handoffStatus: 'Pending',
         notes: str(fd, 'notes'),
         travellerId: tid, // §13.14 airfare is always individual
       },
