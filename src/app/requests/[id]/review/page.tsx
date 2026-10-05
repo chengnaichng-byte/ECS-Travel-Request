@@ -76,6 +76,14 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   const showItinerary = req.tripType === 'MULTI_CITY' || sharedLegs.some((l) => l.isPersonal);
   const routeText = sharedLegs.length ? [sharedLegs[0].originCode, ...sharedLegs.map((l) => l.destCode)].join(' → ') : '';
+  // §13.14 group travel books each traveller at their own entitled class — show the per-traveller
+  // breakdown here so the approver sees the same classes the trip form set (not one shared class).
+  const groupClasses = req.isGroup
+    ? req.travellers.map((t) => ({
+        name: EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId,
+        className: EcsReference.travelClass(t.chosenClassId ?? t.entitledClassId ?? req.travelClassId ?? '')?.name ?? '—',
+      }))
+    : [];
 
   return (
     <div>
@@ -101,7 +109,20 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
               <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
               <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
-              <KV label="Travel class">{EcsReference.travelClass(req.travelClassId ?? '')?.name}</KV>
+              {req.isGroup ? (
+                <div className="col-span-2">
+                  <dt className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide">Travel class (per traveller)</dt>
+                  <dd className="text-sm mt-0.5">
+                    <ul className="space-y-0.5">
+                      {groupClasses.map((g, i) => (
+                        <li key={i} className="flex items-center justify-between gap-3"><span>{g.name}</span><span className="font-medium">{g.className}</span></li>
+                      ))}
+                    </ul>
+                  </dd>
+                </div>
+              ) : (
+                <KV label="Travel class">{EcsReference.travelClass(req.travelClassId ?? '')?.name}</KV>
+              )}
               <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
               <KV label="TMC">{tmcText}</KV>
               {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}

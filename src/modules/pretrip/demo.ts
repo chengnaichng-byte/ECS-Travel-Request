@@ -12,7 +12,7 @@ import { evaluatePolicies, hasException } from './policy';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
 import { applyMaterialAmendment } from './amend';
-import { EcsFx, EcsIdentity, EcsCharging, EcsReference } from '@/shared/ecs/services';
+import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD } from '@/shared/enums';
@@ -370,8 +370,13 @@ async function buildGroupDraft(desc: string, start: string, end: string): Promis
   });
   const id = req.id;
   await audit(id, 'E-PA', 'CREATE', `Group draft ${requestNumber} created for ${travellerIds.length} travellers`);
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: 'HND', departDate: day(start), travelClassId: 'TC-ECO' } });
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: 'HND', destCode: 'SIN', departDate: day(end), travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: 'HND', departDate: day(start), durationHours: 7, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: 'HND', destCode: 'SIN', departDate: day(end), durationHours: 0, travelClassId: 'TC-ECO' } });
+  // §13.14 group travel books each traveller at their OWN entitled class for this itinerary.
+  for (const eid of travellerIds) {
+    const ent = EcsTravelClassRegister.entitledForItinerary(eid, [{ durationHours: 7, destCode: 'TYO' }], day(start));
+    await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId: eid }, data: { entitledClassId: ent.classId, chosenClassId: ent.classId } });
+  }
 
   for (const tid of travellerIds) {
     await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 1250, sgdAmount: 1250, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-ECO', fareCeiling: 1250 } });
