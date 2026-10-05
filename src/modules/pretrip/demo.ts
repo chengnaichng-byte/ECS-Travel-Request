@@ -236,7 +236,54 @@ export async function seedDemoScenarios() {
   // S15 — class upgrade exception (§13.19): Economy entitlement, Business requested.
   await buildS15();
 
+  // S16 — multi-country itinerary: SIN → London (3n) → Paris (2n) → SIN.
+  await buildS16();
+
   revalidatePath('/dashboard');
+}
+
+/** S16 — multi-country trip across two countries (United Kingdom & France), with per-city
+ *  accommodation and a per-country ODA line each. Demonstrates a multi-country itinerary. */
+async function buildS16() {
+  const settings = await getSettings();
+  const requestNumber = await nextRequestNumber(YEAR);
+  const req = await prisma.travelRequest.create({
+    data: {
+      requestNumber, requestorId: 'E-TRAV', travellerId: 'E-TRAV',
+      entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+      purposeId: 'TP-TC-ACAD', description: 'Multi-country trip — London & Paris (S16)',
+      destCountry: 'GB', destCity: 'LON', startDate: day('2026-12-01'), endDate: day('2026-12-06'),
+      travelClassId: 'TC-ECO', entitledClassId: 'TC-ECO', classBasis: 'Default — Economy',
+      bookingArrangement: 'AUTO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+    },
+  });
+  const id = req.id;
+  await audit(id, 'E-TRAV', 'CREATE', `Multi-country draft ${requestNumber} created`);
+  // Legs crossing two countries: SIN → London → Paris → SIN.
+  const legs = [
+    { seq: 1, o: 'SIN', d: 'LHR', dep: '2026-12-01', dur: 14, nights: 3 },
+    { seq: 2, o: 'LHR', d: 'CDG', dep: '2026-12-04', dur: 1.5, nights: 2 },
+    { seq: 3, o: 'CDG', d: 'SIN', dep: '2026-12-06', dur: 13, nights: 0 },
+  ];
+  for (const l of legs) {
+    await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-ECO', entitledClassId: 'TC-ECO', chosenClassId: 'TC-ECO' } });
+  }
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 2850, sgdAmount: 2850, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'LHR', proposedClassId: 'TC-ECO', fareCeiling: 2850 } });
+  // Accommodation per city (London & Paris) against each city cap.
+  for (const [city, nights, rate] of [['LON', 3, 260], ['PAR', 2, 280]] as [string, number, number][]) {
+    const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
+    const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+    await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city, nights, personalNights: 0, quotedNightly: rate, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
+  }
+  // One ODA line per country, each over that country's leg of the trip (§4.5).
+  for (const [country, city, arr, dep] of [['GB', 'LON', '2026-12-01', '2026-12-04'], ['FR', 'PAR', '2026-12-04', '2026-12-06']] as [string, string, string, string][]) {
+    const oda = computeOda({ countryCode: country, arrive: day(arr), depart: day(dep), personalDays: 0 });
+    const oe = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: oda.sgdAmount, sgdAmount: oda.sgdAmount, estimateBasis: 'RATE' } });
+    await prisma.oDAEstimate.create({ data: { expenseId: oe.id, country, city, arrive: day(arr), depart: day(dep), eligibleDays: oda.eligibleDays, personalDays: 0, dailyRate: oda.dailyRate } });
+  }
+  const master = EcsCharging.code('CC-1000');
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
+  await submit(id); await approveAll(id);
 }
 
 async function buildS14() {
