@@ -13,7 +13,7 @@ import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep } from './route';
-import { allTravellersConfirmed, unconfirmedCount, sharedLegs, travellerLegs, travellerNightsAtCity, computeTravellerShares } from './group';
+import { sharedLegs, travellerNightsAtCity, computeTravellerShares } from './group';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, POLICY_OUTCOME } from '@/shared/enums';
@@ -325,165 +325,50 @@ async function recomputeShared(id: string) {
   await recomputeSharedAccommodation(id); // non-deviating travellers inherit the shared dates
 }
 
-/** §13.20 Recompute a traveller's OWN sub-itinerary: per-leg metrics, derived own
- *  dates and entitled class, and their attributed ODA line (which follows their own
- *  dates). When they have no own legs, they inherit the shared itinerary. */
-async function recomputeTraveller(id: string, employeeId: string) {
-  const req = await loadRequest(id);
-  if (!req) return;
-  const own = travellerLegs(req, employeeId);
-  const onDate = req.startDate ?? new Date();
-  if (own.length) await updateLegMetrics(own, employeeId, onDate);
-  const effLegs = own.length ? own : sharedLegs(req);
-  const derived = EcsTravelClassRegister.entitledForItinerary(
-    employeeId,
-    effLegs.map((l) => ({ durationHours: l.durationHours, isPersonal: l.isPersonal, destCode: EcsReference.airport(l.destCode)?.cityCode ?? l.destCode })),
-    onDate,
-  );
-  const ownStart = own.length ? own[0].departDate : null;
-  const ownEnd = own.length ? (own[own.length - 1].arriveDate ?? own[own.length - 1].departDate) : null;
-  const row = req.travellers.find((t) => t.employeeId === employeeId);
-  if (row) await prisma.travelRequestTraveller.update({ where: { id: row.id }, data: { entitledClassId: derived.classId, classBasis: derived.basis, ownStartDate: ownStart, ownEndDate: ownEnd } });
 
-  // Their ODA follows their own dates (§13.20).
-  const odaStart = ownStart ?? req.startDate;
-  const odaEnd = ownEnd ?? req.endDate;
-  for (const e of req.expenses.filter((x) => x.category === EXPENSE_CATEGORY.ODA && x.travellerId === employeeId && x.oda)) {
-    const calc = computeOda({ countryCode: e.oda!.country, arrive: odaStart, depart: odaEnd, personalDays: e.oda!.personalDays });
-    await prisma.estimatedExpense.update({ where: { id: e.id }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount } });
-    await prisma.oDAEstimate.update({ where: { id: e.oda!.id }, data: { arrive: odaStart, depart: odaEnd, eligibleDays: calc.eligibleDays } });
-  }
-  await recomputeSharedAccommodation(id); // this traveller's nights changed → resize the shared hotel total
-}
-
-/** A traveller's cost/date/class signature, used to judge whether an itinerary change
- *  is material (§6.4). */
-interface TravSig { cost: number; start: Date | null; end: Date | null; classRank: number }
-async function travellerSignature(id: string, employeeId: string): Promise<TravSig> {
-  const req = await loadRequest(id);
-  if (!req) return { cost: 0, start: null, end: null, classRank: 1 };
-  const share = computeTravellerShares(req).find((s) => s.employeeId === employeeId);
-  const row = req.travellers.find((t) => t.employeeId === employeeId);
-  return {
-    cost: share?.totalSgd ?? 0,
-    start: row?.ownStartDate ?? req.startDate,
-    end: row?.ownEndDate ?? req.endDate,
-    classRank: EcsTravelClassRegister.rank(row?.chosenClassId ?? req.travelClassId ?? 'TC-ECO'),
-  };
-}
-
-/** §6.4/§13.20 After a per-traveller itinerary change, restart approval only if the
- *  change is MATERIAL — date shift beyond tolerance, cost increase above the estimate
- *  threshold, or a class increase; otherwise log it as non-material. No effect while
- *  the request is still a free-edit draft. */
-async function reapproveIfMaterial(id: string, employeeId: string, before: TravSig, label: string) {
-  const req = await loadRequest(id);
-  if (!req || isFreeEditState(req.status)) return;
-  const after = await travellerSignature(id, employeeId);
-  const tol = EcsPolicy.tolerances();
-  const days = (a: Date | null, b: Date | null) => (a && b ? Math.abs(a.getTime() - b.getTime()) / 86400000 : 0);
-  const dateShift = Math.max(days(after.start, before.start), days(after.end, before.end));
-  const costUp = after.cost - before.cost;
-  const material =
-    dateShift > tol.dateShiftDays ||
-    costUp > tol.estimateAmendAbsSgd ||
-    (before.cost > 0 && costUp > (before.cost * tol.estimateAmendPct) / 100) ||
-    after.classRank > before.classRank;
-  const who = EcsIdentity.employee(employeeId)?.name ?? employeeId;
-  if (material) {
-    await applyMaterialAmendment(id, `${label} for ${who}`);
-  } else {
-    await audit(id, 'AMEND', `${label} for ${who} — non-material (within tolerance), logged only`);
-  }
-}
-
-/** Add a leg to the shared itinerary, or to a traveller's sub-itinerary when a
- *  `travellerId` is supplied on the form. */
+/** Add a leg to the (single, shared) itinerary. There are no per-traveller sub-itineraries. */
 export async function addLeg(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
   const req = await loadRequest(id);
   if (!req) return;
-  const travellerId = str(fd, 'travellerId') || null;
-  const scope = req.legs.filter((l) => (l.travellerId ?? null) === travellerId);
-  const seq = scope.reduce((m, l) => Math.max(m, l.seq), 0) + 1;
+  const seq = sharedLegs(req).reduce((m, l) => Math.max(m, l.seq), 0) + 1;
   const originCode = str(fd, 'originCode');
   const destCode = str(fd, 'destCode');
   if (!originCode || !destCode) return;
   await prisma.itineraryLeg.create({
     data: {
-      requestId: id, travellerId, seq, originCode, destCode,
-      departDate: dateOrNull(fd, 'departDate'), arriveDate: dateOrNull(fd, 'arriveDate') ?? dateOrNull(fd, 'departDate'),
-      transportMode: str(fd, 'transportMode') || 'AIR', durationHours: num(fd, 'durationHours') || null,
-      isPersonal: str(fd, 'isPersonal') === 'on', travelClassId: req.travelClassId, chosenClassId: req.travelClassId,
-    },
-  });
-  const before = travellerId ? await travellerSignature(id, travellerId) : null;
-  await prisma.itineraryLeg.create({
-    data: {
-      requestId: id, travellerId, seq, originCode, destCode,
+      requestId: id, travellerId: null, seq, originCode, destCode,
       departDate: dateOrNull(fd, 'departDate'), arriveDate: dateOrNull(fd, 'arriveDate') ?? dateOrNull(fd, 'departDate'),
       transportMode: str(fd, 'transportMode') || 'AIR', durationHours: num(fd, 'durationHours') || null,
       departTime: str(fd, 'departTime') || null, bookingRequired: str(fd, 'bookingRequired') === 'on',
       isPersonal: str(fd, 'isPersonal') === 'on', travelClassId: req.travelClassId, chosenClassId: req.travelClassId,
     },
   });
-  if (travellerId) await recomputeTraveller(id, travellerId); else await recomputeShared(id);
-  await audit(id, 'AMEND', `Itinerary leg added (${originCode} → ${destCode})${travellerId ? ` for ${EcsIdentity.employee(travellerId)?.name}` : ''}`);
-  if (travellerId && before) await reapproveIfMaterial(id, travellerId, before, 'Sub-itinerary changed');
+  await recomputeShared(id);
+  await audit(id, 'AMEND', `Itinerary leg added (${originCode} → ${destCode})`);
   revalidatePath(`/requests/${id}/trip`); revalidatePath(`/requests/${id}`);
 }
 
 export async function removeLeg(id: string, legId: string) {
   if (!(await requireEdit(id))) return;
-  const target = await prisma.itineraryLeg.findUnique({ where: { id: legId } });
-  const scope = target?.travellerId ?? null;
-  const before = scope ? await travellerSignature(id, scope) : null;
   await prisma.itineraryLeg.delete({ where: { id: legId } });
-  const remaining = await prisma.itineraryLeg.findMany({ where: { requestId: id, travellerId: scope }, orderBy: { seq: 'asc' } });
+  const remaining = await prisma.itineraryLeg.findMany({ where: { requestId: id, travellerId: null }, orderBy: { seq: 'asc' } });
   for (let i = 0; i < remaining.length; i++) await prisma.itineraryLeg.update({ where: { id: remaining[i].id }, data: { seq: i + 1 } });
-  if (scope) await recomputeTraveller(id, scope); else await recomputeShared(id);
+  await recomputeShared(id);
   await audit(id, 'AMEND', 'Itinerary leg removed');
-  if (scope && before) await reapproveIfMaterial(id, scope, before, 'Sub-itinerary changed');
   revalidatePath(`/requests/${id}/trip`); revalidatePath(`/requests/${id}`);
 }
 
 export async function moveLeg(id: string, legId: string, dir: 'up' | 'down') {
   if (!(await requireEdit(id))) return;
-  const target = await prisma.itineraryLeg.findUnique({ where: { id: legId } });
-  if (!target) return;
-  const legs = await prisma.itineraryLeg.findMany({ where: { requestId: id, travellerId: target.travellerId }, orderBy: { seq: 'asc' } });
+  const legs = await prisma.itineraryLeg.findMany({ where: { requestId: id, travellerId: null }, orderBy: { seq: 'asc' } });
   const idx = legs.findIndex((l) => l.id === legId);
   const swap = dir === 'up' ? idx - 1 : idx + 1;
   if (idx < 0 || swap < 0 || swap >= legs.length) return;
   await prisma.itineraryLeg.update({ where: { id: legs[idx].id }, data: { seq: legs[swap].seq } });
   await prisma.itineraryLeg.update({ where: { id: legs[swap].id }, data: { seq: legs[idx].seq } });
-  if (target.travellerId) await recomputeTraveller(id, target.travellerId); else await recomputeShared(id);
+  await recomputeShared(id);
   revalidatePath(`/requests/${id}/trip`); revalidatePath(`/requests/${id}`);
-}
-
-/** §13.20 Give a group traveller their own sub-itinerary, seeded from the shared one. */
-export async function copyGroupItineraryToTraveller(id: string, employeeId: string) {
-  const req = await loadRequest(id);
-  if (!req) return;
-  const before = await travellerSignature(id, employeeId);
-  await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: employeeId } });
-  for (const l of sharedLegs(req)) {
-    await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: employeeId, seq: l.seq, originCode: l.originCode, destCode: l.destCode, departDate: l.departDate, arriveDate: l.arriveDate, transportMode: l.transportMode, durationHours: l.durationHours, isPersonal: l.isPersonal, travelClassId: l.travelClassId, chosenClassId: l.chosenClassId, entitledClassId: l.entitledClassId, nights: l.nights } });
-  }
-  await recomputeTraveller(id, employeeId);
-  await audit(id, 'AMEND', `${EcsIdentity.employee(employeeId)?.name ?? employeeId} now has an own sub-itinerary`);
-  await reapproveIfMaterial(id, employeeId, before, 'Own sub-itinerary created');
-  revalidatePath(`/requests/${id}`);
-}
-
-/** §13.20 Revert a traveller to the shared group itinerary. */
-export async function clearTravellerItinerary(id: string, employeeId: string) {
-  const before = await travellerSignature(id, employeeId);
-  await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: employeeId } });
-  await recomputeTraveller(id, employeeId); // no own legs → inherits shared, own dates cleared
-  await audit(id, 'AMEND', `${EcsIdentity.employee(employeeId)?.name ?? employeeId} reverted to the group itinerary`);
-  await reapproveIfMaterial(id, employeeId, before, 'Reverted to group itinerary');
-  revalidatePath(`/requests/${id}`);
 }
 
 /* ------------------------------------------------- estimates (TR-05..08) */
@@ -733,12 +618,10 @@ export async function approveStep(id: string, fd?: FormData) {
   if (next) {
     // During reapproval the umbrella status stays Amendment In Progress (§13.1).
     if (!inReapproval) await prisma.travelRequest.update({ where: { id }, data: { status: statusForStep(next.roleType) } });
-  } else if (req.isGroup && !allTravellersConfirmed(req)) {
-    // §13.13 all approvals done, but a group request cannot receive final approval
-    // (Travel Authorisation) until every traveller confirms inclusion.
-    await prisma.travelRequest.update({ where: { id }, data: { status: REQUEST_STATUS.PendingConfirmation } });
-    await audit(id, 'STATUS', `Approvals complete — held pending ${unconfirmedCount(req)} traveller confirmation(s)`);
   } else {
+    // Final approval issues the Travel Authorisation. Group requests do NOT require a
+    // traveller-confirmation gate (confirmation is assumed handled offline), so a group is
+    // approved straight through, identical to an individual request.
     await finalizeApproval(id);
   }
   revalidatePath(`/requests/${id}`);
@@ -1164,61 +1047,3 @@ export async function removeGroupTraveller(id: string, travellerRowId: string) {
 
 /** §13.19 set a group traveller's chosen class + upgrade justification. A change post
  *  approval is a material amendment (it can alter the exception route). */
-export async function setTravellerClass(id: string, rowId: string, fd: FormData) {
-  const req = await loadRequest(id);
-  const row = await prisma.travelRequestTraveller.findUnique({ where: { id: rowId } });
-  if (!req || !row) return;
-  const onDate = req.startDate ?? new Date();
-  const derived = EcsTravelClassRegister.entitledForItinerary(
-    row.employeeId,
-    req.legs.map((l) => ({ durationHours: l.durationHours, isPersonal: l.isPersonal, destCode: EcsReference.airport(l.destCode)?.cityCode ?? l.destCode })),
-    onDate,
-  );
-  await prisma.travelRequestTraveller.update({
-    where: { id: rowId },
-    data: { chosenClassId: str(fd, 'chosenClassId') || derived.classId, entitledClassId: derived.classId, classBasis: derived.basis, classJustification: str(fd, 'classJustification') || null },
-  });
-  await audit(id, 'AMEND', `Travel class set for ${EcsIdentity.employee(row.employeeId)?.name ?? row.employeeId}`);
-  if (!isFreeEditState(req.status)) await applyMaterialAmendment(id, `class change for ${EcsIdentity.employee(row.employeeId)?.name ?? row.employeeId}`);
-  revalidatePath(`/requests/${id}`);
-}
-
-/** §13.20 capture a group traveller's itinerary override (own dates + note); their
- *  ODA and accommodation shares follow their own dates at claim. */
-export async function setTravellerLegOverride(id: string, rowId: string, fd: FormData) {
-  const row = await prisma.travelRequestTraveller.findUnique({ where: { id: rowId } });
-  if (!row) return;
-  await prisma.travelRequestTraveller.update({
-    where: { id: rowId },
-    data: { ownStartDate: dateOrNull(fd, 'ownStartDate'), ownEndDate: dateOrNull(fd, 'ownEndDate'), legOverrideNote: str(fd, 'legOverrideNote') || null },
-  });
-  await audit(id, 'AMEND', `Itinerary override recorded for ${EcsIdentity.employee(row.employeeId)?.name ?? row.employeeId}`);
-  revalidatePath(`/requests/${id}`);
-}
-
-/** §13.13 a named traveller confirms their inclusion, particulars and itinerary. */
-export async function confirmInclusion(id: string) {
-  const persona = await currentPersonaId();
-  const row = await prisma.travelRequestTraveller.findFirst({ where: { requestId: id, employeeId: persona } });
-  if (!row || row.confirmed) return;
-  await prisma.travelRequestTraveller.update({ where: { id: row.id }, data: { confirmed: true, confirmedAt: new Date() } });
-  await audit(id, 'STATUS', `${EcsIdentity.employee(persona)?.name ?? persona} confirmed inclusion`);
-  const req = await loadRequest(id);
-  if (req && req.status === REQUEST_STATUS.PendingConfirmation && allTravellersConfirmed(req)) {
-    await finalizeApproval(id);
-  }
-  revalidatePath(`/requests/${id}`);
-  revalidatePath('/dashboard');
-}
-
-/** §13.13 Travel Administrator override — confirm remaining travellers with reason. */
-export async function overrideConfirmations(id: string, fd: FormData) {
-  const persona = await currentPersonaId();
-  if (!EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN')) return;
-  await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, confirmed: false }, data: { confirmed: true, confirmedAt: new Date() } });
-  await audit(id, 'STATUS', `Travel Administrator override — confirmations waived: ${str(fd, 'reason') || 'no reason given'}`);
-  const req = await loadRequest(id);
-  if (req && req.status === REQUEST_STATUS.PendingConfirmation) await finalizeApproval(id);
-  revalidatePath(`/requests/${id}`);
-  revalidatePath('/dashboard');
-}

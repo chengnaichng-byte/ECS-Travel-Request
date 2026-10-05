@@ -20,18 +20,6 @@ function buildChevrons(req: FullRequest): Chev[] {
   const requestor = EcsIdentity.employee(req.requestorId)?.name ?? req.requestorId;
   chevs.push({ label: 'Submitted', sub: `by ${requestor}`, state: 'done' });
 
-  // §13.21 group Traveller Confirmation chevron precedes the approval steps
-  if (req.isGroup) {
-    const n = req.travellers.length;
-    const confirmed = req.travellers.filter((t) => t.confirmed).length;
-    const all = n > 0 && confirmed === n;
-    chevs.push({
-      label: `Travellers Confirmed ${confirmed} of ${n}`,
-      sub: all ? 'complete' : 'awaiting',
-      state: all ? 'done' : req.status === REQUEST_STATUS.PendingConfirmation ? 'current' : 'todo',
-    });
-  }
-
   const steps = [...req.approvalSteps].sort((a, b) => a.seq - b.seq);
   const firstPending = steps.find((s) => s.status === 'Pending');
   for (const s of steps) {
@@ -42,7 +30,7 @@ function buildChevrons(req: FullRequest): Chev[] {
     if (s.status === 'Approved') { state = 'done'; label = `${role} Approved`; }
     else if (s.status === 'Rejected') { state = 'stop'; label = `${role} Rejected`; }
     else if (s.status === 'SentBack') { state = 'stop'; label = `${role} Sent Back`; }
-    else if (s.status === 'Pending') { state = s.id === firstPending?.id && req.status !== REQUEST_STATUS.PendingConfirmation ? 'current' : 'todo'; }
+    else if (s.status === 'Pending') { state = s.id === firstPending?.id ? 'current' : 'todo'; }
     chevs.push({ label, sub: name, state });
   }
 

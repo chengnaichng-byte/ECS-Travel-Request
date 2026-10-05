@@ -25,7 +25,7 @@ import {
   SummaryCard, TravellerCard, GroupSummaryCard, TravellerRoster, ItineraryLegsCard,
   CostAllocationCard, PolicyExceptionsCard, CostItems,
 } from '@/components/ReviewSections';
-import { withdrawRequest, reopenDraft, handoffToTmc, markSelfBooked, confirmInclusion } from '@/modules/pretrip/actions';
+import { withdrawRequest, reopenDraft, handoffToTmc, markSelfBooked } from '@/modules/pretrip/actions';
 import { createClaimFromRequest } from '@/modules/te/actions';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +44,7 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
   const isDraft = req.status === REQUEST_STATUS.Draft || req.status === REQUEST_STATUS.SentBack;
   const isAmendment = req.status === REQUEST_STATUS.AmendmentInProgress;
   const isPending = req.status.startsWith('Pending') || isAmendment;
-  const isInitialPending = req.status.startsWith('Pending') && req.status !== REQUEST_STATUS.PendingConfirmation;
+  const isInitialPending = req.status.startsWith('Pending');
   const isApproved = req.status === REQUEST_STATUS.Approved || req.status === REQUEST_STATUS.Closed;
   const canCancel = [REQUEST_STATUS.Approved, REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Expired].includes(req.status as never);
   const isMulti = sharedLegs(req).length > 2;
@@ -52,10 +52,6 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
   const pendingStep = req.approvalSteps.find((s) => s.status === 'Pending');
   const canAct = !!pendingStep && (pendingStep.approverId === persona || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
-  // Group traveller confirmation surfaced in the top bar (§13.13): acting persona is a
-  // group traveller on this request who has not yet acknowledged inclusion.
-  const myTravellerRow = req.isGroup ? req.travellers.find((t) => t.employeeId === persona) : undefined;
-  const iCanConfirm = req.status === REQUEST_STATUS.PendingConfirmation && myTravellerRow && !myTravellerRow.confirmed;
 
   return (
     <div className="w-full space-y-5">
@@ -88,7 +84,6 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
           {(isDraft || isInitialPending) && <form action={withdrawRequest.bind(null, id)}><button className="btn-secondary">Withdraw</button></form>}
           {isPending && canAct && <DecisionBar id={id} roleLabel={ROLE_LABEL[pendingStep!.roleType] ?? pendingStep!.roleType} amendment={isAmendment} highRisk={isHighRisk(req)} />}
           {isPending && !canAct && pendingStep && <span className="text-xs text-[var(--ecs-muted)]">Awaiting {ROLE_LABEL[pendingStep.roleType] ?? pendingStep.roleType}: {EcsIdentity.employee(pendingStep.approverId ?? '')?.name ?? '—'}</span>}
-          {iCanConfirm && <form action={confirmInclusion.bind(null, id)}><button className="btn-primary">✓ Confirm my inclusion</button></form>}
           {isApproved && (
             <>
               <Link href={`/requests/${id}/booking`} className="btn-secondary">Booking →</Link>
@@ -130,7 +125,7 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
           <summary className="card px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
             <span className="transition-transform group-open:rotate-90">▸</span> Group Management — confirmations, per-traveller class &amp; sub-itineraries
           </summary>
-          <div className="mt-3"><GroupTravellers req={req} personaId={persona} isAdmin={EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN')} allowSub={settings.groupSubItineraries} /></div>
+          <div className="mt-3"><GroupTravellers req={req} /></div>
         </details>
       )}
 

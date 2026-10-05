@@ -10,7 +10,7 @@ import { nextRequestNumber, nextAuthorisationNumber, nextClaimNumber } from './n
 import { computeAccommodation, computeOda, computeSummary } from './pricing';
 import { evaluatePolicies, hasException } from './policy';
 import { buildRoute, statusForStep } from './route';
-import { allTravellersConfirmed, sharedLegs } from './group';
+import { sharedLegs } from './group';
 import { applyMaterialAmendment } from './amend';
 import { EcsFx, EcsIdentity, EcsCharging, EcsReference } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
@@ -123,12 +123,8 @@ async function approveAll(id: string) {
     const next = req.approvalSteps.find((s) => s.seq > step.seq && s.status === 'Pending');
     if (next) {
       await prisma.travelRequest.update({ where: { id }, data: { status: statusForStep(next.roleType) } });
-    } else if (req.isGroup && !allTravellersConfirmed(req)) {
-      // §13.13 hold for traveller confirmations before issuing the authorisation.
-      await prisma.travelRequest.update({ where: { id }, data: { status: REQUEST_STATUS.PendingConfirmation } });
-      await audit(id, 'E-SYS', 'STATUS', 'Approvals complete — held pending traveller confirmations');
-      break;
     } else {
+      // No traveller-confirmation gate — group requests finalise straight to Approved.
       await finaliseApproval(id);
     }
     req = await loadRequest(id);

@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { REQUEST_STATUS, BOOKING_STATUS, ROLE } from '@/shared/enums';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { StatusPill } from '@/components/StatusPill';
-import { handoffToTmc, markSelfBooked, overrideConfirmations } from '@/modules/pretrip/actions';
+import { handoffToTmc, markSelfBooked } from '@/modules/pretrip/actions';
 import { closeAsNoClaim, reinstateExpired, runExpirySweep } from '@/modules/pretrip/admin';
 
 export const dynamic = 'force-dynamic';
@@ -56,7 +56,6 @@ export default async function Workbench() {
 
   const approvedUnbooked = all.filter((r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus === BOOKING_STATUS.NotSent);
   const bookingIssues = all.filter((r) => r.bookingStatus === BOOKING_STATUS.Failed || r.deviations.some((d) => d.material));
-  const pendingConfirm = all.filter((r) => r.status === REQUEST_STATUS.PendingConfirmation);
   const amendments = all.filter((r) => r.status === REQUEST_STATUS.AmendmentInProgress);
   const completedUnclaimed = all.filter((r) => (r.status === REQUEST_STATUS.Approved || r.status === REQUEST_STATUS.Closed) && r.bookingStatus !== BOOKING_STATUS.NotSent && r.endDate && r.endDate < now && r.teLinks.length === 0);
   const expiring = all.filter((r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus === BOOKING_STATUS.NotSent && r.authorisationExpiry && (r.authorisationExpiry.getTime() - now.getTime()) / 86400000 < 30);
@@ -65,7 +64,6 @@ export default async function Workbench() {
   const tiles = [
     ['Approved — unbooked', approvedUnbooked.length],
     ['Booking issues', bookingIssues.length],
-    ['Awaiting confirmation', pendingConfirm.length],
     ['Amendments', amendments.length],
     ['Completed — unclaimed', completedUnclaimed.length],
     ['Expiring / expired', expiring.length + expired.length],
@@ -100,17 +98,6 @@ export default async function Workbench() {
         {bookingIssues.map((r) => (
           <Row key={r.id} r={r}>
             <Link href={`/requests/${r.id}/booking`} className="btn-secondary text-xs">Reconcile →</Link>
-          </Row>
-        ))}
-      </Bucket>
-
-      <Bucket title="Awaiting traveller confirmation" count={pendingConfirm.length} note="Group requests whose approvals are complete but held pending traveller confirmation (§13.13). Override with a reason to release the authorisation.">
-        {pendingConfirm.map((r) => (
-          <Row key={r.id} r={r}>
-            <form action={overrideConfirmations.bind(null, r.id)} className="inline-flex gap-1 items-center justify-end">
-              <input name="reason" placeholder="override reason…" className="field text-xs w-40 py-1" />
-              <button className="btn-secondary text-xs" disabled={!isAdmin}>Override</button>
-            </form>
           </Row>
         ))}
       </Bucket>

@@ -46,8 +46,6 @@ export const decisionCatalogue = [
     effect: 'Amount used for DOA tiering (§2.2).' },
   { key: 'groupTravelEnabled', label: 'Group travel requests enabled', kind: 'boolean',
     effect: 'Enables one-request-many-travellers group requests (§13.14).' },
-  { key: 'groupSubItineraries', label: 'Per-traveller sub-itineraries (group)', kind: 'boolean',
-    effect: 'Lets a group traveller deviate with their own sub-itinerary — own dates, class, ODA and accommodation share (§13.20, design decision D3). When off, all travellers follow the shared group itinerary.' },
   { key: 'selfBookingEnabled', label: 'Self-booked travel enabled', kind: 'boolean',
     effect: 'Allows Self-Booked method and Travel Request selection at claim (§13.17).' },
 ] as const;

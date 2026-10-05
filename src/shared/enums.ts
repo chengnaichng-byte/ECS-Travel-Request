@@ -9,7 +9,6 @@ export const REQUEST_STATUS = {
   PendingAdditional: 'Pending Additional Approval',  // §23 traveller-added Additional Approver
   PendingException: 'Pending Exception Approval',
   PendingDOA: 'Pending DOA Approval',
-  PendingConfirmation: 'Pending Traveller Confirmation', // §13.13 group gate before authorisation
   Approved: 'Approved',
   AmendmentInProgress: 'Amendment In Progress',
   SentBack: 'Sent Back',
@@ -31,8 +30,7 @@ export const STATUS_TRANSITIONS: Record<string, string[]> = {
   [REQUEST_STATUS.PendingRO]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.PendingAdditional]: [REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.PendingException]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
-  [REQUEST_STATUS.PendingDOA]: [REQUEST_STATUS.Approved, REQUEST_STATUS.PendingConfirmation, REQUEST_STATUS.SentBack],
-  [REQUEST_STATUS.PendingConfirmation]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingDOA]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.Approved]: [REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Cancelled, REQUEST_STATUS.Expired, REQUEST_STATUS.Closed],
   [REQUEST_STATUS.AmendmentInProgress]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack, REQUEST_STATUS.Cancelled],
   [REQUEST_STATUS.SentBack]: [REQUEST_STATUS.Draft, REQUEST_STATUS.Withdrawn],
