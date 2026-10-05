@@ -78,7 +78,7 @@ export function TripPlanner({
     const withDest = legs.filter((l) => l.destCode);
     if (!withDest.length) return null;
     const main = [...withDest].filter((l) => !l.isPersonal).sort((a, b) => b.nights - a.nights)[0] ?? withDest[0];
-    const m = airportMeta[main.destCode];
+    const m = airportMeta?.[main.destCode];
     return m ? { code: main.destCode, city: m.city, country: m.country, nights: main.nights } : null;
   }, [legs, airportMeta]);
 
