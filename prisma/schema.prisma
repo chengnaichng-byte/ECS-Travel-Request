@@ -87,6 +87,7 @@ model TravelRequest {
   // Trip header (§4.4, §5.1 trip header)
   purposeId         String?
   description       String?
+  tripType          String   @default("ROUND_TRIP")  // §4.4 ROUND_TRIP | ONE_WAY | MULTI_CITY (industry trip types)
   destCountry       String?
   destCity          String?
   startDate         DateTime?

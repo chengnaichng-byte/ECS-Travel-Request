@@ -201,14 +201,26 @@ export async function saveTrip(id: string, fd: FormData) {
   const purposeId = str(fd, 'purposeId');
   const purpose = EcsReference.travelPurpose(purposeId);
   const req0 = await loadRequest(id);
-  const destCity = str(fd, 'destCity');
-  const destCountry = str(fd, 'destCountry');
   const start = dateOrNull(fd, 'startDate');
   const end = dateOrNull(fd, 'endDate');
+  // §4.4 trip type drives the itinerary. Round-trip/One-way capture one destination; Multi-city
+  // submits the legs built in the form and the main destination is derived from them (longest stay).
+  const tripType = str(fd, 'tripType') === 'ONE_WAY' ? 'ONE_WAY' : str(fd, 'tripType') === 'MULTI_CITY' ? 'MULTI_CITY' : 'ROUND_TRIP';
+  let multiLegs: { originCode: string; destCode: string; departDate: string; arriveDate: string; nights: number; durationHours: string; isPersonal: boolean }[] = [];
+  if (tripType === 'MULTI_CITY') { try { multiLegs = (JSON.parse(str(fd, 'legsJson') || '[]') as typeof multiLegs).filter((l) => l.destCode); } catch { multiLegs = []; } }
+  const cityOf = (ap: string) => EcsReference.airport(ap)?.cityCode ?? ap;
+  const countryOf = (city: string) => EcsReference.city(city)?.countryCode ?? '';
+  let destCity = str(fd, 'destCity');
+  let destCountry = str(fd, 'destCountry');
+  if (tripType === 'MULTI_CITY') {
+    const mainLeg = [...multiLegs].filter((l) => !l.isPersonal).sort((a, b) => b.nights - a.nights)[0] ?? multiLegs[0];
+    if (mainLeg) { destCity = cityOf(mainLeg.destCode); destCountry = countryOf(destCity); }
+  }
   // Server-side validation (the browser `required` attributes are only a first gate).
   const missing: string[] = [];
   if (!purposeId) missing.push('travel purpose');
-  if (!destCountry || !destCity) missing.push('destination');
+  if (tripType === 'MULTI_CITY') { if (multiLegs.length === 0) missing.push('at least one itinerary leg'); }
+  else if (!destCountry || !destCity) missing.push('destination');
   if (!start || !end) missing.push('travel dates');
   if (start && end && start > end) missing.push('a return date on or after departure');
   if (!str(fd, 'bookingArrangement')) missing.push('booking arrangement');
@@ -225,7 +237,8 @@ export async function saveTrip(id: string, fd: FormData) {
       purposeId,
       isResearch: purpose?.isResearch ?? false,
       description: str(fd, 'description'),
-      destCountry: str(fd, 'destCountry'),
+      tripType,
+      destCountry,
       destCity,
       startDate: start,
       endDate: dateOrNull(fd, 'endDate'),
@@ -245,14 +258,24 @@ export async function saveTrip(id: string, fd: FormData) {
       classJustification: str(fd, 'classJustification') || null,
     },
   });
-  // Default single-destination return itinerary — only when no legs exist yet, so a
-  // hand-built multi-leg itinerary (§13.20) is never clobbered.
+  // §4.4/§13.20 Rebuild the shared itinerary from the trip type. Multi-city uses the legs
+  // built in the form; Round-trip/One-way derive the legs from the single destination.
+  await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: null } });
+  const origin = str(fd, 'originCode') || 'SIN';
   const destAirport = str(fd, 'destAirport');
-  if (destAirport && (req0?.legs.length ?? 0) === 0) {
-    const origin = str(fd, 'originCode') || 'SIN';
-    const ent = EcsTravelClassRegister.entitledForDuration(req0?.travellerId ?? 'E-TRAV', hours, start ?? new Date());
-    await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: origin, destCode: destAirport, departDate: start, arriveDate: start, transportMode: 'AIR', durationHours: hours, travelClassId: chosenClass, entitledClassId: ent, chosenClassId: chosenClass } });
-    await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: destAirport, destCode: origin, departDate: dateOrNull(fd, 'endDate'), arriveDate: dateOrNull(fd, 'endDate'), transportMode: 'AIR', durationHours: hours, travelClassId: chosenClass, entitledClassId: ent, chosenClassId: chosenClass } });
+  type NewLeg = { originCode: string; destCode: string; departDate: Date | null; arriveDate: Date | null; durationHours: number | null; nights: number; isPersonal: boolean };
+  const newLegs: NewLeg[] = [];
+  if (tripType === 'MULTI_CITY') {
+    for (const l of multiLegs) newLegs.push({ originCode: l.originCode || 'SIN', destCode: l.destCode, departDate: l.departDate ? new Date(l.departDate) : null, arriveDate: l.arriveDate ? new Date(l.arriveDate) : (l.departDate ? new Date(l.departDate) : null), durationHours: l.durationHours ? Number(l.durationHours) : null, nights: l.nights || 0, isPersonal: !!l.isPersonal });
+  } else if (destAirport) {
+    const nights = start && end ? Math.max(Math.round((end.getTime() - start.getTime()) / 86400000), 0) : 0;
+    newLegs.push({ originCode: origin, destCode: destAirport, departDate: start, arriveDate: start, durationHours: hours, nights, isPersonal: false });
+    if (tripType === 'ROUND_TRIP') newLegs.push({ originCode: destAirport, destCode: origin, departDate: end, arriveDate: end, durationHours: hours, nights: 0, isPersonal: false });
+  }
+  let seq = 1;
+  for (const l of newLegs) {
+    const ent = EcsTravelClassRegister.entitledForDuration(req0?.travellerId ?? 'E-TRAV', l.durationHours ?? hours, start ?? new Date());
+    await prisma.itineraryLeg.create({ data: { requestId: id, seq: seq++, originCode: l.originCode, destCode: l.destCode, departDate: l.departDate, arriveDate: l.arriveDate, transportMode: 'AIR', durationHours: l.durationHours, nights: l.nights, isPersonal: l.isPersonal, travelClassId: chosenClass, entitledClassId: ent, chosenClassId: chosenClass } });
   }
   // §38 field-level audit — log each changed header field as "Label: old → new".
   const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
