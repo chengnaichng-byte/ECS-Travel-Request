@@ -70,6 +70,13 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const research = isResearchRequest(req) && !settings.sameRouteResearch;
   const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
 
+  // §4.4/§13.20 full itinerary for the Trip card — shown when the route is more than a single
+  // destination (multi-city) or carries a personal segment, so the whole route is visible at
+  // the top without relying on the Airfare cost line.
+  const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+  const showItinerary = req.tripType === 'MULTI_CITY' || sharedLegs.some((l) => l.isPersonal);
+  const routeText = sharedLegs.length ? [sharedLegs[0].originCode, ...sharedLegs.map((l) => l.destCode)].join(' → ') : '';
+
   return (
     <div>
       <Stepper id={id} active="review" />
@@ -102,6 +109,22 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
               <KV label="Traveller">{travellerName(req)}</KV>
             </dl>
+            {showItinerary && sharedLegs.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
+                <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Itinerary</div>
+                <div className="text-sm font-medium mb-2">{routeText}</div>
+                <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
+                  {sharedLegs.map((l, i) => (
+                    <li key={l.id}>
+                      Leg {i + 1}: {l.originCode} → {l.destCode}
+                      {l.departDate ? ` · ${fmtDate(l.departDate)}` : ''}
+                      {l.nights ? ` · ${l.nights} night${l.nights > 1 ? 's' : ''}` : ''}
+                      {l.isPersonal ? <span className="ml-1 pill-navy">Personal</span> : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </Card>
           <Card title="Charging">
             <table className="w-full text-sm">
