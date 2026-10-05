@@ -12,7 +12,7 @@ import { evaluatePolicies, hasException } from './policy';
 import { buildRoute, statusForStep } from './route';
 import { allTravellersConfirmed, sharedLegs } from './group';
 import { applyMaterialAmendment } from './amend';
-import { EcsFx, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
+import { EcsFx, EcsIdentity, EcsCharging, EcsReference } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD } from '@/shared/enums';
@@ -85,10 +85,11 @@ async function buildDraft(s: ScenarioInput): Promise<string> {
   if (s.conference) {
     await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Conference, expenseTypeId: 'ET-CONF', currency: 'SGD', foreignAmount: s.conference.amount, sgdAmount: s.conference.amount, estimateBasis: 'QUOTED' } });
   }
-  // Charging
-  for (const c of s.charging) {
+  // Charging (§17 ECS format: the first account is the main charging account)
+  await prisma.travelRequest.update({ where: { id }, data: { chargingMode: s.charging.length > 1 ? 'CLAIM' : 'MAIN' } });
+  for (const [ci, c] of s.charging.entries()) {
     const master = EcsCharging.code(c.code);
-    await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: c.code, percent: c.pct, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false } });
+    await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: c.code, percent: c.pct, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false, isMain: ci === 0 } });
   }
   return id;
 }
@@ -168,10 +169,16 @@ async function makeClaim(id: string, claimantId: string, actualsFactor = 1) {
   if (!req) return;
   const settings = await getSettings();
   const prep = prepopulateClaim(req, claimantId, settings.airfareTreatment);
+  const mainAlloc = req.allocations.find((a) => a.isMain) ?? req.allocations[0];
+  const reason = EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? req.description ?? null;
   const claim = await prisma.travelExpenseClaim.create({
     data: {
       claimNumber: await nextClaimNumber(YEAR), requestId: id, claimantId, status: 'Draft',
-      lines: { create: prep.lines.map((l) => ({ category: l.category, expenseTypeId: l.expenseTypeId, treatment: l.treatment, approvedSgd: l.approvedSgd, bookedSgd: l.bookedSgd, actualSgd: Math.round(l.approvedSgd * actualsFactor), varianceSgd: Math.round(l.approvedSgd * actualsFactor) - l.approvedSgd, receiptOk: true })) },
+      trsNotBooked: req.bookings.length === 0, travelStart: req.startDate, travelEnd: req.endDate,
+      additionalApprover1: req.additionalApproverId,
+      chargingMode: req.allocations.length > 1 ? 'CLAIM' : 'MAIN', chargingMainCode: mainAlloc?.chargingCode ?? null,
+      chargingJson: JSON.stringify({ rows: req.allocations.map((a) => ({ code: a.chargingCode, percent: a.percent, amount: a.amountSgd ?? 0, io: a.internalOrder ?? '', isMain: a.isMain })), lineMap: {} }),
+      lines: { create: prep.lines.map((l) => ({ category: l.category, expenseTypeId: l.expenseTypeId, treatment: l.treatment, approvedSgd: l.approvedSgd, bookedSgd: l.bookedSgd, actualSgd: Math.round(l.approvedSgd * actualsFactor), varianceSgd: Math.round(l.approvedSgd * actualsFactor) - l.approvedSgd, receiptOk: true, transactionDate: req.startDate, currency: 'SGD', foreignAmount: l.approvedSgd, reason })) },
     },
   });
   await prisma.travelExpenseLink.create({ data: { requestId: id, claimId: claim.id, travellerId: claimantId } });
@@ -272,7 +279,7 @@ async function buildS14() {
   const oe = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: oda.sgdAmount, sgdAmount: oda.sgdAmount, estimateBasis: 'RATE' } });
   await prisma.oDAEstimate.create({ data: { expenseId: oe.id, country: 'JP', city: 'TYO', arrive: day('2026-11-02'), depart: day('2026-11-10'), eligibleDays: oda.eligibleDays, personalDays: 1, dailyRate: oda.dailyRate } });
   const master = EcsCharging.code('CC-1000');
-  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false } });
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
   await submit(id); await approveAll(id);
 }
 
@@ -300,7 +307,7 @@ async function buildS15() {
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
   const master = EcsCharging.code('CC-1000');
-  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false } });
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
   await submit(id); // routes through exception approval; left pending to show the route
 }
 
@@ -335,9 +342,10 @@ async function buildGroupDraft(desc: string, start: string, end: string): Promis
   const he = await prisma.estimatedExpense.create({ data: { requestId: id, isShared: true, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: sharedAmount, sgdAmount: sharedAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: 'TYO', nights: 4, personalNights: 0, quotedNightly: 330, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
 
+  await prisma.travelRequest.update({ where: { id }, data: { chargingMode: 'CLAIM' } });
   for (const [code, pct] of [['CC-1000', 60], ['CC-2000', 40]] as [string, number][]) {
     const master = EcsCharging.code(code);
-    await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: code, percent: pct, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false } });
+    await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: code, percent: pct, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false, isMain: code === 'CC-1000' } });
   }
   return id;
 }

@@ -26,7 +26,7 @@ import { adapterFor } from '@/integrations/tmc/adapter';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { resolveTmcProvider } from './tmcRouting';
-import { rollupByCode } from './chargingRollup';
+import { resolveChargingRows } from './chargingRollup';
 import { tmcProvider } from '@/data/tmcProviders';
 import { getContractSettings, tmcEnabledSet, getGuardSettings, evaluateFlow } from './integration';
 import { CONTRACT_VERSION } from '@/config/integrationContracts';
@@ -595,57 +595,33 @@ export async function deleteExpense(id: string, expenseId: string) {
 /* --------------------------------------------------------- charging (TR-09) */
 export async function saveCharging(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
-  const entryMode = (await getSettings()).chargingSplitMode; // §17 PERCENT | AMOUNT (request-level entry)
-  const chargingMode = str(fd, 'chargingMode') === 'LINE' ? 'LINE' : 'REQUEST'; // §17 whole-request vs per cost line
-  // Effective request-level split persisted to ChargingAllocation (drives routing §13.14/§18/§6.2).
-  let raw: { chargingCode: string; percent: number; amountSgd: number | null }[] = [];
-  const req = await prisma.travelRequest.findUnique({ where: { id }, include: { expenses: true } });
+  const req = await prisma.travelRequest.findUnique({ where: { id }, include: { expenses: { include: { accommodation: true, oda: true } } } });
+  if (!req) return;
+  const settings = await getSettings();
+  const ntuFunded = computeSummary(req.expenses, settings.approvalAmountBasis).ntuFunded;
+  const raw = resolveChargingRows(fd, req.expenses, ntuFunded, EcsIdentity.employee(req.travellerId)?.defaultChargingCode ?? '');
 
-  if (chargingMode === 'LINE') {
-    // Cross-charge per cost line: aggregate each line's NTU-funded amount onto its account.
-    const defaultCode = EcsIdentity.employee(req?.travellerId ?? '')?.defaultChargingCode ?? '';
-    const lineCharges: { chargingCode: string; netSgd: number }[] = [];
-    for (const e of req?.expenses ?? []) {
-      const code = str(fd, `line_${e.id}`) || defaultCode;
-      const net = Math.max(e.sgdAmount - e.sponsorSgd, 0);
-      await prisma.estimatedExpense.update({ where: { id: e.id }, data: { chargingCode: code || null } });
-      if (code) lineCharges.push({ chargingCode: code, netSgd: net });
-    }
-    raw = rollupByCode(lineCharges).map((r) => ({ chargingCode: r.chargingCode, percent: r.percent, amountSgd: r.amountSgd }));
+  // §17 ITEM mode persists per-line accounts; other modes clear them.
+  if (raw.mode === 'ITEM') {
+    for (const e of req.expenses) await prisma.estimatedExpense.update({ where: { id: e.id }, data: { chargingCode: raw.lineMap[e.id] || null } });
   } else {
-    // Whole-request split (percent or amount entry). Clear any stale per-line assignments.
     await prisma.estimatedExpense.updateMany({ where: { requestId: id }, data: { chargingCode: null } });
-    if (entryMode === 'AMOUNT') {
-      const amts: { chargingCode: string; amountSgd: number }[] = [];
-      for (let i = 0; i < 5; i++) {
-        const code = str(fd, `code_${i}`);
-        const amt = num(fd, `amt_${i}`);
-        if (code && amt > 0) amts.push({ chargingCode: code, amountSgd: amt });
-      }
-      const total = amts.reduce((s, a) => s + a.amountSgd, 0) || 1;
-      for (const a of amts) raw.push({ chargingCode: a.chargingCode, percent: Math.round((a.amountSgd / total) * 1000) / 10, amountSgd: a.amountSgd });
-    } else {
-      for (let i = 0; i < 5; i++) {
-        const code = str(fd, `code_${i}`);
-        const pct = num(fd, `pct_${i}`);
-        if (code && pct > 0) raw.push({ chargingCode: code, percent: pct, amountSgd: null });
-      }
-    }
   }
 
-  await prisma.travelRequest.update({ where: { id }, data: { chargingMode } });
+  await prisma.travelRequest.update({ where: { id }, data: { chargingMode: raw.mode } });
   await prisma.chargingAllocation.deleteMany({ where: { requestId: id } });
-  for (const r of raw) {
+  for (const r of raw.rows) {
     const master = EcsCharging.code(r.chargingCode);
     await prisma.chargingAllocation.create({
       data: {
         requestId: id, chargingCode: r.chargingCode, percent: r.percent, amountSgd: r.amountSgd,
+        internalOrder: r.internalOrder, isMain: r.isMain,
         chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea,
         isResearch: master?.isResearch ?? false,
       },
     });
   }
-  await audit(id, 'AMEND', chargingMode === 'LINE' ? 'Charging allocated per cost line (cross-charge)' : 'Charging allocation saved');
+  await audit(id, 'AMEND', raw.mode === 'ITEM' ? 'Charging allocated per expense item (cross-charge)' : raw.mode === 'CLAIM' ? 'Charging allocated at claim level' : 'Charging allocation saved');
   await persistPolicy(id);
   revalidatePath(`/requests/${id}/charging`);
   redirect(`/requests/${id}/policy`);

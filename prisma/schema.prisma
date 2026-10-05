@@ -262,6 +262,8 @@ model ChargingAllocation {
   isResearch    Boolean @default(false)
   percent       Float   @default(0)
   amountSgd     Float?                       // §17 amount-split entry (converted to percent at save)
+  internalOrder String?                      // §17 SAP Internal Order (optional) on this allocation line
+  isMain        Boolean @default(false)      // §17 the main charging account (ECS "Main charging account flag")
 }
 
 /// §7.1 PolicyCheck — result of common + pre-trip policy rules (§6.3)
@@ -343,6 +345,19 @@ model TravelExpenseClaim {
   request       TravelRequest? @relation(fields: [requestId], references: [id])
   claimantId    String
   status        String  @default("Draft")   // Draft | Submitted
+  reportType    String  @default("Travel expense")
+  // §13.8 editable claim header (pre-populated from the TR)
+  trsNotBooked  Boolean @default(false)      // "Booking not made on NTU's TRS"
+  travelStart   DateTime?
+  travelEnd     DateTime?
+  additionalApprover1 String?
+  additionalApprover2 String?
+  lessCorpCard  Float   @default(0)          // Less NTU Corporate Card transaction amount
+  lessPersonal  Float   @default(0)          // Less personal expenses / sponsorship received
+  // §17 claim charging snapshot (effective rows + per-line map as JSON, ECS cascade)
+  chargingMode     String  @default("MAIN")  // MAIN | CLAIM | ITEM
+  chargingMainCode String?
+  chargingJson     String?                   // JSON { rows:[{code,percent,amount,io,isMain}], lineMap:{} }
   createdAt     DateTime @default(now())
   lines         TEExpenseLine[]
   link          TravelExpenseLink?
@@ -361,6 +376,14 @@ model TEExpenseLine {
   actualSgd     Float   @default(0)
   varianceSgd   Float   @default(0)
   receiptOk     Boolean @default(false)
+  // ECS Add-Expense detail (pre-populated from the TR estimate line)
+  transactionDate DateTime?
+  reason        String?
+  receiptType   String  @default("LOCAL_GST") // LOCAL_GST | FOREIGN_NO_GST | NO_RECEIPT
+  currency      String  @default("SGD")
+  foreignAmount Float?
+  sponsorSgd    Float   @default(0)
+  chargingCode  String?                      // §17 per-item claim allocation (ITEM mode)
 }
 
 /// §7.1 TravelExpenseLink — links Travel Request to one or more TE claims

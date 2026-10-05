@@ -15,6 +15,17 @@ export interface ChargingCode {
   crossCharge?: boolean;
 }
 
+// §17 ECS charging cascade upper levels. Company Code → Business Area → CC/WBS type →
+// Charging Account. These mirror the ECS/SAP org structure the TE form selects against.
+export interface CompanyCode { code: string; name: string; }
+export const companyCodes: CompanyCode[] = [{ code: '1000', name: 'NTU' }];
+
+export interface BusinessArea { code: string; name: string; companyCode: string; }
+export const businessAreas: BusinessArea[] = [
+  { code: 'BA-CS', name: 'SCSE', companyCode: '1000' },
+  { code: 'BA-AI', name: 'RI-AI', companyCode: '1000' },
+];
+
 export const chargingCodes: ChargingCode[] = [
   { code: 'CC-1000', name: 'SCSE Teaching & Operations', type: 'CC',  departmentId: 'SCH-CS', companyCode: '1000', businessArea: 'BA-CS', isResearch: false, active: true },
   { code: 'CC-2000', name: 'RI-AI Operations',           type: 'CC',  departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: false, active: true },

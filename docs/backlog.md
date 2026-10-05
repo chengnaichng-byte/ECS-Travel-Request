@@ -216,6 +216,8 @@ Migration `p4_visa_letter`.
 |---|------|------|--------|
 | P5.1 | **Multi-TMC routing** — provider registry; one request routes to ONE TMC (no split-booking per request); explicit-preference → high-risk specialist desk → regional provider → default; provider-specific adapter/PNR; provider tagged on hand-off/booking/messages | RFI Option 1 (multiple TMCs) | ✅ **done** |
 | P5.2 | **Charging tab ECS redesign** — cost lines shown first; cross-charge **by travel request OR by cost line**; live computed cost-allocation roll-up per charging account; default account from traveller profile | §17 / ECS cost-allocation parity | ✅ **done** |
+| P5.3 | **Charging in ECS format** — 4-level cascade (Company Code → Business Area → CC/WBS → Account); "Cost allocation required?" + Claim-level/Per-item radios; Internal Order; main-account flag; entries table ("Allocation Outcome" on the TR, "Accounting Entries" on the TE) | ECS *Create TE.docx* | ✅ **done** |
+| P5.4 | **Create Travel Expense Claim form** — full ECS Create-TE screen pre-populated from the approved TR (header, expense items + Add Expense modal, totals, charging, accounting entries); claimant re-keys only actuals/receipts/incidentals | §13.8 / ECS *Create TE.docx* | ✅ **done** |
 
 **P5.1 delivered & verified live (2026-10-05):** `src/data/tmcProviders.ts` provider registry
 (FCM default/global, CTC regional Asia-Pacific, Crisis24 high-risk desk — each with scope, booking
@@ -237,6 +239,22 @@ in by-line mode `saveCharging` aggregates each line's NTU-funded amount onto its
 (`chargingRollup.ts` `rollupByCode`, shared with the live UI) and writes the effective allocation rows
 + persists `EstimatedExpense.chargingCode`. Default account = the traveller's profile
 `defaultChargingCode` (department-derived). Migration `charging_mode_and_line_code`.
+
+**P5.3 + P5.4 delivered & verified live (2026-10-05)** from the ECS *Create TE.docx* screenshots.
+**P5.3 (A):** a reusable ECS charging editor (`ChargingAccountEditor`) with the 4-level cascade
+(Company Code → Business Area → CC/WBS → Account), a **"Cost allocation required?"** checkbox and
+**Allocation at Claim/Item Level** vs **Allocation per Expense Item** radios, an **Internal Order**
+column, the **main-charging-account flag**, and a computed entries table — titled **"Allocation
+Outcome"** on the Travel Request and **"Accounting Entries"** on the TE. `chargingMode` is
+MAIN | CLAIM | ITEM; the effective split (shared `resolveChargingRows` parser) still drives routing.
+Schema: `ChargingAllocation.internalOrder` + `isMain`. Migration `charging_main_internal_order`.
+**P5.4 (B):** `/claims/[id]` rebuilt into the full ECS **Create Travel Expense Claim** screen,
+**reusing** the charging editor — Employee details, Travel Booking Details, Expense items with an
+**Add Expense** modal, totals, charging + Accounting Entries, Submit/Save draft. Everything
+structural **pre-populates from the approved Travel Request** (dates, country, class, purpose,
+booking reference, per-line approved→actual defaults, and the TR's charging snapshot); the claimant
+edits only actuals, receipts and incidentals. Schema: claim header/charging + expense-line detail
+fields. Migration `te_create_form_fields`. Mockup: `docs/mockups/create-te-from-tr.html`.
 
 ---
 

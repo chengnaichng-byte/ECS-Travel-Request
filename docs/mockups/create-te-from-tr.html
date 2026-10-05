@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Create TE from TR — Mockup</title>
+<style>
+  :root{
+    --ntu-red:#D71440; --navy:#1B1C62; --ink:#222; --muted:#6b6b76;
+    --border:#d9d9d9; --field:#ececed; --fielddis:#e2e2e6; --panel:#f6f6f8;
+    --tr:#0a7d4d; --trbg:#e6f6ee; --amber:#8a5a00; --amberbg:#fff3dd;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Arial,sans-serif;color:var(--ink);background:#fff;font-size:14px}
+  .app{display:flex;min-height:100vh}
+  /* left nav */
+  .nav{width:210px;flex:0 0 210px;border-right:1px solid #eee;background:#fff;padding-top:8px}
+  .nav .item{display:flex;gap:10px;align-items:center;padding:9px 16px;color:#3a3a46;font-size:13px}
+  .nav .item.active{background:var(--ntu-red);color:#fff;font-weight:600}
+  .nav .grp{color:#8a8a93;font-size:11px;font-weight:700;letter-spacing:.04em;padding:14px 16px 4px}
+  .nav .dot{width:16px;height:16px;border-radius:3px;background:#c9c9d2;display:inline-block;flex:0 0 16px}
+  .nav .item.active .dot{background:#fff}
+  .main{flex:1;min-width:0}
+  /* header */
+  .topbar{display:flex;align-items:center;gap:18px;padding:10px 22px;border-bottom:1px solid #eee}
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo .mark{width:40px;height:40px;border-radius:6px;background:var(--ntu-red);color:#fff;display:grid;place-items:center;font-weight:800;font-size:12px}
+  .logo .t{font-size:10px;font-weight:700;color:var(--navy);line-height:1.1}
+  .sysname{font-size:26px;font-weight:800;color:var(--ntu-red);letter-spacing:.3px}
+  .user{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--navy);font-weight:700;font-size:13px}
+  .user .av{width:30px;height:30px;border-radius:50%;background:#efeff3;display:grid;place-items:center}
+  /* title bar */
+  .titlebar{background:var(--navy);color:#fff;padding:14px 24px;display:flex;align-items:center}
+  .titlebar .bc{font-size:19px;font-weight:700}
+  .titlebar .bc .arrow{opacity:.8;margin:0 8px}
+  .titlebar .actions{margin-left:auto;display:flex;gap:16px;font-size:14px}
+  .titlebar .actions span{opacity:.95;cursor:default}
+  .titlebar .actions .mut{opacity:.55}
+  /* content */
+  .content{padding:22px 26px 60px}
+  h2.sec{font-size:20px;font-weight:700;margin:26px 0 14px;color:#1c1c22}
+  .card{border:1px solid var(--navy);border-radius:10px;padding:18px 20px;margin:14px 0}
+  .card .ch{display:flex;align-items:center;justify-content:space-between;font-size:18px;font-weight:700;margin-bottom:12px}
+  .grid{display:grid;gap:16px 22px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:1100px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:680px){.g3,.g4{grid-template-columns:1fr}}
+  label.lab{display:block;font-size:13px;color:#3b3b45;margin-bottom:6px;font-weight:600}
+  .req{color:var(--ntu-red)}
+  .field{width:100%;border:1px solid var(--border);border-radius:7px;background:#fff;padding:9px 11px;font-size:13px;color:#2a2a33;display:flex;align-items:center;gap:8px;min-height:40px}
+  .field.dis{background:var(--fielddis);color:#44444c}
+  .field .ph{color:#9a9aa3}
+  .field .ic{margin-left:auto;display:flex;gap:6px;color:#5a5a66;opacity:.8}
+  .field .ic b{font-weight:400}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .frTR{background:var(--trbg);color:var(--tr);border:1px solid #bfe6d1}
+  .pref{color:var(--tr);font-size:11px;font-weight:700;margin-left:6px}
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:10px 10px;border-bottom:1px solid #eee;vertical-align:top}
+  th{color:#3b3b45;font-weight:700;background:#fafafb;white-space:nowrap}
+  td.r,th.r{text-align:right}
+  .totals{margin-top:6px}
+  .totals .row{display:flex;justify-content:flex-end;gap:40px;padding:9px 10px;border-bottom:1px solid #f0f0f2}
+  .totals .row .k{color:#3b3b45;font-weight:600}
+  .totals .row.big .k,.totals .row.big .v{font-weight:800;color:#1c1c22}
+  .btn{display:inline-flex;align-items:center;gap:8px;background:var(--navy);color:#fff;border:none;border-radius:7px;padding:10px 16px;font-size:13px;font-weight:700;cursor:default}
+  .btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+  .addrow{display:flex;justify-content:flex-end;margin:8px 0}
+  .chk{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+  .box{width:16px;height:16px;border:1.5px solid var(--navy);border-radius:4px;display:inline-grid;place-items:center;background:#fff}
+  .box.on{background:var(--navy);color:#fff;font-size:11px}
+  .radio{display:inline-flex;align-items:center;gap:8px;font-size:13px;margin-right:26px}
+  .ring{width:16px;height:16px;border-radius:50%;border:2px solid var(--navy);display:inline-grid;place-items:center}
+  .ring.on::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--navy)}
+  .hint{background:#eaf2ff;border:1px solid #cfe0ff;color:#234f91;border-radius:8px;padding:8px 12px;font-size:12px;margin:10px 0}
+  .legend{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:6px 0 2px;font-size:12px;color:var(--muted)}
+  .note{color:var(--muted);font-size:12px;margin-top:8px}
+  .modal{border:2px solid var(--navy);border-radius:10px;overflow:hidden;margin:14px 0;box-shadow:0 8px 28px rgba(0,0,0,.12)}
+  .modal .mh{background:var(--navy);color:#fff;padding:12px 18px;font-size:17px;font-weight:700;display:flex;justify-content:space-between}
+  .modal .mb{padding:18px 20px}
+  .subtle{color:#234f91;font-size:12px;margin:4px 0 10px}
+  .mockbanner{background:var(--amberbg);border-bottom:1px solid #f0d9a6;color:var(--amber);padding:8px 26px;font-size:12px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="mockbanner">MOCKUP — faithful to the NTU ECS “Create Travel Expense Claim” screens. Green <span class="pill frTR">⟵ from TR</span> tags mark fields auto-populated from the approved Travel Request (nothing re-keyed).</div>
+<div class="app">
+  <!-- left nav (faithful, simplified) -->
+  <aside class="nav">
+    <div class="item"><span class="dot"></span>Announcement</div>
+    <div class="item active"><span class="dot"></span>Expense Claim Dashboard</div>
+    <div class="item"><span class="dot"></span>Verifier Dashboard</div>
+    <div class="item"><span class="dot"></span>RO/DOA Dashboard</div>
+    <div class="item"><span class="dot"></span>Exception Approver Dashboard</div>
+    <div class="item"><span class="dot"></span>Additional Approver Dashboard</div>
+    <div class="item"><span class="dot"></span>Auditor Dashboard</div>
+    <div class="item"><span class="dot"></span>Reporting Dashboard</div>
+    <div class="item"><span class="dot"></span>User Profile Setting</div>
+    <div class="grp">MANAGEMENT TOOLS</div>
+    <div class="item"><span class="dot"></span>User Role Directory</div>
+    <div class="item"><span class="dot"></span>Role management</div>
+    <div class="item"><span class="dot"></span>Setup &amp; Maintenance</div>
+  </aside>
+
+  <div class="main">
+    <!-- header -->
+    <div class="topbar">
+      <div class="logo"><div class="mark">NTU</div><div class="t">NANYANG<br>TECHNOLOGICAL<br>UNIVERSITY</div></div>
+      <div class="sysname">NTU EXPENSE CLAIM SYSTEM</div>
+      <div class="user"><span>Dr Alice Tan</span><span class="av">▾</span></div>
+    </div>
+    <!-- title bar -->
+    <div class="titlebar">
+      <div class="bc">Expense Claim Dashboard <span class="arrow">▶</span> Create Travel Expense Claim</div>
+      <div class="actions"><span>Submit</span><span>Save draft</span><span>Delete</span><span>Cancel</span></div>
+    </div>
+
+    <div class="content">
+      <div class="legend">
+        <span>Legend:</span>
+        <span class="pill frTR">⟵ from TR</span> pre-populated from the Travel Request &nbsp;·&nbsp;
+        <span class="pref">●</span> locked / reference &nbsp;·&nbsp; plain = claimant completes
+      </div>
+
+      <!-- Employee details -->
+      <h2 class="sec">Employee details</h2>
+      <div class="grid g4">
+        <div><label class="lab">Employee Name</label><div class="field dis">Dr Alice Tan <span class="pill frTR">⟵ from TR</span></div></div>
+        <div><label class="lab">Reporting Officer</label><div class="field dis">Prof Ben Lim (benlim@ntu.edu.sg) <span class="pill frTR">⟵ from TR</span></div></div>
+        <div><label class="lab">Additional approver 1</label><div class="field dis">Prof Ivy Chua <span class="pill frTR">⟵ from TR</span><span class="ic"><b>🔍 ▾</b></span></div></div>
+        <div><label class="lab">Additional approver 2</label><div class="field"><span class="ph">Employee Name or Email</span><span class="ic"><b>🔍 ▾</b></span></div></div>
+      </div>
+
+      <!-- Travel booking details -->
+      <h2 class="sec">Travel Booking Details</h2>
+      <div class="chk" style="margin-bottom:14px"><span class="box"></span> Booking not made on NTU’s Travel Reservation System (TRS) <span class="note" style="margin:0 0 0 8px">— unticked: this trip was handed off to a TMC <span class="pill frTR">⟵ from TR</span></span></div>
+      <div class="grid g3">
+        <div><label class="lab">Travel Booking Reference</label><div class="field dis">TA-2026-000045 · PNR FCM7K2 <span class="pill frTR">⟵ from TR</span><span class="ic"><b>🔍 ▾</b></span></div></div>
+        <div><label class="lab">Main Country/Region Of Travel</label><div class="field dis">United Kingdom <span class="pill frTR">⟵ from TR</span><span class="ic"><b>🔍 ▾</b></span></div></div>
+        <div><label class="lab">Travel Class</label><div class="field dis">Business Class (approved) <span class="pill frTR">⟵ from TR</span><span class="ic"><b>🔍 ▾</b></span></div></div>
+        <div><label class="lab">Travel Purpose</label><div class="field dis">Training/Conference - Acad Staff <span class="pill frTR">⟵ from TR</span><span class="ic"><b>🔍 ▾</b></span></div></div>
+        <div><label class="lab">Trip Description</label><div class="field dis">IEEE conference, London <span class="pill frTR">⟵ from TR</span></div></div>
+        <div><label class="lab">Travel Start Date</label><div class="field dis">10 Nov 2026 <span class="pill frTR">⟵ from TR</span><span class="ic">📅</span></div></div>
+        <div><label class="lab">Travel End Date</label><div class="field dis">14 Nov 2026 <span class="pill frTR">⟵ from TR</span><span class="ic">📅</span></div></div>
+      </div>
+
+      <!-- Expense items -->
+      <h2 class="sec">Expense items</h2>
+      <div class="addrow"><span class="btn">＋ Add expense</span></div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Transaction date</th><th>Expense type</th><th class="r">Expense amount (SGD)</th>
+          <th>Reason for expense</th><th>Policy violation</th><th class="r">Policy Limit per Unit</th>
+          <th>% Exceeded</th><th>Attachments</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>10 Nov 2026</td><td>Airfare <span class="pill frTR">⟵ from TR</span></td><td class="r">4,250.00</td><td>Conference travel SIN–LON</td><td>—</td><td class="r">—</td><td>—</td><td>e-ticket.pdf</td></tr>
+          <tr><td>10 Nov 2026</td><td>Hotel / Accommodation (Overseas) <span class="pill frTR">⟵ from TR</span></td><td class="r">1,680.00</td><td>4 nights, London</td><td>—</td><td class="r">450.00</td><td>—</td><td>folio.pdf</td></tr>
+          <tr><td>10 Nov 2026</td><td>Overseas Daily Allowance (ODA) <span class="pill frTR">⟵ from TR</span></td><td class="r">560.00</td><td>4 eligible days</td><td>—</td><td class="r">140.00</td><td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="totals">
+        <div class="row"><span class="k">Total expenses</span><span class="v">6,490.00</span></div>
+        <div class="row"><span class="k">Less NTU Corporate Card Transaction Amount</span><span class="v">0.00</span></div>
+        <div class="row"><span class="k">Less Personal Expenses / Sponsorship Received</span><span class="v">0.00</span></div>
+        <div class="row big"><span class="k">Total Reimbursable Amount</span><span class="v">6,490.00</span></div>
+      </div>
+
+      <!-- Charging account details -->
+      <div class="card">
+        <div class="ch">Charging account details <span>▾</span></div>
+        <div class="note" style="margin:-4px 0 12px">Main charging account — defaults to the request’s primary (highest-share) cost object. <span class="pill frTR">⟵ from TR</span></div>
+        <div class="grid g4">
+          <div><label class="lab">Company Code</label><div class="field dis">NTU<span class="ic"><b>✕ 🔍 ▾</b></span></div></div>
+          <div><label class="lab">Business Area</label><div class="field dis">(D811) SCSE<span class="ic"><b>✕ 🔍 ▾</b></span></div></div>
+          <div><label class="lab">CC/WBS</label><div class="field dis">(CC) Cost Center<span class="ic"><b>✕ 🔍 ▾</b></span></div></div>
+          <div><label class="lab">CC/WBS Charging Account</label><div class="field dis">(CC-1000) SCSE Teaching &amp; Operations<span class="ic"><b>✕ 🔍 ▾</b></span></div></div>
+        </div>
+
+        <!-- Cost allocation -->
+        <h2 class="sec" style="font-size:18px;margin:22px 0 10px">Cost allocation
+          <span class="chk" style="margin-left:14px;font-weight:400"><span class="box on">✓</span> Cost allocation required?</span>
+          <span class="radio" style="margin-left:18px;font-weight:400"><span class="ring on"></span> Allocation at Claim/Item Level</span>
+          <span class="radio" style="font-weight:400"><span class="ring"></span> Allocation per Expense Item</span>
+        </h2>
+        <div class="note" style="margin:-4px 0 10px">Pre-filled from the TR’s approved split (claim-level). Switch to <em>per Expense Item</em> to charge individual lines to different accounts. <span class="pill frTR">⟵ from TR</span></div>
+        <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Business Area</th><th>CC/WBS Charging Account</th><th>Internal Order</th><th class="r">Amount (SGD)</th><th class="r">Percentage (%)</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>(D811) SCSE</td><td>(CC-1000) SCSE Teaching &amp; Operations</td><td>—</td><td class="r">3,894.00</td><td class="r">60.00</td><td>✕</td></tr>
+            <tr><td>(D812) RI-AI</td><td>(WBS-R100) AI Grant Alpha</td><td>IO-55021</td><td class="r">2,596.00</td><td class="r">40.00</td><td>✕</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div class="addrow" style="justify-content:flex-start"><span class="btn">＋ Select expenses to allocate before adding the Object Code</span></div>
+      </div>
+
+      <!-- Accounting entries -->
+      <div class="card">
+        <div class="ch">Accounting Entries <span>⟳</span></div>
+        <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Company code</th><th>Business area</th><th>CC/WBS Charging account</th><th>Internal Order</th>
+            <th>GL account</th><th>Expense type</th><th class="r">Amount</th><th>Alloc. flag</th>
+            <th class="r">% of allocation</th><th>Main charging acct flag</th><th>GST</th>
+          </tr></thead>
+          <tbody>
+            <tr><td>NTU</td><td>D811</td><td>CC-1000</td><td>—</td><td>75100100</td><td>Airfare</td><td class="r">2,550.00</td><td>Yes</td><td class="r">60.00</td><td>Yes</td><td>No</td></tr>
+            <tr><td>NTU</td><td>D812</td><td>WBS-R100</td><td>IO-55021</td><td>75100100</td><td>Airfare</td><td class="r">1,700.00</td><td>Yes</td><td class="r">40.00</td><td>No</td><td>No</td></tr>
+            <tr><td>NTU</td><td>D811</td><td>CC-1000</td><td>—</td><td>75100300</td><td>Hotel / Accommodation</td><td class="r">1,008.00</td><td>Yes</td><td class="r">60.00</td><td>Yes</td><td>No</td></tr>
+            <tr><td>NTU</td><td>D812</td><td>WBS-R100</td><td>IO-55021</td><td>75100300</td><td>Hotel / Accommodation</td><td class="r">672.00</td><td>Yes</td><td class="r">40.00</td><td>No</td><td>No</td></tr>
+            <tr><td>NTU</td><td>D811</td><td>CC-1000</td><td>—</td><td>75100500</td><td>ODA</td><td class="r">336.00</td><td>Yes</td><td class="r">60.00</td><td>Yes</td><td>No</td></tr>
+            <tr><td>NTU</td><td>D812</td><td>WBS-R100</td><td>IO-55021</td><td>75100500</td><td>ODA</td><td class="r">224.00</td><td>Yes</td><td class="r">40.00</td><td>No</td><td>No</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div class="note">GL account is derived from each expense type; the main charging account carries the “Main charging account flag = Yes”.</div>
+      </div>
+
+      <!-- Comments + attachment -->
+      <div class="grid g3" style="grid-template-columns:1fr 1fr">
+        <div>
+          <h2 class="sec">Comments</h2>
+          <div class="field" style="min-height:70px;align-items:flex-start"><span class="ph">Add a comment…</span></div>
+          <div class="note">Mar 19 · Dr Alice Tan — Initial request. (carried from the TR audit trail)</div>
+        </div>
+        <div>
+          <h2 class="sec">Attachment</h2>
+          <div class="addrow" style="justify-content:flex-start"><span class="btn">＋ Add Attachment</span></div>
+          <table>
+            <thead><tr><th>Document type</th><th>File name</th><th>Uploaded by</th></tr></thead>
+            <tbody>
+              <tr><td>Conference Invitation <span class="pill frTR">⟵ from TR</span></td><td>IEEE-accept.pdf</td><td>Dr Alice Tan</td></tr>
+              <tr><td>Approval Evidence <span class="pill frTR">⟵ from TR</span></td><td>TA-2026-000045.pdf</td><td>System</td></tr>
+            </tbody>
+          </table>
+          <div class="note">Maximum of 7 files, total 7 MB. Supported: PNG, JPEG, PDF.</div>
+        </div>
+      </div>
+
+      <!-- Add Expense modal (example: Airfare) -->
+      <h2 class="sec">Add Expense — modal (per expense type)</h2>
+      <div class="modal">
+        <div class="mh"><span>Add Expense</span><span>✕</span></div>
+        <div class="mb">
+          <div class="grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
+            <div style="grid-column:span 2"><label class="lab">Transaction Date <span class="req">*</span></label><div class="field"><span class="ph">Transaction date</span><span class="ic">📅</span></div></div>
+            <div style="grid-column:span 2"><label class="lab">Expense Type <span class="req">*</span></label><div class="field" style="border-color:var(--navy)">Airfare <span class="ic">▾</span></div></div>
+            <div><label class="lab">Currency <span class="req">*</span></label><div class="field">SGD <span class="ic"><b>🔍 ▾</b></span></div></div>
+            <div><label class="lab">Amount <span class="req">*</span></label><div class="field"><span class="ph">0.00</span></div></div>
+            <div><label class="lab">Exchange Rate <span class="req">*</span></label><div class="field dis">1.00000</div></div>
+            <div><label class="lab">Amount (SGD) <span class="req">*</span></label><div class="field dis"><span class="ph">0.00</span></div></div>
+          </div>
+          <div class="subtle" style="margin-top:12px">Sponsorship Amount (For Gross Claims) — enter only if the Amount field is the full gross expense; leave blank if it already reflects the net claimed from NTU.</div>
+          <div class="grid" style="grid-template-columns:1fr 1fr 1fr 1fr">
+            <div><label class="lab">Currency</label><div class="field">SGD <span class="ic"><b>🔍 ▾</b></span></div></div>
+            <div><label class="lab">Sponsorship Amount</label><div class="field"><span class="ph">0.00</span></div></div>
+            <div><label class="lab">Exchange Rate <span class="req">*</span></label><div class="field dis">1.00000</div></div>
+            <div><label class="lab">Sponsorship Amount (SGD)</label><div class="field dis"><span class="ph">0.00</span></div></div>
+          </div>
+          <div style="margin-top:12px"><label class="lab">Reason For Expense</label><div class="field" style="min-height:70px;align-items:flex-start"></div></div>
+          <div style="display:flex;gap:40px;margin-top:14px;flex-wrap:wrap">
+            <div>
+              <div class="radio" style="display:flex;margin-bottom:8px"><span class="ring on"></span> Local Receipt (With GST)</div>
+              <div class="radio" style="display:flex;margin-bottom:8px"><span class="ring"></span> Receipt (Foreign / Local Without GST)</div>
+              <div class="radio" style="display:flex"><span class="ring"></span> No Receipt</div>
+            </div>
+            <div style="flex:1;min-width:260px"><label class="lab">Justification For No Receipt</label><div class="field dis" style="min-height:70px"></div></div>
+          </div>
+          <div class="note">Expense-type sub-forms: <b>Hotel</b> adds Destination/City/Check-in/Check-out/Duration/Avg rate; <b>ODA</b> adds “＋ Add country” rows (Country/City/Arrival/Departure/Duration/ODA rate); <b>Other</b> adds “＋ Add receipt/attachment”. All pre-fill from the TR estimate line when created from a Travel Request.</div>
+          <div class="addrow"><span class="btn">Save</span>&nbsp;&nbsp;<span class="btn ghost">Cancel</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>
