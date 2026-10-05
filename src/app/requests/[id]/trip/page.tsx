@@ -1,6 +1,5 @@
 // TR-04 Trip Details — purpose, justification, dates, itinerary, travel class and
 // proposed booking method (§4.4 replaces the retrospective TRS checkbox).
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { currentPersonaId } from '@/shared/session';
@@ -12,7 +11,7 @@ import { airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS } from '@/shared/enums';
 import { BookingFields } from '@/components/BookingFields';
-import { TripItinerary } from '@/components/TripItinerary';
+import { TripPlanner } from '@/components/TripPlanner';
 import { EcsReference, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { Card, Stepper } from '@/components/ui';
 
@@ -88,55 +87,22 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           </div>
         </Card>
 
-        <Card title="Destination & Itinerary">
-          <TripItinerary
-            airports={airports.map((a) => ({ code: a.code, name: a.name }))}
-            initialTripType={tripType}
-            initialLegs={initialLegs}
-            disabled={!canEdit}
-          />
-          <div className="grid md:grid-cols-3 gap-4 mt-4 border-t border-[var(--ecs-border)] pt-4">
-            <div>
-              <label className="label">Travel class</label>
-              <select name="travelClassId" defaultValue={prefillClass} disabled={!canEdit} className="field">
-                {travelClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledName}</strong> · <span className="italic">{basis}</span> (§13.19)</p>
-            </div>
-            <div className="md:col-span-2">
-              <label className="label">Justification for higher class (required if above entitlement — §13.19)</label>
-              <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} disabled={!canEdit} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Dates">
-          <div className="grid md:grid-cols-4 gap-4">
-            <div>
-              <label className="label">Official start</label>
-              <input type="date" name="startDate" defaultValue={d(req.startDate)} className="field" required />
-            </div>
-            <div>
-              <label className="label">Official end</label>
-              <input type="date" name="endDate" defaultValue={d(req.endDate)} className="field" required />
-            </div>
-            <div>
-              <label className="label">Personal extension start</label>
-              <input type="date" name="personalStart" defaultValue={d(req.personalStart)} className="field" />
-            </div>
-            <div>
-              <label className="label">Personal extension end</label>
-              <input type="date" name="personalEnd" defaultValue={d(req.personalEnd)} className="field" />
-            </div>
-          </div>
-          <p className="text-xs text-[var(--ecs-muted)] mt-2">Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5, AC18).</p>
-        </Card>
-
-        <div className="flex justify-end gap-2">
-          {canEdit
-            ? <button type="submit" className="btn-primary">Save trip &amp; continue →</button>
-            : <Link href={`/requests/${id}/estimates`} className="btn-primary">Continue →</Link>}
-        </div>
+        <TripPlanner
+          airports={airports.map((a) => ({ code: a.code, name: a.name }))}
+          initialTripType={tripType}
+          initialLegs={initialLegs}
+          initialStart={d(req.startDate)}
+          initialEnd={d(req.endDate)}
+          initialPersonalStart={d(req.personalStart)}
+          initialPersonalEnd={d(req.personalEnd)}
+          travelClasses={travelClasses.map((c) => ({ id: c.id, name: c.name }))}
+          prefillClass={prefillClass}
+          entitledName={entitledName}
+          basis={basis}
+          initialJustification={req.classJustification ?? ''}
+          continueHref={`/requests/${id}/estimates`}
+          disabled={!canEdit}
+        />
       </form>
     </div>
   );

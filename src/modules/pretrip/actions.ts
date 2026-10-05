@@ -221,9 +221,33 @@ export async function saveTrip(id: string, fd: FormData) {
   if (!purposeId) missing.push('travel purpose');
   if (formLegs.length === 0) missing.push('at least one itinerary leg with a destination');
   if (!start || !end) missing.push('travel dates');
-  if (start && end && start > end) missing.push('a return date on or after departure');
   if (!str(fd, 'bookingArrangement')) missing.push('booking arrangement');
   if (missing.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please provide: ' + missing.join(', ') + '.')}`);
+
+  // §4.4/§4.5 cross-field date validation — authoritative mirror of the in-form checks. The
+  // legs must sit inside the travel window (widened by any personal extension on either side),
+  // run in order, and the personal extension cannot overlap the official travel dates.
+  const pStart = dateOrNull(fd, 'personalStart');
+  const pEnd = dateOrNull(fd, 'personalEnd');
+  const parse = (s: string) => (s ? new Date(s) : null);
+  const invalid: string[] = [];
+  if (start && end && end < start) invalid.push('the official end date is before the official start date');
+  if (pStart && pEnd && pEnd < pStart) invalid.push('the personal extension end is before its start');
+  if (start && end && (pStart || pEnd)) {
+    const pS = pStart ?? pEnd!, pE = pEnd ?? pStart!;
+    if (!(pE <= start || pS >= end)) invalid.push('the personal extension overlaps the official travel dates (it must fall before the start or after the end)');
+  }
+  const winStart = pStart && start && pStart < start ? pStart : start;
+  const winEnd = pEnd && end && pEnd > end ? pEnd : end;
+  let prevDepart: Date | null = null;
+  formLegs.forEach((l, i) => {
+    const dDep = parse(l.departDate), dArr = parse(l.arriveDate);
+    if (dDep && dArr && dArr < dDep) invalid.push(`leg ${i + 1}'s arrival is before its departure`);
+    if (dDep && winStart && winEnd && (dDep < winStart || dDep > winEnd)) invalid.push(`leg ${i + 1} departs outside the travel window`);
+    if (dDep && prevDepart && dDep < prevDepart) invalid.push(`leg ${i + 1} departs before the previous leg`);
+    if (dDep) prevDepart = dDep;
+  });
+  if (invalid.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please fix the dates: ' + invalid.join('; ') + '.')}`);
   // §13.19 derive the entitled class for the (single-destination) trip and pre-fill it.
   const hours = EcsReference.flightHours(destCity);
   const derived = EcsTravelClassRegister.entitledForItinerary(req0?.travellerId ?? 'E-TRAV', [{ durationHours: hours, destCode: destCity }], start ?? new Date());
