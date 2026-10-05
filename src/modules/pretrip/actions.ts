@@ -16,7 +16,8 @@ import { buildRoute, statusForStep } from './route';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares } from './group';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, POLICY_OUTCOME } from '@/shared/enums';
+import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
+import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName } from './traveller';
 import { ruleActive } from '@/config/policyRules';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
@@ -210,12 +211,13 @@ export async function saveTrip(id: string, fd: FormData) {
   if (!destCountry || !destCity) missing.push('destination');
   if (!start || !end) missing.push('travel dates');
   if (start && end && start > end) missing.push('a return date on or after departure');
-  if (!str(fd, 'bookingMethod')) missing.push('booking method');
+  if (!str(fd, 'bookingArrangement')) missing.push('booking arrangement');
   if (missing.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please provide: ' + missing.join(', ') + '.')}`);
   // §13.19 derive the entitled class for the (single-destination) trip and pre-fill it.
   const hours = EcsReference.flightHours(destCity);
   const derived = EcsTravelClassRegister.entitledForItinerary(req0?.travellerId ?? 'E-TRAV', [{ durationHours: hours, destCode: destCity }], start ?? new Date());
   const chosenClass = str(fd, 'travelClassId') || derived.classId;
+  const bookingArr = str(fd, 'bookingArrangement') || BOOKING_ARRANGEMENT.Auto;
 
   await prisma.travelRequest.update({
     where: { id },
@@ -233,12 +235,14 @@ export async function saveTrip(id: string, fd: FormData) {
       eventEndDate: dateOrNull(fd, 'eventEndDate'),
       invitationRef: str(fd, 'invitationRef') || null,
       visaLetterRequired: str(fd, 'visaLetterRequired') === 'on',
-      tmcProviderId: str(fd, 'tmcProviderId') || null, // multi-TMC preferred provider (null = auto)
+      // §2.2 booking arrangement drives the (derived) preferred TMC + the TMC method.
+      bookingArrangement: bookingArr,
+      tmcProviderId: providerFromArrangement(bookingArr), // TMC-<id> → explicit provider; AUTO/non-TMC → null
+      bookingMethod: isTmcArrangement(bookingArr) ? (str(fd, 'bookingMethod') || null) : null,
       travelClassId: chosenClass,
       entitledClassId: derived.classId,
       classBasis: derived.basis,
       classJustification: str(fd, 'classJustification') || null,
-      bookingMethod: str(fd, 'bookingMethod'),
     },
   });
   // Default single-destination return itinerary — only when no legs exist yet, so a
@@ -833,7 +837,7 @@ export async function setBookingTmcStatus(id: string, fd: FormData) {
 
 export async function markSelfBooked(id: string) {
   await prisma.travelBooking.create({ data: { requestId: id, channel: 'SELF_BOOKED', status: BOOKING_STATUS.SelfBooked } });
-  await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.SelfBooked, bookingMethod: BOOKING_METHOD.SelfBooked } });
+  await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.SelfBooked, bookingArrangement: BOOKING_ARRANGEMENT.SelfBooked, bookingMethod: null } });
   await audit(id, 'STATUS', 'Traveller marked trip as self-booked (§13.17)');
   revalidatePath(`/requests/${id}/booking`);
 }

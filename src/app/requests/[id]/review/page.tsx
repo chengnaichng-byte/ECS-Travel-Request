@@ -12,6 +12,7 @@ import { employees } from '@/data/employees';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { isHighRisk } from '@/modules/pretrip/risk';
+import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { Card, KV, Stepper } from '@/components/ui';
 import { OutcomePill } from '@/components/StatusPill';
 import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
@@ -65,7 +66,7 @@ export default async function ReviewStep({ params }: { params: Promise<{ id: str
             <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
             <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
             <KV label="Travel class">{EcsReference.travelClass(req.travelClassId ?? '')?.name}</KV>
-            <KV label="Booking method">{req.bookingMethod ?? '—'}</KV>
+            <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
             {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
             {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
             {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}

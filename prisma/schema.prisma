@@ -106,7 +106,8 @@ model TravelRequest {
   entitledClassId   String?                         // §13.19 derived entitlement (individual)
   classBasis        String?                         // derivation basis text
   classJustification String?                        // required when chosen class > entitlement
-  bookingMethod     String?                         // §2.2 proposed booking method
+  bookingArrangement String?  @default("AUTO")       // §2.2 AUTO | TMC-<id> | SELF_BOOKED | HOST_ARRANGED | NO_BOOKING
+  bookingMethod     String?                         // §2.2 TMC channel sub-method (TMC_ONLINE | AGENT_ASSISTED | OFFLINE), only when arranged via a TMC
   chargingMode      String   @default("REQUEST")    // §17 REQUEST (whole-request split) | LINE (cross-charge per cost line)
 
   // Derived approval routing snapshot

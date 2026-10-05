@@ -7,7 +7,8 @@ import { fmtSgd, type CostSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNightsAtCity } from '@/modules/pretrip/group';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
-import { EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD_LABEL } from '@/shared/enums';
+import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
+import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { Card } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type SummaryRow } from './CostItemsTable';
 import type { FullRequest } from '@/modules/pretrip/queries';
@@ -71,7 +72,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
         </Field>
 
         <Field label="Event / Conference">{req.description?.split('—')[0] ?? '—'}</Field>
-        <Field label="Booking Method">{req.bookingMethod ? BOOKING_METHOD_LABEL[req.bookingMethod] ?? req.bookingMethod : '—'}</Field>
+        <Field label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</Field>
         <Field label="Primary Charging Account">
           {pc ? <span>{pc.code} · {pc.name} <span className="text-[var(--ecs-muted)]">({pc.pct}%{pc.research ? ' · research' : ''})</span></span> : '—'}
         </Field>

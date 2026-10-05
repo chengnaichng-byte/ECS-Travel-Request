@@ -8,6 +8,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { travellerName, travellerTitle, isGuestRequest } from '@/modules/pretrip/traveller';
 import { sharedLegs } from '@/modules/pretrip/group';
+import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { POLICY_OUTCOME } from '@/shared/enums';
 import { PrintButton } from '@/components/PrintButton';
 
@@ -72,7 +73,7 @@ export default async function ApprovalPack({ params }: { params: Promise<{ id: s
       {(req.eventStartDate || req.eventEndDate) && <Row k="Event dates" v={`${d(req.eventStartDate)} → ${d(req.eventEndDate)}`} />}
       {req.invitationRef && <Row k="Invitation ref" v={req.invitationRef} />}
       <Row k="Travel class" v={EcsReference.travelClass(req.travelClassId ?? '')?.name} />
-      <Row k="Booking method" v={req.bookingMethod ?? '—'} />
+      <Row k="Booking arrangement" v={bookingSummaryText(req.bookingArrangement, req.bookingMethod)} />
 
       {legs.length > 0 && (
         <>

@@ -132,6 +132,28 @@ export const BOOKING_METHOD_LABEL: Record<string, string> = {
   NO_BOOKING: 'No booking required',
 };
 
+/** §2.2 the TMC channel sub-methods offered when the booking is arranged via a TMC. */
+export const TMC_BOOKING_METHODS: { value: string; label: string }[] = [
+  { value: BOOKING_METHOD.TMCOnline, label: 'TMC online' },
+  { value: BOOKING_METHOD.AgentAssisted, label: 'TMC agent-assisted' },
+  { value: BOOKING_METHOD.Offline, label: 'Offline (TMC)' },
+];
+
+/** §2.2 Booking arrangement — how the trip is fulfilled. A TMC (Auto = provider chosen
+ *  by policy, or a specific provider) OR a non-TMC arrangement. The non-TMC values replace
+ *  the old booking-method values Self-booked / Host-arranged / No booking required. */
+export const BOOKING_ARRANGEMENT = {
+  Auto: 'AUTO',
+  SelfBooked: 'SELF_BOOKED',
+  HostArranged: 'HOST_ARRANGED',
+  NoBooking: 'NO_BOOKING',
+} as const;
+export const NON_TMC_ARRANGEMENTS: { value: string; label: string }[] = [
+  { value: BOOKING_ARRANGEMENT.SelfBooked, label: 'Self-booked (§13.17)' },
+  { value: BOOKING_ARRANGEMENT.HostArranged, label: 'Host-arranged' },
+  { value: BOOKING_ARRANGEMENT.NoBooking, label: 'No booking required' },
+];
+
 export const EXPENSE_CATEGORY = {
   Airfare: 'AIRFARE',
   Accommodation: 'ACCOMMODATION',

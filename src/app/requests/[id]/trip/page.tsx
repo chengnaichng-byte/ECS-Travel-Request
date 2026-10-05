@@ -11,7 +11,8 @@ import { travelPurposes } from '@/data/travelPurposes';
 import { activeProviders } from '@/data/tmcProviders';
 import { countries, cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
-import { BOOKING_METHOD_LABEL } from '@/shared/enums';
+import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS } from '@/shared/enums';
+import { BookingFields } from '@/components/BookingFields';
 import { EcsReference, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { Card, Stepper } from '@/components/ui';
 
@@ -45,7 +46,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s trip details.</div>}
       <form action={saveTrip.bind(null, id)} className="space-y-5">
         <Card title="Trip Purpose & Justification">
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-3 gap-4">
             <div>
               <label className="label">Travel purpose</label>
               <select name="purposeId" defaultValue={req.purposeId ?? ''} className="field" required>
@@ -53,22 +54,14 @@ export default async function TripStep({ params, searchParams }: { params: Promi
                 {travelPurposes.filter((p) => p.active || p.id === req.purposeId).map((p) => <option key={p.id} value={p.id}>{p.name}{p.isResearch ? ' (research)' : ''}</option>)}
               </select>
             </div>
-            <div>
-              <label className="label">Proposed booking method (§2.2)</label>
-              <select name="bookingMethod" defaultValue={req.bookingMethod ?? ''} className="field">
-                <option value="">Select…</option>
-                {Object.entries(BOOKING_METHOD_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Preferred TMC (optional)</label>
-              <select name="tmcProviderId" defaultValue={req.tmcProviderId ?? ''} className="field">
-                <option value="">Auto — route by policy</option>
-                {activeProviders().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <p className="text-xs text-[var(--ecs-muted)] mt-1">The request is routed to one TMC; leave on Auto to route by destination and policy, or pick a preferred provider.</p>
-            </div>
-            <div className="md:col-span-2">
+            <BookingFields
+              providers={activeProviders().map((p) => ({ id: p.id, name: p.name }))}
+              nonTmc={NON_TMC_ARRANGEMENTS}
+              methods={TMC_BOOKING_METHODS}
+              initialArrangement={req.bookingArrangement ?? 'AUTO'}
+              initialMethod={req.bookingMethod ?? ''}
+            />
+            <div className="md:col-span-3">
               <label className="label">Description / justification</label>
               <textarea name="description" defaultValue={req.description ?? ''} rows={2} className="field" placeholder="e.g. Presenting a paper at IEEE conference" />
             </div>
@@ -80,11 +73,11 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               <label className="label">Event end</label>
               <input type="date" name="eventEndDate" defaultValue={d(req.eventEndDate)} className="field" />
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="label">Invitation / acceptance reference</label>
               <input name="invitationRef" defaultValue={req.invitationRef ?? ''} className="field" placeholder="e.g. IEEE-2027-ACCEPT-4821" />
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="visaLetterRequired" defaultChecked={req.visaLetterRequired} className="w-4 h-4" />
                 <span>A <strong>visa letter</strong> is required for this trip (§4.13) — the immigration office is notified once the request is approved.</span>

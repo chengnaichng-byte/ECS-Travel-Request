@@ -8,6 +8,7 @@ import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareT
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
+import { isTmcArrangement, isSelfBooked, isHostArranged, isNoBooking, arrangementLabel } from '@/modules/pretrip/booking';
 import { tmcProvider } from '@/data/tmcProviders';
 import { BOOKING_STATUS, TMC_INFLIGHT_STATUSES } from '@/shared/enums';
 import { Card, KV, Empty } from '@/components/ui';
@@ -41,8 +42,11 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
       <div className="flex flex-wrap items-center gap-2">
         {req.bookingStatus === 'Not Sent' && (
           <>
-            <form action={handoffToTmc.bind(null, id)}><button className="btn-primary">Send to TMC (mock hand-off)</button></form>
-            {settings.selfBookingEnabled && <form action={markSelfBooked.bind(null, id)}><button className="btn-secondary">Mark self-booked (§13.17)</button></form>}
+            {isTmcArrangement(req.bookingArrangement) && <form action={handoffToTmc.bind(null, id)}><button className="btn-primary">Send to TMC (mock hand-off)</button></form>}
+            {(isSelfBooked(req.bookingArrangement) || settings.selfBookingEnabled) && <form action={markSelfBooked.bind(null, id)}><button className="btn-secondary">Mark self-booked (§13.17)</button></form>}
+            {(isHostArranged(req.bookingArrangement) || isNoBooking(req.bookingArrangement)) && (
+              <span className="text-sm text-[var(--ecs-muted)]">No TMC booking — this trip is <strong>{arrangementLabel(req.bookingArrangement)}</strong>.</span>
+            )}
           </>
         )}
         {inFlight && (
@@ -91,9 +95,16 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
       </div>
 
       <div className="card px-4 py-3 text-sm flex flex-wrap items-center gap-x-6 gap-y-1">
-        <div><span className="text-[var(--ecs-muted)]">TMC provider</span> <strong className="text-[var(--ecs-navy)]">{tmcProvider(activeProviderId)?.name ?? routing.provider.name}</strong></div>
-        <div className="text-xs text-[var(--ecs-muted)]">{req.bookingStatus === BOOKING_STATUS.NotSent ? `Will route to this provider — ${routing.reason}.` : 'Provider this request was handed off to.'}</div>
-        <div className="text-xs text-[var(--ecs-muted)] font-mono">{tmcProvider(activeProviderId)?.transport}</div>
+        <div><span className="text-[var(--ecs-muted)]">Booking arrangement</span> <strong className="text-[var(--ecs-navy)]">{arrangementLabel(req.bookingArrangement)}</strong></div>
+        {isTmcArrangement(req.bookingArrangement) ? (
+          <>
+            <div><span className="text-[var(--ecs-muted)]">TMC provider</span> <strong className="text-[var(--ecs-navy)]">{tmcProvider(activeProviderId)?.name ?? routing.provider.name}</strong></div>
+            <div className="text-xs text-[var(--ecs-muted)]">{req.bookingStatus === BOOKING_STATUS.NotSent ? `Will route to this provider — ${routing.reason}.` : 'Provider this request was handed off to.'}</div>
+            <div className="text-xs text-[var(--ecs-muted)] font-mono">{tmcProvider(activeProviderId)?.transport}</div>
+          </>
+        ) : (
+          <div className="text-xs text-[var(--ecs-muted)]">Not routed to a TMC.</div>
+        )}
       </div>
 
       {req.bookingStatus === BOOKING_STATUS.Failed && (

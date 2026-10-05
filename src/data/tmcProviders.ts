@@ -21,7 +21,7 @@ export interface TmcProvider {
 
 export const tmcProviders: TmcProvider[] = [
   { id: 'TMC-FCM', name: 'FCM Travel (Primary)', adapterKey: 'fcm', active: true, scope: 'ALL', isDefault: true, pnrPrefix: 'FCM',
-    bookingMethods: [BOOKING_METHOD.TMCOnline, BOOKING_METHOD.AgentAssisted, BOOKING_METHOD.Offline, BOOKING_METHOD.HostArranged],
+    bookingMethods: [BOOKING_METHOD.TMCOnline, BOOKING_METHOD.AgentAssisted, BOOKING_METHOD.Offline],
     transport: 'sftp://fcm-gateway.example:22 (key: ECS_FCM_2026)' },
   { id: 'TMC-CTC', name: 'CTC Travel (Asia-Pacific)', adapterKey: 'ctc', active: true, scope: ['SG', 'JP', 'KR', 'CN', 'HK', 'MY', 'IN', 'AU'], pnrPrefix: 'CTC',
     bookingMethods: [BOOKING_METHOD.TMCOnline, BOOKING_METHOD.AgentAssisted],
