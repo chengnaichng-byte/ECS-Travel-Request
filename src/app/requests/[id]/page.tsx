@@ -96,6 +96,9 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
+      {/* Workflow — second section, just beneath the approval status. */}
+      <WorkflowChevrons req={req} />
+
       {req.status === REQUEST_STATUS.Rejected && <div className="card p-4 bg-red-50 border-red-200 text-sm text-red-800">This request was rejected. A new request is required (it may be copied below).</div>}
       {isAmendment && <div className="card p-4 bg-amber-50 border-amber-200 text-sm text-amber-800">Under <strong>material-amendment reapproval</strong> (§13.14): the route has been re-derived and restarted; the Travel Authorisation is retained and a new approved version is created on reapproval.</div>}
 
@@ -104,8 +107,6 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       <HighRiskAdvisory req={req} />
 
       <SummaryCard req={req} bookingDeadlineDays={settings.bookingDeadlineDays} />
-
-      <WorkflowChevrons req={req} />
 
       {/* Lettered cards (letters assigned in reading order) */}
       <div className="grid md:grid-cols-2 gap-5 items-start">

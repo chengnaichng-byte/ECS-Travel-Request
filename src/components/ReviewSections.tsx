@@ -260,30 +260,35 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
   return (
     <Card title={heading(letter, 'Cost Allocation')}>
       <div className="grid md:grid-cols-4 gap-3 mb-3">
-        <Field label="Cross-charge">{crossCharge ? <span className="pill-pass">Yes</span> : <span className="pill-info">No</span>}</Field>
+        <Field label="Cost allocation required?">{crossCharge ? <span className="pill-pass">Yes</span> : <span className="pill-info">No</span>}</Field>
         <Field label="Research funding">{research ? <span className="pill-warn">Research WBS</span> : 'No'}</Field>
-        <Field label="Primary Charging Unit">{primaryDept ?? '—'}</Field>
-        <Field label="Approval Basis">Highest-share charging line{crossCharge ? ' + cross-charge allocation' : ''} (Gross Estimate).</Field>
+        <Field label="Main charging account">{primary ? `${primary.chargingCode} · ${EcsCharging.code(primary.chargingCode)?.name ?? ''}` : '—'}<div className="text-xs text-[var(--ecs-muted)]">{primaryDept ?? ''}</div></Field>
+        <Field label="Approval Basis">Highest-share charging line{crossCharge ? ' + cost allocation' : ''} (Gross Estimate).</Field>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead><tr><th className="th">Charging Unit</th><th className="th">CC / WBS</th><th className="th">Charging Account</th><th className="th">Company / BA</th><th className="th text-right">%</th><th className="th text-right">Amount (SGD)</th></tr></thead>
+          <thead><tr>
+            <th className="th">Company Code</th><th className="th">Business Area</th><th className="th">CC/WBS</th><th className="th">CC/WBS Charging Account</th>
+            <th className="th">Internal Order</th><th className="th">Main acct</th><th className="th text-right">% of allocation</th><th className="th text-right">Amount (SGD)</th>
+          </tr></thead>
           <tbody>
             {req.allocations.map((a) => {
               const c = EcsCharging.code(a.chargingCode);
               return (
                 <tr key={a.id} className="hover:bg-[var(--ecs-panel-2)]">
-                  <td className="td">{EcsIdentity.department(c?.departmentId ?? '')?.name ?? c?.name}{c?.isResearch && <span className="pill-warn ml-1">Research</span>}</td>
-                  <td className="td">{a.chargingCode}</td>
-                  <td className="td">{c?.name}{c?.fundingOwnerId && <div className="text-xs text-[var(--ecs-muted)]">Funding owner: {EcsIdentity.employee(c.fundingOwnerId)?.name}</div>}</td>
-                  <td className="td whitespace-nowrap">{c?.companyCode ?? a.companyCode} · {c?.businessArea ?? a.businessArea}</td>
+                  <td className="td">{c?.companyCode ?? a.companyCode ?? '—'}</td>
+                  <td className="td whitespace-nowrap">{c?.businessArea ?? a.businessArea ?? '—'}{c?.isResearch && <span className="pill-warn ml-1">Research</span>}</td>
+                  <td className="td">{c?.type ?? a.chargingType}</td>
+                  <td className="td whitespace-nowrap">{a.chargingCode} · {c?.name}{c?.fundingOwnerId && <div className="text-xs text-[var(--ecs-muted)]">Funding owner: {EcsIdentity.employee(c.fundingOwnerId)?.name}</div>}</td>
+                  <td className="td">{a.internalOrder ?? '—'}</td>
+                  <td className="td">{a.isMain ? 'Yes' : 'No'}</td>
                   <td className="td text-right">{a.percent}%</td>
                   <td className="td text-right whitespace-nowrap font-medium">{fmtSgd((amount * a.percent) / 100)}</td>
                 </tr>
               );
             })}
           </tbody>
-          <tfoot><tr className="font-semibold text-[var(--ecs-navy)]"><td className="td" colSpan={4}>Total estimated NTU-funded cost</td><td className="td text-right">{req.allocations.reduce((s, a) => s + a.percent, 0)}%</td><td className="td text-right">{fmtSgd(amount)}</td></tr></tfoot>
+          <tfoot><tr className="font-semibold text-[var(--ecs-navy)]"><td className="td" colSpan={6}>Total estimated NTU-funded cost</td><td className="td text-right">{req.allocations.reduce((s, a) => s + a.percent, 0)}%</td><td className="td text-right">{fmtSgd(amount)}</td></tr></tfoot>
         </table>
       </div>
       {crossCharge && (
