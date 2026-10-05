@@ -12,8 +12,10 @@ export const moduleSettingsDefaults = {
   teLinkageMandatory: 'CONDITIONAL' as 'YES' | 'NO' | 'CONDITIONAL',
   approvalAmountBasis: 'NET_NTU' as 'GROSS' | 'NET_NTU' | 'MAJOR_COST' | 'ALLOCATION',
   groupTravelEnabled: true,         // §13.14
-  groupSubItineraries: true,        // §13.20 per-traveller sub-itineraries (design decision D3)
   exceptionApproverRequired: true,  // §26 insert an Exception Approver step for exceptions (else surface to DOA)
+  roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
+  teAutoGrantTolerancePct: 10,      // §51 TE claim DOA auto-grant tolerance (% over approved)
+  teAutoGrantToleranceAbsSgd: 500,  // §51 TE claim DOA auto-grant tolerance (SGD over approved)
   crossBaThresholdSgd: 500,         // §18 cross-business-area concurrence threshold (AC5)
   selfBookingEnabled: true,         // §13.17
   selfApprovalLimitSgd: 0,          // §43 self-approval limit (0 = never self-approve)
@@ -29,7 +31,13 @@ export const moduleSettingsDefaults = {
 /** §3.4 decision catalogue — drives the Module Settings screen (TR-19). */
 export const decisionCatalogue = [
   { key: 'exceptionApproverRequired', label: 'Exception Approver step required', kind: 'boolean',
-    effect: 'When on, a policy exception inserts an Exception Approver before DOA; when off, the exception is surfaced to the DOA to decide (§26).' },
+    effect: 'When on, a policy exception inserts an Exception Approver before DOA; when off, the exception is surfaced to the DOA to decide (§26). Applies to both the Travel Request and the TE claim workflows.' },
+  { key: 'roRequirement', label: 'RO (Reporting Officer) decision point', kind: 'enum', options: ['ALWAYS', 'INDIVIDUAL_ONLY', 'NEVER'],
+    effect: 'Workflow configuration for the RO step: ALWAYS = every request; INDIVIDUAL_ONLY = individual requests only, dropped for a group request; NEVER = no RO step. DOA is always required (§51).' },
+  { key: 'teAutoGrantTolerancePct', label: 'TE claim DOA auto-grant tolerance (%)', kind: 'number',
+    effect: 'On a TE claim, the DOA step is auto-granted from the approved Travel Request when the claim total is within this % over the approved amount (and within the SGD cap), with no new policy exception and no new expense type (§51).' },
+  { key: 'teAutoGrantToleranceAbsSgd', label: 'TE claim DOA auto-grant tolerance (SGD)', kind: 'number',
+    effect: 'Absolute SGD cap for the TE claim DOA auto-grant tolerance above (§51).' },
   { key: 'sameRouteResearch', label: 'Same route for research & non-research', kind: 'boolean',
     effect: 'If off, research-charged requests route to the Research DOA line.' },
   { key: 'crossBaThresholdSgd', label: 'Cross-BA concurrence threshold (SGD)', kind: 'number',

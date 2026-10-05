@@ -564,6 +564,7 @@ export async function submitRequest(id: string, fd?: FormData) {
     approvalAmount: summary.approvalAmount,
     hasException: exception,
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
+    roRequirement: settings.roRequirement,
   });
   const firstStatus = steps.length ? statusForStep(steps[0].roleType) : REQUEST_STATUS.PendingDOA;
   // Atomic: approval amount + rebuilt route + status move together (no half-built route).

@@ -11,8 +11,19 @@ import { prepopulateClaim } from './prepopulate';
 import { getContractSettings, prepopContract, getGuardSettings, evaluateFlow } from '@/modules/pretrip/integration';
 import { resolveChargingRows } from '@/modules/pretrip/chargingRollup';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { buildClaimRoute, type ClaimLike } from './workflow';
+import { CLAIM_STATUS, claimStatusForRole } from '@/shared/enums';
 
 const claimYear = () => new Date().getFullYear();
+
+const claimWfOpts = (s: Awaited<ReturnType<typeof getSettings>>) => ({
+  exceptionApproverRequired: s.exceptionApproverRequired,
+  roRequirement: s.roRequirement,
+  sameRouteResearch: s.sameRouteResearch,
+  teAutoGrantTolerancePct: s.teAutoGrantTolerancePct,
+  teAutoGrantToleranceAbsSgd: s.teAutoGrantToleranceAbsSgd,
+});
+const asClaimLike = (claim: { claimantId: string; lessCorpCard: number; lessPersonal: number; chargingMainCode: string | null; lines: { expenseTypeId: string; actualSgd: number; sponsorSgd: number; receiptType: string }[] }): ClaimLike => claim;
 
 /** §13.8 Create a draft TE claim pre-populated from an approved Travel Request. */
 export async function createClaimFromRequest(requestId: string) {
@@ -96,9 +107,59 @@ export async function updateClaimActuals(claimId: string, fd: FormData) {
   revalidatePath(`/claims/${claimId}`);
 }
 
+/** §51 Submit the claim → build the configurable claim route (Verifier → [Exception] →
+ *  [RO] → DOA), auto-granting the DOA from the approved Travel Request when in tolerance. */
 export async function submitClaim(claimId: string) {
-  const claim = await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: { status: 'Submitted' } });
-  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submitted` } });
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { lines: true } });
+  if (!claim || !claim.requestId || (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack)) return;
+  const req = await loadRequest(claim.requestId);
+  if (!req) return;
+  const steps = buildClaimRoute(asClaimLike(claim), req, claimWfOpts(await getSettings()));
+
+  await prisma.claimApprovalStep.deleteMany({ where: { claimId } });
+  for (const s of steps) {
+    await prisma.claimApprovalStep.create({
+      data: { claimId, seq: s.seq, roleType: s.roleType, approverId: s.approverId, autoGranted: !!s.autoGranted, status: s.autoGranted ? 'Approved' : 'Pending', decidedAt: s.autoGranted ? new Date() : null, comments: s.autoGranted ? s.note : null },
+    });
+  }
+  const firstPending = steps.find((s) => !s.autoGranted);
+  const status = firstPending ? claimStatusForRole(firstPending.roleType) : CLAIM_STATUS.Approved;
+  await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: { status } });
+  const autoDoa = steps.find((s) => s.autoGranted);
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submitted — routed ${steps.map((s) => s.roleType).join(' → ')}${autoDoa ? ` (DOA auto-granted from ${req.authorisationNo})` : ''}` } });
+  revalidatePath(`/claims/${claimId}`);
+}
+
+/** §51 An approver approves the current pending claim step. */
+export async function approveClaimStep(claimId: string) {
+  const persona = await currentPersonaId();
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { approvalSteps: { orderBy: { seq: 'asc' } } } });
+  if (!claim) return;
+  const step = claim.approvalSteps.find((s) => s.status === 'Pending');
+  if (!step) return;
+  const isAdmin = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN');
+  if (step.approverId !== persona && !isAdmin) return;
+  const won = await prisma.claimApprovalStep.updateMany({ where: { id: step.id, status: 'Pending' }, data: { status: 'Approved', decidedAt: new Date() } });
+  if (won.count === 0) return;
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: persona, kind: 'APPROVE', summary: `Claim ${claim.claimNumber} — ${step.roleType} approved by ${EcsIdentity.employee(persona)?.name ?? persona}` } });
+  const next = claim.approvalSteps.find((s) => s.seq > step.seq && s.status === 'Pending');
+  const status = next ? claimStatusForRole(next.roleType) : CLAIM_STATUS.Approved;
+  await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: { status } });
+  if (!next) await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: persona, kind: 'STATUS', summary: `Claim ${claim.claimNumber} approved` } });
+  revalidatePath(`/claims/${claimId}`);
+}
+
+/** §51 Send the claim back to the claimant (no reject — mirrors the TR). */
+export async function sendBackClaim(claimId: string, fd: FormData) {
+  const persona = await currentPersonaId();
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { approvalSteps: { orderBy: { seq: 'asc' } } } });
+  if (!claim) return;
+  const step = claim.approvalSteps.find((s) => s.status === 'Pending');
+  const isAdmin = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN');
+  if (step && step.approverId !== persona && !isAdmin) return;
+  if (step) await prisma.claimApprovalStep.update({ where: { id: step.id }, data: { status: 'SentBack', decidedAt: new Date(), comments: str(fd, 'comment') } });
+  await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: { status: CLAIM_STATUS.SentBack } });
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: persona, kind: 'SENDBACK', summary: `Claim ${claim.claimNumber} sent back by ${EcsIdentity.employee(persona)?.name ?? persona}: ${str(fd, 'comment') || 'no reason given'}` } });
   revalidatePath(`/claims/${claimId}`);
 }
 

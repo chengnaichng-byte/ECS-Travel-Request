@@ -11,13 +11,18 @@ import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
 import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging } from '@/modules/te/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
 import { currencies } from '@/data/fxRates';
 import { employees } from '@/data/employees';
+import { CLAIM_STATUS, APPROVER_ROLE } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
+import { ClaimDecisionBar } from '@/components/ClaimDecisionBar';
 import { Card, Empty } from '@/components/ui';
+
+const ROLE_LABEL: Record<string, string> = { [APPROVER_ROLE.Verifier]: 'Verifier', [APPROVER_ROLE.Exception]: 'Exception Approver', [APPROVER_ROLE.RO]: 'RO', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA' };
 
 export const dynamic = 'force-dynamic';
 
@@ -26,13 +31,17 @@ const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
 
 export default async function ClaimPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id }, include: { lines: true } });
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id }, include: { lines: true, approvalSteps: { orderBy: { seq: 'asc' } } } });
   if (!claim || !claim.requestId) notFound();
   const req = await loadRequest(claim.requestId);
   if (!req) notFound();
   const settings = await getSettings();
   const prep = prepopulateClaim(req, claim.claimantId, settings.airfareTreatment, prepopContract(await getContractSettings()));
-  const canEdit = claim.status === 'Draft';
+  const persona = await currentPersonaId();
+  const canEdit = claim.status === CLAIM_STATUS.Draft || claim.status === CLAIM_STATUS.SentBack;
+  const canSubmit = canEdit && (persona === claim.claimantId || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
+  const pendingStep = claim.approvalSteps.find((s) => s.status === 'Pending');
+  const canAct = !!pendingStep && (pendingStep.approverId === persona || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN'));
 
   const emp = EcsIdentity.employee(claim.claimantId);
   const ro = EcsIdentity.employee(emp?.reportingOfficerId ?? '');
@@ -59,15 +68,38 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
     <div className="w-full space-y-5">
       {/* Title bar */}
       <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ecs-border)] pb-3">
-        <h1 className="text-xl font-bold text-[var(--ecs-navy)]">Create Travel Expense Claim <span className="text-[var(--ecs-muted)] font-normal">· {claim.claimNumber}</span></h1>
+        <h1 className="text-xl font-bold text-[var(--ecs-navy)]">Travel Expense Claim <span className="text-[var(--ecs-muted)] font-normal">· {claim.claimNumber}</span></h1>
+        <span className={claim.status === CLAIM_STATUS.Approved ? 'pill-pass' : claim.status === CLAIM_STATUS.SentBack ? 'pill-exc' : claim.status.startsWith('Pending') ? 'pill-warn' : 'pill-info'}>{claim.status}</span>
         <div className="ml-auto flex items-center gap-3 text-sm">
           <Link href={`/requests/${req.id}`} className="btn-ghost">View Travel Request →</Link>
-          {claim.status === 'Draft'
-            ? <form action={submitClaim.bind(null, id)}><button className="btn-primary">Submit</button></form>
-            : <span className="pill-pass">Submitted</span>}
+          {canSubmit && <form action={submitClaim.bind(null, id)}><button className="btn-primary">Submit</button></form>}
+          {canAct && <ClaimDecisionBar claimId={id} roleLabel={ROLE_LABEL[pendingStep!.roleType] ?? pendingStep!.roleType} />}
         </div>
       </div>
       <p className="text-xs text-[var(--ecs-muted)] -mt-2">Pre-populated from {req.requestNumber} / {req.authorisationNo ?? '—'}. {prep.note}</p>
+
+      {/* §51 Claim approval workflow */}
+      {claim.approvalSteps.length > 0 && (
+        <div className="card p-4">
+          <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-2">Approval Workflow</div>
+          <div className="chev-row overflow-x-auto">
+            <div className="flex items-center"><div className="chev chev-done"><div className="font-semibold">Submitted</div><div className="opacity-80">by {emp?.name}</div></div></div>
+            {claim.approvalSteps.map((s) => {
+              const label = ROLE_LABEL[s.roleType] ?? s.roleType;
+              const state = s.status === 'Approved' ? 'chev-done' : s.status === 'SentBack' ? 'chev-stop' : s.id === pendingStep?.id ? 'chev-current' : 'chev-todo';
+              const who = s.autoGranted ? 'auto-granted' : (EcsIdentity.employee(s.approverId ?? '')?.name ?? 'TBD');
+              return (
+                <div key={s.id} className="flex items-center"><span className="chev-conn" />
+                  <div className={`chev ${state}`}><div className="font-semibold">{s.status === 'Approved' ? `${label} ${s.autoGranted ? 'Auto-granted' : 'Approved'}` : s.status === 'SentBack' ? `${label} Sent Back` : `Pending ${label}`}</div><div className="opacity-80">{who}</div></div>
+                </div>
+              );
+            })}
+          </div>
+          {claim.approvalSteps.some((s) => s.autoGranted) && (
+            <p className="text-xs text-[var(--ecs-muted)] mt-2">DOA approval was <strong>auto-granted from {req.authorisationNo}</strong> — the claim is within the approved estimate (tolerance {settings.teAutoGrantTolerancePct}% / SGD {settings.teAutoGrantToleranceAbsSgd}), with no new exception or expense type (§51).</p>
+          )}
+        </div>
+      )}
 
       {/* Main form: header + expense items + totals */}
       <form action={updateClaimHeader.bind(null, id)} className="space-y-5">

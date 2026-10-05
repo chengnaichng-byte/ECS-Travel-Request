@@ -25,6 +25,9 @@ model ModuleSettings {
   groupTravelEnabled     Boolean @default(true)   // §13.14
   groupSubItineraries    Boolean @default(true)   // §13.20 per-traveller sub-itineraries (D3)
   exceptionApproverRequired Boolean @default(true) // §26 insert an Exception Approver step for policy exceptions (else surface to DOA)
+  roRequirement          String  @default("INDIVIDUAL_ONLY") // §51 RO decision point: ALWAYS | INDIVIDUAL_ONLY (drop for group) | NEVER
+  teAutoGrantTolerancePct Int    @default(10)     // §51 TE claim DOA auto-grant tolerance (% over approved)
+  teAutoGrantToleranceAbsSgd Int @default(500)    // §51 TE claim DOA auto-grant tolerance (SGD over approved)
   crossBaThresholdSgd    Int     @default(500)    // §18 cross-business-area concurrence threshold (AC5)
   selfBookingEnabled     Boolean @default(true)   // §13.17
   // §43 Settings breadth
@@ -360,7 +363,23 @@ model TravelExpenseClaim {
   chargingJson     String?                   // JSON { rows:[{code,percent,amount,io,isMain}], lineMap:{} }
   createdAt     DateTime @default(now())
   lines         TEExpenseLine[]
+  approvalSteps ClaimApprovalStep[]
   link          TravelExpenseLink?
+}
+
+/// §51 Claim approval step (configurable TE workflow): Verifier → (Exception) → (RO) → DOA.
+/// The DOA step may be auto-granted when the claim is within the approved TR estimate.
+model ClaimApprovalStep {
+  id            String  @id @default(cuid())
+  claimId       String
+  claim         TravelExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  seq           Int
+  roleType      String                      // VERIFIER | EXCEPTION | RO | DOA | RESEARCH_DOA
+  approverId    String?
+  status        String  @default("Pending") // Pending | Approved | SentBack | Skipped
+  autoGranted   Boolean @default(false)     // DOA auto-granted from the approved TR (§51)
+  decidedAt     DateTime?
+  comments      String?
 }
 
 /// TE claim expense line with approved/actual for estimate-to-actual (TR-17)

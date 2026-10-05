@@ -83,7 +83,27 @@ export const APPROVER_ROLE = {
   ResearchDOA: 'RESEARCH_DOA',
   Exception: 'EXCEPTION',
   FundingOwner: 'FUNDING_OWNER',
+  Verifier: 'VERIFIER',            // §51 TE claim verifier (claim-stage only)
 } as const;
+
+/** §51 TE claim approval status (configurable claim workflow). */
+export const CLAIM_STATUS = {
+  Draft: 'Draft',
+  PendingVerification: 'Pending Verification',
+  PendingException: 'Pending Exception Approval',
+  PendingRO: 'Pending RO Approval',
+  PendingDOA: 'Pending DOA Approval',
+  Approved: 'Approved',
+  SentBack: 'Sent Back',
+} as const;
+
+/** First pending claim step → claim status. */
+export function claimStatusForRole(roleType: string): string {
+  if (roleType === APPROVER_ROLE.Verifier) return CLAIM_STATUS.PendingVerification;
+  if (roleType === APPROVER_ROLE.Exception) return CLAIM_STATUS.PendingException;
+  if (roleType === APPROVER_ROLE.RO) return CLAIM_STATUS.PendingRO;
+  return CLAIM_STATUS.PendingDOA;
+}
 
 /** §13.8 TE pre-population treatment. */
 export const TE_TREATMENT = {

@@ -49,6 +49,7 @@ export default async function ReviewStep({ params }: { params: Promise<{ id: str
     approvalAmount: summary.approvalAmount,
     hasException: exceptions.length > 0,
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
+    roRequirement: settings.roRequirement,
   });
 
   return (

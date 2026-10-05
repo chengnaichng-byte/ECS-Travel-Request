@@ -50,7 +50,7 @@ function pickDoa(line: string[], tierIndex: number, travellerIds: string[]): { i
 
 export function buildRoute(
   req: FullRequest,
-  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number },
+  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string },
 ): RouteStep[] {
   const steps: RouteStep[] = [];
   const travellerIds = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
@@ -66,6 +66,18 @@ export function buildRoute(
   // (self-approval guard, §48).
   if (req.additionalApproverId && !travellerIds.includes(req.additionalApproverId)) {
     steps.push({ seq: seq++, roleType: APPROVER_ROLE.AdditionalApprover, approverId: req.additionalApproverId, note: 'Additional approver added by requestor' });
+  }
+
+  // RO decision point (configurable — §51 workflow configuration): ALWAYS, INDIVIDUAL_ONLY
+  // (present for individual requests, dropped for a group request), or NEVER. Resolved as
+  // the traveller's Reporting Officer; skipped when the RO is a traveller on the request
+  // (self-approval guard) or cannot be resolved.
+  const roNeeded = opts.roRequirement === 'ALWAYS' || (opts.roRequirement === 'INDIVIDUAL_ONLY' && !req.isGroup);
+  if (roNeeded) {
+    const ro = EcsIdentity.reportingOfficer(req.travellerId);
+    if (ro && !travellerIds.includes(ro.id)) {
+      steps.push({ seq: seq++, roleType: APPROVER_ROLE.RO, approverId: ro.id, note: 'Reporting Officer' });
+    }
   }
 
   // Funding Owner for cross-charge requiring owner approval (§6.2).

@@ -65,6 +65,7 @@ export async function applyMaterialAmendment(id: string, reason: string) {
     approvalAmount: summary.approvalAmount,
     hasException: hasException(checks),
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
+    roRequirement: settings.roRequirement,
   });
   await prisma.approvalStep.deleteMany({ where: { requestId: id } });
   for (const s of steps) {
