@@ -17,7 +17,7 @@ export function canTransition(from: string, to: string): boolean {
 export const ACTION_SOURCE: Record<string, string[]> = {
   submit:   [REQUEST_STATUS.Draft, REQUEST_STATUS.SentBack],
   approve:  [REQUEST_STATUS.PendingRO, REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.AmendmentInProgress],
-  reject:   [REQUEST_STATUS.PendingRO, REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.AmendmentInProgress],
+  // No `reject` on a Travel Request — an approver who disagrees sends it back (see sendBack).
   sendBack: [REQUEST_STATUS.PendingRO, REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.AmendmentInProgress],
   withdraw: [REQUEST_STATUS.Draft, REQUEST_STATUS.SentBack, REQUEST_STATUS.PendingRO, REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA],
   reopen:   [REQUEST_STATUS.SentBack],

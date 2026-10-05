@@ -301,6 +301,24 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
   const exView = exceptionViews(req);
   const clsName = (id?: string | null) => EcsReference.travelClass(id ?? '')?.name ?? '—';
   const empName = (id?: string | null) => EcsIdentity.employee(id ?? '')?.name ?? 'Traveller';
+  const fmtD = (d?: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
+  // §4.5/§13.19 per-line context shared across cost items: dates, personal extension and
+  // the travel-class entitlement vs the selected class with justification.
+  const personalText = req.personalStart && req.personalEnd ? `Yes · ${fmtD(req.personalStart)} → ${fmtD(req.personalEnd)}` : 'No';
+  const classKvFor = (travellerId?: string | null, selectedId?: string | null): [string, string][] => {
+    const t = travellerId ? req.travellers.find((x) => x.employeeId === travellerId) : undefined;
+    // §13.19: employees not in the travel-class register default to Economy.
+    const entitled = t?.entitledClassId ?? req.entitledClassId ?? 'TC-ECO';
+    const selected = selectedId ?? t?.chosenClassId ?? req.travelClassId;
+    const justification = t?.classJustification ?? req.classJustification;
+    const kv: [string, string][] = [['Entitled class', clsName(entitled)], ['Selected class', clsName(selected)]];
+    if (entitled && selected && entitled !== selected) kv.push(['Upgrade justification', justification?.trim() || '— (none provided)']);
+    return kv;
+  };
+  const datesFor = (travellerId?: string | null): [string, string] => {
+    const t = travellerId ? req.travellers.find((x) => x.employeeId === travellerId) : undefined;
+    return ['Travel dates', `${fmtD(t?.ownStartDate ?? req.startDate)} → ${fmtD(t?.ownEndDate ?? req.endDate)}`];
+  };
 
   const byType = new Map<string, { typeId: string; category: string; gross: number; sponsor: number; lines: FullRequest['expenses'] }>();
   for (const e of req.expenses) {
@@ -319,7 +337,13 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
       basisLabel = clsName(req.travelClassId);
       for (const e of r.lines) breakdown.push({
         heading: req.isGroup ? empName(e.travellerId) : 'Airfare',
-        kv: [['Route', `${e.originCode ?? legs[0]?.originCode ?? ''} → ${e.destCode ?? ''}`], ['Class', clsName(e.proposedClassId ?? req.travelClassId)], ['Fare ceiling', fmtSgd(e.fareCeiling ?? e.sgdAmount)]],
+        kv: [
+          ['Route', `${e.originCode ?? legs[0]?.originCode ?? ''} → ${e.destCode ?? ''}`],
+          datesFor(e.travellerId),
+          ['Personal extension', personalText],
+          ...classKvFor(e.travellerId, e.proposedClassId),
+          ['Fare ceiling', fmtSgd(e.fareCeiling ?? e.sgdAmount)],
+        ],
         computation: `Quoted fare ${fmtSgd(e.sgdAmount)}${e.sponsorSgd ? ` less sponsorship ${fmtSgd(e.sponsorSgd)}` : ''}.`,
       });
     } else if (r.category === EXPENSE_CATEGORY.Accommodation) {
@@ -332,11 +356,11 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
         if (e.isShared) {
           for (const t of req.travellers) {
             const nights = travellerNightsAtCity(req, t.employeeId, a.city);
-            breakdown.push({ heading: `${empName(t.employeeId)} · ${city}`, kv: [['Nights', `${nights}`], ['Rate / night', fmtSgd(a.budgetedNightly)], ['Cap / night', fmtSgd(a.capNightly)]], computation: `${nights} nights × ${fmtSgd(a.budgetedNightly)} = ${fmtSgd(nights * a.budgetedNightly)}.` });
+            breakdown.push({ heading: `${empName(t.employeeId)} · ${city}`, kv: [datesFor(t.employeeId), ['Personal extension', personalText], ['Nights', `${nights}`], ['Rate / night', fmtSgd(a.budgetedNightly)], ['Cap / night', fmtSgd(a.capNightly)]], computation: `${nights} nights × ${fmtSgd(a.budgetedNightly)} = ${fmtSgd(nights * a.budgetedNightly)}.` });
           }
         } else {
           const chargeable = Math.max(a.nights - a.personalNights, 0);
-          breakdown.push({ heading: city, kv: [['Quoted / night', fmtSgd(a.quotedNightly)], ['Cap / night', fmtSgd(a.capNightly)], ['Budgeted / night', `${fmtSgd(a.budgetedNightly)} (${e.estimateBasis})`], ['Nights', `${a.nights}${a.personalNights ? ` (−${a.personalNights} personal)` : ''}`], ['Chargeable nights', `${chargeable}`], ['Cap variance', a.capVariance ? fmtSgd(a.capVariance) : '—']], computation: `${chargeable} nights × ${fmtSgd(a.budgetedNightly)} (${e.estimateBasis}) = ${fmtSgd(e.sgdAmount)}.${a.capVariance ? ` Quoted ${fmtSgd(a.quotedNightly)}/night exceeds cap ${fmtSgd(a.capNightly)}/night → variance ${fmtSgd(a.capVariance)} (exception).` : ''}` });
+          breakdown.push({ heading: city, kv: [['Stay dates', `${fmtD(a.checkIn)} → ${fmtD(a.checkOut)}`], ['Personal extension', a.personalNights ? `Yes · ${a.personalNights} personal night${a.personalNights > 1 ? 's' : ''}` : personalText], ['Quoted / night', fmtSgd(a.quotedNightly)], ['Cap / night', fmtSgd(a.capNightly)], ['Budgeted / night', `${fmtSgd(a.budgetedNightly)} (${e.estimateBasis})`], ['Nights', `${a.nights}${a.personalNights ? ` (−${a.personalNights} personal)` : ''}`], ['Chargeable nights', `${chargeable}`], ['Cap variance', a.capVariance ? fmtSgd(a.capVariance) : '—']], computation: `${chargeable} nights × ${fmtSgd(a.budgetedNightly)} (${e.estimateBasis}) = ${fmtSgd(e.sgdAmount)}.${a.capVariance ? ` Quoted ${fmtSgd(a.quotedNightly)}/night exceeds cap ${fmtSgd(a.capNightly)}/night → variance ${fmtSgd(a.capVariance)} (exception).` : ''}` });
         }
       }
     } else if (r.category === EXPENSE_CATEGORY.ODA) {
@@ -345,7 +369,7 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
       basisLabel = 'ODA rate';
       for (const e of r.lines) {
         const o = e.oda; if (!o) continue;
-        breakdown.push({ heading: req.isGroup ? empName(e.travellerId) : `${EcsReference.country(o.country)?.name} ODA`, kv: [['Country', EcsReference.country(o.country)?.name ?? o.country], ['Eligible days', `${o.eligibleDays}`], ['Personal days', `${o.personalDays}`], ['Daily rate', fmtSgd(o.dailyRate)]], computation: `${o.eligibleDays} eligible days at ${fmtSgd(o.dailyRate)}/day (departure & return days at 50%) = ${fmtSgd(e.sgdAmount)}.` });
+        breakdown.push({ heading: req.isGroup ? empName(e.travellerId) : `${EcsReference.country(o.country)?.name} ODA`, kv: [['Country', EcsReference.country(o.country)?.name ?? o.country], ['Official dates', `${fmtD(o.arrive)} → ${fmtD(o.depart)}`], ['Personal extension', o.personalDays ? `Yes · ${o.personalDays} personal day${o.personalDays > 1 ? 's' : ''}` : personalText], ['Eligible days', `${o.eligibleDays}`], ['Daily rate', fmtSgd(o.dailyRate)]], computation: `${o.eligibleDays} eligible days at ${fmtSgd(o.dailyRate)}/day (departure & return days at 50%) = ${fmtSgd(e.sgdAmount)}.` });
       }
     } else {
       for (const e of r.lines) breakdown.push({ heading: EcsReference.expenseType(e.expenseTypeId)?.name ?? 'Item', kv: [['Amount', fmtSgd(e.sgdAmount)]], computation: e.notes ?? 'Quoted estimate.' });

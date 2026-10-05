@@ -745,24 +745,9 @@ export async function approveStep(id: string, fd?: FormData) {
   revalidatePath('/dashboard');
 }
 
-export async function rejectStep(id: string, fd: FormData) {
-  const persona = await currentPersonaId();
-  const req = await loadRequest(id);
-  if (!req) return;
-  if (!actionAllowed('reject', req.status)) { await audit(id, 'STATUS', `Reject blocked — request is ${req.status}, not awaiting approval`); return; }
-  const step = req.approvalSteps.find((s) => s.status === 'Pending');
-  if (!step || !canActOnStep(step.approverId, persona)) return; // AC14 — only the pending approver / Travel Admin
-  // §26 categorised rejection reason (from the ECS Rejection Reasons master) + optional comment.
-  const reasonLabel = EcsReference.rejectionReasons().find((r) => r.code === str(fd, 'reasonCode'))?.label;
-  const comment = str(fd, 'comment');
-  const reasonText = [reasonLabel, comment].filter(Boolean).join(' — ') || comment;
-  const won = await prisma.approvalStep.updateMany({ where: { id: step.id, status: 'Pending' }, data: { status: 'Rejected', decidedAt: new Date(), comments: reasonText } });
-  if (won.count === 0) return; // another actor already decided this step
-  await prisma.travelRequest.update({ where: { id }, data: { status: REQUEST_STATUS.Rejected } });
-  await audit(id, 'REJECT', `Rejected by ${EcsIdentity.employee(persona)?.name ?? persona}: ${reasonText}`);
-  revalidatePath(`/requests/${id}`);
-  redirect(`/requests/${id}`);
-}
+// NOTE: a Travel Request has no Reject action — an approver who disagrees uses sendBack,
+// which returns the request to the requestor to revise and resubmit (matching the ECS
+// expense-claim flow). The terminal "Rejected" status is therefore not reachable from the UI.
 
 export async function sendBack(id: string, fd: FormData) {
   const persona = await currentPersonaId();

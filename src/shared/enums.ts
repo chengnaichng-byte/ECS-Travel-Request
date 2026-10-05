@@ -21,18 +21,21 @@ export const REQUEST_STATUS = {
 } as const;
 export type RequestStatus = (typeof REQUEST_STATUS)[keyof typeof REQUEST_STATUS];
 
-/** §13.1 allowed transitions — invalid transitions must not be offered (AC24). */
+/** §13.1 allowed transitions — invalid transitions must not be offered (AC24). A Travel
+ *  Request has NO Reject: an approver who disagrees sends it back (→ Sent Back → Draft) to
+ *  be revised and resubmitted. "Rejected" is retained as a value for legacy/compat only and
+ *  is no longer a transition target. */
 export const STATUS_TRANSITIONS: Record<string, string[]> = {
   [REQUEST_STATUS.Draft]: [REQUEST_STATUS.Submitted, REQUEST_STATUS.Withdrawn],
   [REQUEST_STATUS.Submitted]: [REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException],
-  [REQUEST_STATUS.PendingRO]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.SentBack, REQUEST_STATUS.Rejected],
-  [REQUEST_STATUS.PendingAdditional]: [REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack, REQUEST_STATUS.Rejected],
-  [REQUEST_STATUS.PendingException]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack, REQUEST_STATUS.Rejected],
-  [REQUEST_STATUS.PendingDOA]: [REQUEST_STATUS.Approved, REQUEST_STATUS.PendingConfirmation, REQUEST_STATUS.SentBack, REQUEST_STATUS.Rejected],
-  [REQUEST_STATUS.PendingConfirmation]: [REQUEST_STATUS.Approved, REQUEST_STATUS.Rejected],
+  [REQUEST_STATUS.PendingRO]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingAdditional]: [REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingException]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingDOA]: [REQUEST_STATUS.Approved, REQUEST_STATUS.PendingConfirmation, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingConfirmation]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.Approved]: [REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Cancelled, REQUEST_STATUS.Expired, REQUEST_STATUS.Closed],
-  [REQUEST_STATUS.AmendmentInProgress]: [REQUEST_STATUS.Approved, REQUEST_STATUS.Rejected, REQUEST_STATUS.Cancelled],
-  [REQUEST_STATUS.SentBack]: [REQUEST_STATUS.Draft],
+  [REQUEST_STATUS.AmendmentInProgress]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack, REQUEST_STATUS.Cancelled],
+  [REQUEST_STATUS.SentBack]: [REQUEST_STATUS.Draft, REQUEST_STATUS.Withdrawn],
   [REQUEST_STATUS.Expired]: [REQUEST_STATUS.PendingRO, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.Cancelled],
   [REQUEST_STATUS.Rejected]: [],
   [REQUEST_STATUS.Withdrawn]: [],
