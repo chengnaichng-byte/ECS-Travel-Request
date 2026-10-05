@@ -7,12 +7,15 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { submitRequest } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
-import { buildRoute } from '@/modules/pretrip/route';
+import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
+import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { employees } from '@/data/employees';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { isHighRisk } from '@/modules/pretrip/risk';
-import { bookingSummaryText } from '@/modules/pretrip/booking';
+import { bookingSummaryText, isTmcArrangement } from '@/modules/pretrip/booking';
+import { CostItems } from '@/components/ReviewSections';
+import { ReviewRoute } from '@/components/ReviewRoute';
 import { Card, KV, Stepper } from '@/components/ui';
 import { OutcomePill } from '@/components/StatusPill';
 import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
@@ -26,8 +29,9 @@ export const dynamic = 'force-dynamic';
 
 function fmtDate(d: Date | null) { return d ? d.toISOString().slice(0, 10) : '—'; }
 
-export default async function ReviewStep({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReviewStep({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
   const { id } = await params;
+  const { error } = await searchParams;
   const req = await loadRequest(id);
   if (!req) notFound();
   const settings = await getSettings();
@@ -52,133 +56,117 @@ export default async function ReviewStep({ params }: { params: Promise<{ id: str
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
   });
+  // §13.14 the DOA is traveller-selected (never pre-selected). Fixed middle steps (RO /
+  // Funding Owner / Exception) are resolved server-side; the chevron visual adds the chosen
+  // Additional Approver and DOA.
+  const isDoaRole = (rt: string) => rt === APPROVER_ROLE.DOA || rt === APPROVER_ROLE.ResearchDOA;
+  const fixedSteps = previewSteps
+    .filter((s) => s.roleType !== APPROVER_ROLE.AdditionalApprover && !isDoaRole(s.roleType))
+    .map((s) => ({ label: ROUTE_ROLE_LABEL[s.roleType] ?? s.roleType, name: EcsIdentity.employee(s.approverId ?? '')?.name ?? 'TBD' }));
+  const doaStep = previewSteps.find((s) => isDoaRole(s.roleType));
+  const doaRoleLabel = doaStep?.roleType === APPROVER_ROLE.ResearchDOA ? 'Research DOA' : 'DOA';
+  const doaCandidates = doaCandidatesFor(req, { approvalAmount: summary.approvalAmount, sameRouteResearch: settings.sameRouteResearch });
+  const additionalCandidates = employees.filter((e) => e.id !== req.travellerId).map((e) => ({ id: e.id, name: e.name, title: e.title }));
+  const research = isResearchRequest(req) && !settings.sameRouteResearch;
+  const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
 
   return (
     <div>
       <Stepper id={id} active="review" />
-
+      {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
       <HighRiskAdvisory req={req} />
 
-      <div className="grid md:grid-cols-2 gap-5">
-        <Card title="Trip">
-          <dl className="grid grid-cols-2 gap-3">
-            <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
-            <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
-            <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
-            <KV label="Travel class">{EcsReference.travelClass(req.travelClassId ?? '')?.name}</KV>
-            <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
-            {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
-            {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
-            {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
-            <KV label="Traveller">{travellerName(req)}</KV>
-          </dl>
-        </Card>
-        <Card title="Charging">
-          <table className="w-full text-sm">
-            <tbody>
-              {req.allocations.map((a) => (
-                <tr key={a.id} className="border-b border-[var(--ecs-border)] last:border-0">
-                  <td className="py-1.5">{a.chargingCode}</td>
-                  <td className="py-1.5 text-xs text-[var(--ecs-muted)]">{EcsReference && a.isResearch ? 'Research' : 'Non-research'}</td>
-                  <td className="py-1.5 text-right">{a.percent}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      </div>
+      <form action={submitRequest.bind(null, id)} className="space-y-5">
+        {/* §21 Approval route (visual) — above the Trip section, with the DOA selector. */}
+        <ReviewRoute
+          research={research}
+          fixedSteps={fixedSteps}
+          doaRoleLabel={doaRoleLabel}
+          doaCandidates={doaCandidates}
+          additionalCandidates={additionalCandidates}
+          initialDoa={req.selectedDoaId ?? ''}
+          initialAdditional={req.additionalApproverId ?? ''}
+        />
 
-      <Card title="Estimated Costs" className="mt-5">
-        <table className="w-full text-sm">
-          <tbody>
-            {req.expenses.map((e) => (
-              <tr key={e.id} className="border-b border-[var(--ecs-border)] last:border-0">
-                <td className="py-1.5">{EcsReference.expenseType(e.expenseTypeId)?.name}</td>
-                <td className="py-1.5 text-right">{fmtSgd(e.sgdAmount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <dl className="mt-3 space-y-1 text-sm max-w-xs ml-auto">
-          <div className="flex justify-between"><dt className="text-[var(--ecs-muted)]">Gross</dt><dd>{fmtSgd(summary.gross)}</dd></div>
-          <div className="flex justify-between"><dt className="text-[var(--ecs-muted)]">Less sponsorship</dt><dd>− {fmtSgd(summary.sponsorship)}</dd></div>
-          <div className="flex justify-between font-semibold text-[var(--ecs-navy-2)]"><dt>Estimated NTU-funded</dt><dd>{fmtSgd(summary.ntuFunded)}</dd></div>
-          <div className="flex justify-between"><dt className="text-[var(--ecs-muted)]">Approval amount ({settings.approvalAmountBasis})</dt><dd>{fmtSgd(summary.approvalAmount)}</dd></div>
-        </dl>
-      </Card>
-
-      <Card title="Approval Route Preview (§21)" className="mt-5">
-        <p className="text-xs text-[var(--ecs-muted)] mb-3">Derived from the current charging, cost, policy exceptions and any saved Additional Approver. The final route is fixed at submission.</p>
-        <div className="flex items-center gap-1 flex-wrap text-sm">
-          <span className="pill-info">Traveller</span>
-          {previewSteps.map((s) => (
-            <span key={s.seq} className="flex items-center gap-1">
-              <span className="text-[var(--ecs-muted)]">→</span>
-              <span className="pill-navy">{ROUTE_ROLE_LABEL[s.roleType] ?? s.roleType}: {EcsIdentity.employee(s.approverId ?? '')?.name ?? 'TBD'}</span>
-            </span>
-          ))}
+        <div className="grid md:grid-cols-2 gap-5">
+          <Card title="Trip">
+            <dl className="grid grid-cols-2 gap-3">
+              <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
+              <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
+              <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
+              <KV label="Travel class">{EcsReference.travelClass(req.travelClassId ?? '')?.name}</KV>
+              <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
+              <KV label="TMC">{tmcText}</KV>
+              {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
+              {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
+              {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
+              <KV label="Traveller">{travellerName(req)}</KV>
+            </dl>
+          </Card>
+          <Card title="Charging">
+            <table className="w-full text-sm">
+              <tbody>
+                {req.allocations.map((a) => (
+                  <tr key={a.id} className="border-b border-[var(--ecs-border)] last:border-0">
+                    <td className="py-1.5">{a.chargingCode}</td>
+                    <td className="py-1.5 text-xs text-[var(--ecs-muted)]">{a.isResearch ? 'Research' : 'Non-research'}</td>
+                    <td className="py-1.5 text-right">{a.percent}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
         </div>
-        {previewSteps.some((s) => s.note) && (
-          <ul className="mt-2 text-xs text-[var(--ecs-muted)] space-y-0.5">
-            {previewSteps.filter((s) => s.note).map((s) => <li key={s.seq}>• {ROUTE_ROLE_LABEL[s.roleType] ?? s.roleType}: {s.note}</li>)}
-          </ul>
+
+        <CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} />
+
+        {(hardStops.length > 0 || exceptions.length > 0) && (
+          <Card title="Outstanding policy items">
+            <ul className="space-y-2">
+              {[...hardStops, ...exceptions].map((c) => (
+                <li key={c.id} className="flex items-center gap-2 text-sm"><OutcomePill outcome={c.outcome} /> {c.label} — <span className="text-[var(--ecs-muted)]">{c.detail}</span></li>
+              ))}
+            </ul>
+          </Card>
         )}
-      </Card>
 
-      {(hardStops.length > 0 || exceptions.length > 0) && (
-        <Card title="Outstanding policy items" className="mt-5">
-          <ul className="space-y-2">
-            {[...hardStops, ...exceptions].map((c) => (
-              <li key={c.id} className="flex items-center gap-2 text-sm"><OutcomePill outcome={c.outcome} /> {c.label} — <span className="text-[var(--ecs-muted)]">{c.detail}</span></li>
-            ))}
-          </ul>
-        </Card>
-      )}
+        {hasPersonal && (
+          <Card title="Personal Travel (§12)">
+            <p className="text-sm text-[var(--ecs-muted)]">
+              This trip includes a personal extension{req.personalStart ? ` (${fmtDate(req.personalStart)} → ${fmtDate(req.personalEnd)})` : ''}. Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5). Estimated incremental personal cost borne by the traveller: <strong>{fmtSgd(personalCost)}</strong>{personalCost === 0 ? ' (no chargeable personal nights captured)' : ''}.
+            </p>
+          </Card>
+        )}
 
-      {hasPersonal && (
-        <Card title="Personal Travel (§12)" className="mt-5">
-          <p className="text-sm text-[var(--ecs-muted)]">
-            This trip includes a personal extension{req.personalStart ? ` (${fmtDate(req.personalStart)} → ${fmtDate(req.personalEnd)})` : ''}. Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5). Estimated incremental personal cost borne by the traveller: <strong>{fmtSgd(personalCost)}</strong>{personalCost === 0 ? ' (no chargeable personal nights captured)' : ''}.
-          </p>
-        </Card>
-      )}
-
-      <Card title="Declaration" className="mt-5">
-        <p className="text-sm text-[var(--ecs-muted)] mb-3">{settings.declarationText} Approval, entitlements and declarations derive from the traveller (§13.13).</p>
-        <form action={submitRequest.bind(null, id)} className="space-y-4">
-          <div className="max-w-md">
-            <label className="label" htmlFor="additionalApproverId">Additional Approver (optional)</label>
-            <select id="additionalApproverId" name="additionalApproverId" defaultValue={req.additionalApproverId ?? ''} className="field">
-              <option value="">— none —</option>
-              {employees.filter((e) => e.id !== req.travellerId).map((e) => <option key={e.id} value={e.id}>{e.name} — {e.title}</option>)}
-            </select>
-            <p className="text-xs text-[var(--ecs-muted)] mt-1">Optionally route the request through one additional approver of your choice before the DOA (§23). You cannot select yourself.</p>
-          </div>
-          {highRisk && (
-            <label className="flex items-start gap-2 text-sm text-red-900 bg-red-50 border border-red-200 rounded p-2">
-              <input type="checkbox" name="highRiskAck" value="on" required className="mt-0.5 w-4 h-4" defaultChecked={req.highRiskAck} />
-              <span>I acknowledge the high-risk travel advisory for this destination, accept the associated risks, and confirm I will comply with the University&apos;s travel risk-management requirements (§4.8).</span>
-            </label>
-          )}
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" name="coiAck" value="on" className="mt-0.5 w-4 h-4" defaultChecked />
-            <span>{settings.coiText}</span>
-          </label>
-          {hasPersonal && (
+        <Card title="Declaration">
+          <p className="text-sm text-[var(--ecs-muted)] mb-3">{settings.declarationText} Approval, entitlements and declarations derive from the traveller (§13.13).</p>
+          <div className="space-y-4">
+            {highRisk && (
+              <label className="flex items-start gap-2 text-sm text-red-900 bg-red-50 border border-red-200 rounded p-2">
+                <input type="checkbox" name="highRiskAck" value="on" required className="mt-0.5 w-4 h-4" defaultChecked={req.highRiskAck} />
+                <span>I acknowledge the high-risk travel advisory for this destination, accept the associated risks, and confirm I will comply with the University&apos;s travel risk-management requirements (§4.8).</span>
+              </label>
+            )}
             <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" name="personalAck" value="on" className="mt-0.5 w-4 h-4" defaultChecked={req.personalAck} />
-              <span>I acknowledge the personal portion of this trip is at my own cost and does not form part of the NTU-funded estimate (§12).</span>
+              <input type="checkbox" name="coiAck" value="on" className="mt-0.5 w-4 h-4" defaultChecked />
+              <span>{settings.coiText}</span>
             </label>
-          )}
-          <div className="flex items-center justify-between gap-4">
-            <Link href={`/requests/${id}/policy`} className="btn-secondary">← Back</Link>
-            <div className="flex items-center gap-3">
-              {!canSubmit && <span className="text-sm text-red-700">Resolve {hardStops.length} hard stop(s) before submitting.</span>}
-              <button type="submit" disabled={!canSubmit} className="btn-primary">Submit for Approval</button>
+            {hasPersonal && (
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="personalAck" value="on" className="mt-0.5 w-4 h-4" defaultChecked={req.personalAck} />
+                <span>I acknowledge the personal portion of this trip is at my own cost and does not form part of the NTU-funded estimate (§12).</span>
+              </label>
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <Link href={`/requests/${id}/policy`} className="btn-secondary">← Back</Link>
+              <div className="flex items-center gap-3">
+                {!canSubmit && <span className="text-sm text-red-700">Resolve {hardStops.length} hard stop(s) before submitting.</span>}
+                <button type="submit" disabled={!canSubmit} className="btn-primary">Submit for Approval</button>
+              </div>
             </div>
           </div>
-        </form>
-      </Card>
+        </Card>
+      </form>
     </div>
   );
 }

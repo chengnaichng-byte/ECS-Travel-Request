@@ -12,7 +12,7 @@ import { getSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
-import { buildRoute, statusForStep } from './route';
+import { buildRoute, statusForStep, doaCandidatesFor } from './route';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares } from './group';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
@@ -567,7 +567,16 @@ export async function submitRequest(id: string, fd?: FormData) {
       revalidatePath(`/requests/${id}/review`);
       return;
     }
-    await prisma.travelRequest.update({ where: { id }, data: { additionalApproverId: aaId, personalAck, highRiskAck } });
+    // §13.14 the traveller must select the approving DOA from the eligible candidates.
+    const approvalAmount = computeSummary(req.expenses, settings.approvalAmountBasis).approvalAmount;
+    const candidates = doaCandidatesFor(req, { approvalAmount, sameRouteResearch: settings.sameRouteResearch });
+    const selDoa = str(fd, 'selectedDoaId');
+    const doaOk = candidates.length === 0 || candidates.some((c) => c.id === selDoa);
+    if (!doaOk) {
+      await audit(id, 'STATUS', 'Submission blocked — please select the approving DOA');
+      redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
+    }
+    await prisma.travelRequest.update({ where: { id }, data: { additionalApproverId: aaId, selectedDoaId: selDoa || null, personalAck, highRiskAck } });
   }
 
   // §13.4 lock foreign-currency estimates to the SGD rate effective on the submission date.

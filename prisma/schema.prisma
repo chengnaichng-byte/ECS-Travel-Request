@@ -80,6 +80,7 @@ model TravelRequest {
   guestEmail        String?
   guestOrg          String?                          // guest's home organisation / affiliation
   additionalApproverId String?                       // §23 optional traveller-selected Additional Approver (any AD person)
+  selectedDoaId     String?                          // §13.14 traveller-selected DOA (from the eligible DOA candidates; not pre-selected)
   entityId          String?
   departmentId      String?
   isResearch        Boolean  @default(false)

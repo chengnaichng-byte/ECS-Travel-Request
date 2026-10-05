@@ -39,6 +39,23 @@ export function isResearchRequest(req: FullRequest): boolean {
   return req.allocations.some((a) => EcsCharging.code(a.chargingCode)?.isResearch) || req.isResearch;
 }
 
+/** §13.14 Eligible DOA candidates for a request — the highest-charging department's DOA
+ *  line (research line for research routes) from the amount-band tier upward (the required
+ *  tier plus any higher authority), excluding travellers. The DOA "system" may return more
+ *  than one person, so the traveller picks one — it is never pre-selected. */
+export function doaCandidatesFor(req: FullRequest, opts: { approvalAmount: number; sameRouteResearch: boolean }): { id: string; name: string; note: string }[] {
+  const dept = EcsIdentity.department(highestChargingDept(req));
+  const research = isResearchRequest(req) && !opts.sameRouteResearch;
+  const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
+  const travellerIds = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
+  const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
+  const tier = Math.min(band.doaTierIndex, Math.max(line.length - 1, 0));
+  return line.slice(tier).filter((eid) => !travellerIds.includes(eid)).map((eid, i) => ({
+    id: eid, name: EcsIdentity.employee(eid)?.name ?? eid,
+    note: i === 0 ? band.label : 'Higher authority (can approve this amount)',
+  }));
+}
+
 /** Walk a DOA line and pick the tier, escalating past any holder who is a traveller. */
 function pickDoa(line: string[], tierIndex: number, travellerIds: string[]): { id: string | null; note?: string } {
   let idx = Math.min(tierIndex, line.length - 1);
@@ -119,13 +136,14 @@ export function buildRoute(
   // DOA step — tier from amount band, line depends on research route.
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
   const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
-  const doa = pickDoa(line, band.doaTierIndex, travellerIds);
-  steps.push({
-    seq: seq++,
-    roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA,
-    approverId: doa.id,
-    note: [band.label, doa.note].filter(Boolean).join(' · '),
-  });
+  // §13.14 use the traveller's selected DOA when set (and not a traveller); else auto-pick the tier.
+  let doaId: string | null; let doaNote: string;
+  if (req.selectedDoaId && !travellerIds.includes(req.selectedDoaId)) {
+    doaId = req.selectedDoaId; doaNote = `${band.label} · traveller-selected`;
+  } else {
+    const d = pickDoa(line, band.doaTierIndex, travellerIds); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · ');
+  }
+  steps.push({ seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: doaId, note: doaNote });
 
   return steps;
 }
