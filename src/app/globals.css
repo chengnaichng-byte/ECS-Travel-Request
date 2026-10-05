@@ -55,9 +55,12 @@ body { background: var(--background); color: var(--foreground); font-family: var
 .field:read-only, .field[readonly] { background: var(--ecs-readonly); }
 .label { @apply block text-xs font-semibold text-[var(--ecs-muted)] mb-1; }
 .req::after { content: " *"; color: var(--ecs-red); }
-/* No explicit text-left: th defaults to left, so a `text-right` utility on a header wins
-   (otherwise the unlayered .th rule overrides the utility and numeric headers mis-align). */
-.th { @apply text-xs font-semibold text-[var(--ecs-muted)] px-3 py-2 bg-[var(--ecs-panel-2)] border-b border-[var(--ecs-border)]; }
+/* .th lives in the components layer so text columns are left-aligned by default (a <th>'s
+   UA default is centered) while a `text-right` utility on a numeric header still wins
+   (utilities layer overrides components). */
+@layer components {
+  .th { @apply text-left text-xs font-semibold text-[var(--ecs-muted)] px-3 py-2 bg-[var(--ecs-panel-2)] border-b border-[var(--ecs-border)]; }
+}
 .td { @apply px-3 py-2 border-b border-[var(--ecs-border)] align-top; }
 /* Tabular figures so numeric columns line up digit-for-digit across every table. */
 .td, .th { font-variant-numeric: tabular-nums; }
