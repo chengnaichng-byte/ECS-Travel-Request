@@ -17,15 +17,20 @@ import { allTravellersConfirmed, unconfirmedCount, sharedLegs, travellerLegs, tr
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, POLICY_OUTCOME } from '@/shared/enums';
-import { GUEST_TRAVELLER_ID } from './traveller';
+import { GUEST_TRAVELLER_ID, travellerName } from './traveller';
 import { ruleActive } from '@/config/policyRules';
+import { isHighRisk, highRiskDestinationsForRequest } from './risk';
+import { visaLetterRecipientFor } from '@/config/visaLetter';
 import { randomUUID } from 'node:crypto';
-import { simulateInbound } from '@/integrations/tmc/adapter';
+import { adapterFor } from '@/integrations/tmc/adapter';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
+import { resolveTmcProvider } from './tmcRouting';
+import { rollupByCode } from './chargingRollup';
+import { tmcProvider } from '@/data/tmcProviders';
 import { getContractSettings, tmcEnabledSet, getGuardSettings, evaluateFlow } from './integration';
 import { CONTRACT_VERSION } from '@/config/integrationContracts';
-import { actionAllowed, canActOnStep, canCreateFor } from './guards';
+import { actionAllowed, canActOnStep, canCreateFor, canEditRequest } from './guards';
 
 const yr = () => new Date().getFullYear(); // §13.3 numbering year derived from the clock
 
@@ -121,6 +126,19 @@ function fieldDiffs(fields: [string, string, string][]): string[] {
   return fields.filter(([, a, b]) => a !== b).map(([label, a, b]) => `${label}: ${a} → ${b}`);
 }
 
+/** Edit-authority gate for the draft-edit mutations (trip, estimates, charging, submit).
+ *  Returns false and logs when the acting persona may not edit this request. */
+async function requireEdit(id: string): Promise<boolean> {
+  const persona = await currentPersonaId();
+  const req = await loadRequest(id);
+  if (!req) return false;
+  if (!canEditRequest(persona, req)) {
+    await audit(id, 'STATUS', `Edit blocked — ${EcsIdentity.employee(persona)?.name ?? persona} is not authorised to edit this request`);
+    return false;
+  }
+  return true;
+}
+
 function str(fd: FormData, k: string): string { return (fd.get(k) as string | null)?.trim() ?? ''; }
 function num(fd: FormData, k: string): number { const v = parseFloat(str(fd, k)); return isNaN(v) ? 0 : v; }
 function dateOrNull(fd: FormData, k: string): Date | null { const v = str(fd, k); return v ? new Date(v) : null; }
@@ -178,6 +196,7 @@ export async function createGuestDraft(fd: FormData) {
 
 /* ------------------------------------------------------------- trip (TR-04) */
 export async function saveTrip(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
   const purposeId = str(fd, 'purposeId');
   const purpose = EcsReference.travelPurpose(purposeId);
   const req0 = await loadRequest(id);
@@ -213,6 +232,8 @@ export async function saveTrip(id: string, fd: FormData) {
       eventStartDate: dateOrNull(fd, 'eventStartDate'),
       eventEndDate: dateOrNull(fd, 'eventEndDate'),
       invitationRef: str(fd, 'invitationRef') || null,
+      visaLetterRequired: str(fd, 'visaLetterRequired') === 'on',
+      tmcProviderId: str(fd, 'tmcProviderId') || null, // multi-TMC preferred provider (null = auto)
       travelClassId: chosenClass,
       entitledClassId: derived.classId,
       classBasis: derived.basis,
@@ -379,6 +400,7 @@ async function reapproveIfMaterial(id: string, employeeId: string, before: TravS
 /** Add a leg to the shared itinerary, or to a traveller's sub-itinerary when a
  *  `travellerId` is supplied on the form. */
 export async function addLeg(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
   const req = await loadRequest(id);
   if (!req) return;
   const travellerId = str(fd, 'travellerId') || null;
@@ -412,6 +434,7 @@ export async function addLeg(id: string, fd: FormData) {
 }
 
 export async function removeLeg(id: string, legId: string) {
+  if (!(await requireEdit(id))) return;
   const target = await prisma.itineraryLeg.findUnique({ where: { id: legId } });
   const scope = target?.travellerId ?? null;
   const before = scope ? await travellerSignature(id, scope) : null;
@@ -425,6 +448,7 @@ export async function removeLeg(id: string, legId: string) {
 }
 
 export async function moveLeg(id: string, legId: string, dir: 'up' | 'down') {
+  if (!(await requireEdit(id))) return;
   const target = await prisma.itineraryLeg.findUnique({ where: { id: legId } });
   if (!target) return;
   const legs = await prisma.itineraryLeg.findMany({ where: { requestId: id, travellerId: target.travellerId }, orderBy: { seq: 'asc' } });
@@ -464,6 +488,7 @@ export async function clearTravellerItinerary(id: string, employeeId: string) {
 
 /* ------------------------------------------------- estimates (TR-05..08) */
 export async function addAirfare(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
   const currency = str(fd, 'currency') || 'SGD';
   const foreign = num(fd, 'amount');
   if (foreign <= 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Airfare amount must be greater than 0.')}`);
@@ -487,6 +512,7 @@ export async function addAirfare(id: string, fd: FormData) {
 }
 
 export async function addAccommodation(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
   const settings = await getSettings();
   const city = str(fd, 'city');
   const nights = Math.round(num(fd, 'nights'));
@@ -517,6 +543,7 @@ export async function addAccommodation(id: string, fd: FormData) {
 }
 
 export async function addOda(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
   const country = str(fd, 'country');
   const arrive = dateOrNull(fd, 'arrive');
   const depart = dateOrNull(fd, 'depart');
@@ -539,6 +566,7 @@ export async function addOda(id: string, fd: FormData) {
 }
 
 export async function addOther(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
   const currency = str(fd, 'currency') || 'SGD';
   const foreign = num(fd, 'amount');
   if (foreign <= 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Amount must be greater than 0.')}`);
@@ -558,6 +586,7 @@ export async function addOther(id: string, fd: FormData) {
 }
 
 export async function deleteExpense(id: string, expenseId: string) {
+  if (!(await requireEdit(id))) return;
   await prisma.estimatedExpense.delete({ where: { id: expenseId } });
   await audit(id, 'AMEND', 'Estimate line removed');
   revalidatePath(`/requests/${id}/estimates`);
@@ -565,25 +594,46 @@ export async function deleteExpense(id: string, expenseId: string) {
 
 /* --------------------------------------------------------- charging (TR-09) */
 export async function saveCharging(id: string, fd: FormData) {
-  const mode = (await getSettings()).chargingSplitMode; // §17 PERCENT | AMOUNT
-  const raw: { chargingCode: string; percent: number; amountSgd: number | null }[] = [];
-  if (mode === 'AMOUNT') {
-    // Amount entry: capture SGD amounts, then derive each line's percent from the total.
-    const amts: { chargingCode: string; amountSgd: number }[] = [];
-    for (let i = 0; i < 5; i++) {
-      const code = str(fd, `code_${i}`);
-      const amt = num(fd, `amt_${i}`);
-      if (code && amt > 0) amts.push({ chargingCode: code, amountSgd: amt });
+  if (!(await requireEdit(id))) return;
+  const entryMode = (await getSettings()).chargingSplitMode; // §17 PERCENT | AMOUNT (request-level entry)
+  const chargingMode = str(fd, 'chargingMode') === 'LINE' ? 'LINE' : 'REQUEST'; // §17 whole-request vs per cost line
+  // Effective request-level split persisted to ChargingAllocation (drives routing §13.14/§18/§6.2).
+  let raw: { chargingCode: string; percent: number; amountSgd: number | null }[] = [];
+  const req = await prisma.travelRequest.findUnique({ where: { id }, include: { expenses: true } });
+
+  if (chargingMode === 'LINE') {
+    // Cross-charge per cost line: aggregate each line's NTU-funded amount onto its account.
+    const defaultCode = EcsIdentity.employee(req?.travellerId ?? '')?.defaultChargingCode ?? '';
+    const lineCharges: { chargingCode: string; netSgd: number }[] = [];
+    for (const e of req?.expenses ?? []) {
+      const code = str(fd, `line_${e.id}`) || defaultCode;
+      const net = Math.max(e.sgdAmount - e.sponsorSgd, 0);
+      await prisma.estimatedExpense.update({ where: { id: e.id }, data: { chargingCode: code || null } });
+      if (code) lineCharges.push({ chargingCode: code, netSgd: net });
     }
-    const total = amts.reduce((s, a) => s + a.amountSgd, 0) || 1;
-    for (const a of amts) raw.push({ chargingCode: a.chargingCode, percent: Math.round((a.amountSgd / total) * 1000) / 10, amountSgd: a.amountSgd });
+    raw = rollupByCode(lineCharges).map((r) => ({ chargingCode: r.chargingCode, percent: r.percent, amountSgd: r.amountSgd }));
   } else {
-    for (let i = 0; i < 5; i++) {
-      const code = str(fd, `code_${i}`);
-      const pct = num(fd, `pct_${i}`);
-      if (code && pct > 0) raw.push({ chargingCode: code, percent: pct, amountSgd: null });
+    // Whole-request split (percent or amount entry). Clear any stale per-line assignments.
+    await prisma.estimatedExpense.updateMany({ where: { requestId: id }, data: { chargingCode: null } });
+    if (entryMode === 'AMOUNT') {
+      const amts: { chargingCode: string; amountSgd: number }[] = [];
+      for (let i = 0; i < 5; i++) {
+        const code = str(fd, `code_${i}`);
+        const amt = num(fd, `amt_${i}`);
+        if (code && amt > 0) amts.push({ chargingCode: code, amountSgd: amt });
+      }
+      const total = amts.reduce((s, a) => s + a.amountSgd, 0) || 1;
+      for (const a of amts) raw.push({ chargingCode: a.chargingCode, percent: Math.round((a.amountSgd / total) * 1000) / 10, amountSgd: a.amountSgd });
+    } else {
+      for (let i = 0; i < 5; i++) {
+        const code = str(fd, `code_${i}`);
+        const pct = num(fd, `pct_${i}`);
+        if (code && pct > 0) raw.push({ chargingCode: code, percent: pct, amountSgd: null });
+      }
     }
   }
+
+  await prisma.travelRequest.update({ where: { id }, data: { chargingMode } });
   await prisma.chargingAllocation.deleteMany({ where: { requestId: id } });
   for (const r of raw) {
     const master = EcsCharging.code(r.chargingCode);
@@ -595,7 +645,7 @@ export async function saveCharging(id: string, fd: FormData) {
       },
     });
   }
-  await audit(id, 'AMEND', 'Charging allocation saved');
+  await audit(id, 'AMEND', chargingMode === 'LINE' ? 'Charging allocated per cost line (cross-charge)' : 'Charging allocation saved');
   await persistPolicy(id);
   revalidatePath(`/requests/${id}/charging`);
   redirect(`/requests/${id}/policy`);
@@ -612,17 +662,24 @@ export async function runPolicy(id: string) {
 export async function submitRequest(id: string, fd?: FormData) {
   const req = await loadRequest(id);
   if (!req) return;
+  if (!canEditRequest(await currentPersonaId(), req)) { await audit(id, 'STATUS', 'Submit blocked — not authorised to edit this request'); return; }
   if (!actionAllowed('submit', req.status)) { await audit(id, 'STATUS', `Submit blocked — request is ${req.status}, not in an editable state`); return; }
   const settings = await getSettings();
 
+  // §4.8 high-risk destination — the traveller must acknowledge the advisory before submission.
+  const highRisk = isHighRisk(req);
   // §23 optional traveller-selected Additional Approver (any AD person, never the traveller).
   if (fd) {
     const aa = str(fd, 'additionalApproverId');
     const aaId = aa && aa !== req.travellerId ? aa : null;
     const personalAck = str(fd, 'personalAck') === 'on';
-    if (aaId !== req.additionalApproverId || personalAck !== req.personalAck) {
-      await prisma.travelRequest.update({ where: { id }, data: { additionalApproverId: aaId, personalAck } });
+    const highRiskAck = str(fd, 'highRiskAck') === 'on' || req.highRiskAck;
+    if (highRisk && !highRiskAck) {
+      await audit(id, 'STATUS', 'Submission blocked — high-risk destination requires the traveller acknowledgement (§4.8)');
+      revalidatePath(`/requests/${id}/review`);
+      return;
     }
+    await prisma.travelRequest.update({ where: { id }, data: { additionalApproverId: aaId, personalAck, highRiskAck } });
   }
 
   // §13.4 lock foreign-currency estimates to the SGD rate effective on the submission date.
@@ -659,12 +716,18 @@ export async function submitRequest(id: string, fd?: FormData) {
   await snapshot(fresh, 'SUBMISSION', false);
   await audit(id, 'SUBMIT', `Submitted for approval — routed to ${steps.map((s) => s.roleType).join(' → ')}`, req.requestorId !== req.travellerId ? req.travellerId : null);
 
+  // §4.8 notify the risk office when a high-risk destination is involved.
+  if (highRisk) {
+    const names = highRiskDestinationsForRequest(fresh).map((h) => `${h.name} (${h.riskLevel})`).join(', ');
+    await audit(id, 'STATUS', `High-risk travel — ${names}; traveller acknowledged, Risk Management Office notified (§4.8)`);
+  }
+
   revalidatePath('/dashboard');
   redirect(`/requests/${id}`);
 }
 
 /* ---------------------------------------------- approver actions (TR-12) */
-export async function approveStep(id: string) {
+export async function approveStep(id: string, fd?: FormData) {
   const req = await loadRequest(id);
   if (!req) return;
   if (!actionAllowed('approve', req.status)) { await audit(id, 'STATUS', `Approve blocked — request is ${req.status}, not awaiting approval`); return; }
@@ -672,12 +735,23 @@ export async function approveStep(id: string) {
   const step = req.approvalSteps.find((s) => s.status === 'Pending');
   if (!step) return;
   if (!canActOnStep(step.approverId, persona)) return; // AC14/AC22 — assigned approver or Travel Admin only
+  // §4.8 high-risk destination — the approver must acknowledge the advisory to approve.
+  if (isHighRisk(req) && (fd ? str(fd, 'highRiskAck') : '') !== 'on') {
+    await audit(id, 'STATUS', 'Approval blocked — high-risk destination requires the approver acknowledgement (§4.8)');
+    revalidatePath(`/requests/${id}`);
+    return;
+  }
   const inReapproval = req.status === REQUEST_STATUS.AmendmentInProgress;
 
   // Optimistic concurrency — only decide the step if it is still Pending (one winner).
   const won = await prisma.approvalStep.updateMany({ where: { id: step.id, status: 'Pending' }, data: { status: 'Approved', decidedAt: new Date() } });
   if (won.count === 0) return; // another actor already decided this step
   await audit(id, 'APPROVE', `${step.roleType} ${inReapproval ? 'reapproved' : 'approved'} by ${EcsIdentity.employee(persona)?.name ?? persona}`);
+  // §4.8 record the approver's high-risk acknowledgement.
+  if (isHighRisk(req)) {
+    await prisma.travelRequest.update({ where: { id }, data: { highRiskApproverAck: true } });
+    await audit(id, 'STATUS', `${EcsIdentity.employee(persona)?.name ?? persona} acknowledged the high-risk travel advisory (§4.8)`);
+  }
 
   const next = req.approvalSteps.find((s) => s.seq > step.seq && s.status === 'Pending');
   if (next) {
@@ -795,18 +869,20 @@ export async function handoffToTmc(id: string) {
     revalidatePath(`/requests/${id}/booking`);
     return;
   }
+  // Multi-TMC: resolve the single provider this request routes to.
+  const { provider } = resolveTmcProvider(req);
   const contract = await getContractSettings();
-  const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION };
+  const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: provider.id };
   // §9.3 group fan-out (AC15): one approval → one booking instruction per traveller.
   const { mode, instructions } = assembleOutboundInstructions(req, tmcEnabledSet(contract), meta);
   const payloadObj = mode === 'GROUP_FANOUT'
     ? { meta, mode, authorisationNumber: req.authorisationNo ?? '', instructionCount: instructions.length, instructions }
     : instructions[0];
-  await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify(payloadObj, null, 2) } });
+  await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', tmcProviderId: provider.id, payload: JSON.stringify(payloadObj, null, 2) } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.SentToTMC } });
   await audit(id, 'INTEGRATION', mode === 'GROUP_FANOUT'
-    ? `Outbound booking fan-out sent to TMC (mock) — ${instructions.length} traveller instruction(s)`
-    : 'Outbound booking payload sent to TMC (mock)');
+    ? `Outbound booking fan-out sent to ${provider.name} (mock) — ${instructions.length} traveller instruction(s)`
+    : `Outbound booking payload sent to ${provider.name} (mock)`);
   revalidatePath(`/requests/${id}/booking`);
 }
 
@@ -814,6 +890,9 @@ export async function receiveBooking(id: string, fd: FormData) {
   const req = await loadRequest(id);
   const out = req?.messages.find((m) => m.kind === 'TMC_HANDOFF');
   if (!req || !out) return;
+  // Multi-TMC: process the response with the adapter of the provider this request was sent to.
+  const providerId = out.tmcProviderId ?? resolveTmcProvider(req).provider.id;
+  const adapter = adapterFor(tmcProvider(providerId)?.adapterKey);
   // Idempotency — a booking already received is not reprocessed (prevents duplicate rows).
   if (req.bookingStatus === BOOKING_STATUS.Booked) {
     await audit(id, 'INTEGRATION', 'Inbound response ignored — booking already received');
@@ -829,8 +908,8 @@ export async function receiveBooking(id: string, fd: FormData) {
   }
   // §6.4 the TMC may report a FAILED booking — record it and allow a re-send.
   if (fd && str(fd, 'outcome') === 'FAILED') {
-    const failMeta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: JSON.parse(out.payload).meta?.messageId ?? null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION };
-    await prisma.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', payload: JSON.stringify({ meta: failMeta, authorisationNumber: req.authorisationNo, bookingStatus: BOOKING_STATUS.Failed, reason: str(fd, 'reason') || 'TMC could not fulfil the itinerary' }, null, 2) } });
+    const failMeta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: JSON.parse(out.payload).meta?.messageId ?? null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: providerId };
+    await prisma.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', tmcProviderId: providerId, payload: JSON.stringify({ meta: failMeta, authorisationNumber: req.authorisationNo, bookingStatus: BOOKING_STATUS.Failed, reason: str(fd, 'reason') || 'TMC could not fulfil the itinerary' }, null, 2) } });
     await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Failed } });
     await audit(id, 'INTEGRATION', 'TMC reported booking FAILED — awaiting re-send');
     revalidatePath(`/requests/${id}/booking`);
@@ -844,7 +923,7 @@ export async function receiveBooking(id: string, fd: FormData) {
   const instructions: Array<Record<string, unknown>> = isFanout ? outbound.instructions : [outbound];
 
   const inbounds = instructions.map((inst, i) => {
-    const sim = simulateInbound(inst as never, { overFarePct });
+    const sim = adapter.simulateInbound(inst as never, { overFarePct });
     // Make each traveller's PNR/ticket unique within the fan-out.
     if (isFanout) {
       sim.pnr = `${sim.pnr}-${i + 1}`;
@@ -860,18 +939,18 @@ export async function receiveBooking(id: string, fd: FormData) {
   const allowed = approvedAir + Math.min(approvedAir * tol.bookingFarePct / 100, tol.bookingFareAbsSgd);
   const deviation = approvedAir > 0 && bookedAir > allowed;
 
-  const inboundMeta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: outbound.meta?.messageId ?? null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION };
+  const inboundMeta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: outbound.meta?.messageId ?? null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: providerId };
   const responsePayload = isFanout
     ? { meta: inboundMeta, mode: 'GROUP_FANOUT', authorisationNumber: req.authorisationNo ?? '', bookings: inbounds.map((b) => b.inbound) }
     : { ...inbounds[0].inbound, meta: inboundMeta };
 
   // Atomic: response + bookings + segments + deviation + status succeed or fail together.
   await prisma.$transaction(async (tx) => {
-    await tx.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', payload: JSON.stringify(responsePayload, null, 2) } });
+    await tx.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', tmcProviderId: providerId, payload: JSON.stringify(responsePayload, null, 2) } });
     for (const { travellerId, inbound } of inbounds) {
       const booking = await tx.travelBooking.create({
         data: {
-          requestId: id, travellerId, pnr: inbound.pnr, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
+          requestId: id, travellerId, tmcProviderId: providerId, pnr: inbound.pnr, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
           fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd,
           hotelRate: inbound.segments.find((s: { type: string }) => s.type === 'HOTEL')?.roomRateSgd, status: inbound.bookingStatus,
         },
@@ -950,6 +1029,47 @@ export async function resendToTmc(id: string) {
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.NotSent } });
   await audit(id, 'INTEGRATION', 'Re-sending to TMC after failed booking');
   await handoffToTmc(id);
+}
+
+/* ---------------------------------------- §4.13 visa letter notification */
+/** Daily visa-letter batch: notify the org-unit-mapped immigration office for every
+ *  approved request that flagged a visa letter and has not yet been notified. Idempotent
+ *  (notified requests carry `visaLetterNotifiedAt`); failures are logged and left pending. */
+export async function runVisaLetterBatch() {
+  const pending = await prisma.travelRequest.findMany({
+    where: { status: REQUEST_STATUS.Approved, visaLetterRequired: true, visaLetterNotifiedAt: null },
+    include: { allocations: true },
+  });
+  const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '—');
+  let sent = 0, failed = 0;
+  for (const req of pending) {
+    const rec = visaLetterRecipientFor(req.departmentId);
+    if (!rec?.email) {
+      await audit(req.id, 'INTEGRATION', `Visa letter notification FAILED — no recipient office mapped for ${req.requestNumber} (§4.13)`);
+      failed++; continue;
+    }
+    const city = EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—';
+    const country = EcsReference.country(req.destCountry ?? '')?.name ?? '';
+    const payload = {
+      documentType: 'VISA_LETTER_NOTIFICATION',
+      travelRequestRef: req.requestNumber,
+      authorisationNumber: req.authorisationNo,
+      traveller: travellerName(req),
+      destination: `${city}${country ? `, ${country}` : ''}`,
+      travelDates: `${d(req.startDate)} → ${d(req.endDate)}`,
+      travelPurpose: EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—',
+      fundingSource: req.allocations.map((a) => a.chargingCode).join(', ') || '—',
+      recipient: rec,
+      generatedAt: new Date().toISOString(),
+    };
+    await prisma.integrationMessage.create({ data: { requestId: req.id, direction: 'OUTBOUND', kind: 'VISA_LETTER', payload: JSON.stringify(payload, null, 2) } });
+    await prisma.travelRequest.update({ where: { id: req.id }, data: { visaLetterNotifiedAt: new Date() } });
+    await audit(req.id, 'STATUS', `Visa letter notification sent to ${rec.office} (${rec.email}) for ${req.authorisationNo} — daily batch (§4.13)`);
+    sent++;
+  }
+  await audit(null, 'INTEGRATION', `Visa letter daily batch — ${sent} sent, ${failed} failed, ${pending.length} candidate(s) (§4.13)`);
+  revalidatePath('/visa-letters');
+  revalidatePath('/notifications');
 }
 
 /* ------------------------------------ comments / attachments (§13.21) */

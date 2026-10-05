@@ -11,8 +11,10 @@ import { buildRoute } from '@/modules/pretrip/route';
 import { employees } from '@/data/employees';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
+import { isHighRisk } from '@/modules/pretrip/risk';
 import { Card, KV, Stepper } from '@/components/ui';
 import { OutcomePill } from '@/components/StatusPill';
+import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
 
 const ROUTE_ROLE_LABEL: Record<string, string> = {
   [APPROVER_ROLE.AdditionalApprover]: 'Additional Approver', [APPROVER_ROLE.FundingOwner]: 'Funding Owner / Cross-BA',
@@ -35,6 +37,9 @@ export default async function ReviewStep({ params }: { params: Promise<{ id: str
   // §12 personal travel — present if a personal extension window or a personal leg exists.
   const hasPersonal = !!req.personalStart || req.legs.some((l) => l.isPersonal);
   const personalCost = req.expenses.filter((e) => e.accommodation).reduce((s, e) => s + (e.accommodation!.personalNights || 0) * e.accommodation!.budgetedNightly, 0);
+  // §4.8 high-risk destination — the traveller must acknowledge before submission
+  // (enforced by the required checkbox below and re-checked server-side on submit).
+  const highRisk = isHighRisk(req);
 
   // §21 dynamic approval-route preview — derived from the request's CURRENT charging, cost,
   // exceptions and saved Additional Approver, so it reflects edits as the request changes.
@@ -50,6 +55,8 @@ export default async function ReviewStep({ params }: { params: Promise<{ id: str
     <div>
       <Stepper id={id} active="review" />
 
+      <HighRiskAdvisory req={req} />
+
       <div className="grid md:grid-cols-2 gap-5">
         <Card title="Trip">
           <dl className="grid grid-cols-2 gap-3">
@@ -60,6 +67,7 @@ export default async function ReviewStep({ params }: { params: Promise<{ id: str
             <KV label="Booking method">{req.bookingMethod ?? '—'}</KV>
             {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
             {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
+            {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
             <KV label="Traveller">{travellerName(req)}</KV>
           </dl>
         </Card>
@@ -144,6 +152,12 @@ export default async function ReviewStep({ params }: { params: Promise<{ id: str
             </select>
             <p className="text-xs text-[var(--ecs-muted)] mt-1">Optionally route the request through one additional approver of your choice before the DOA (§23). You cannot select yourself.</p>
           </div>
+          {highRisk && (
+            <label className="flex items-start gap-2 text-sm text-red-900 bg-red-50 border border-red-200 rounded p-2">
+              <input type="checkbox" name="highRiskAck" value="on" required className="mt-0.5 w-4 h-4" defaultChecked={req.highRiskAck} />
+              <span>I acknowledge the high-risk travel advisory for this destination, accept the associated risks, and confirm I will comply with the University&apos;s travel risk-management requirements (§4.8).</span>
+            </label>
+          )}
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" name="coiAck" value="on" className="mt-0.5 w-4 h-4" defaultChecked />
             <span>{settings.coiText}</span>

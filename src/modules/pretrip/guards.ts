@@ -55,3 +55,19 @@ export function creatableTravellerIds(personaId: string): Set<string> {
 export function canCreateFor(personaId: string, travellerId: string): boolean {
   return creatableTravellerIds(personaId).has(travellerId);
 }
+
+/** May the persona EDIT this request's draft (trip, estimates, charging, submit)? The
+ * creator, a Travel/System Administrator, the traveller themselves, a delegate for the
+ * traveller, or a Travel Requestor in the traveller's department. Uses EXPLICIT remit only
+ * (unlike the permissive create fallback), so read-only roles (e.g. Finance) and approvers
+ * are excluded. */
+export function canEditRequest(personaId: string, req: { requestorId: string; travellerId: string }): boolean {
+  if (EcsIdentity.hasRole(personaId, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(personaId, 'SYSTEM_ADMIN')) return true;
+  if (personaId === req.requestorId) return true;
+  const persona = EcsIdentity.employee(personaId);
+  if (!persona) return false;
+  if (persona.isTraveller && persona.id === req.travellerId) return true;
+  if (EcsDelegation.canCreateTravelRequestFor(personaId).includes(req.travellerId)) return true;
+  if (persona.roles.includes(ROLE.TravelRequestor) && EcsIdentity.employee(req.travellerId)?.departmentId === persona.departmentId) return true;
+  return false;
+}

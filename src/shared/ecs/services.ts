@@ -18,6 +18,7 @@ import { sgdPerUnit, currencies, fxRates } from '@/data/fxRates';
 import { tolerances } from '@/data/tolerances';
 import { delegations, type Delegation } from '@/data/delegations';
 import { rejectionReasons } from '@/data/rejectionReasons';
+import { highRiskDestinations, type HighRiskDestination } from '@/data/highRiskDestinations';
 
 /* ---------------------------------------------------------------- Identity / HR */
 export const EcsIdentity = {
@@ -66,6 +67,10 @@ export const EcsReference = {
   fxRates: () => fxRates,
   flightHours: (destCityCode: string) => flightHoursFromSIN[destCityCode] ?? 12,
   rejectionReasons: () => rejectionReasons,
+  // §4.8 high-risk destinations
+  highRiskDestinations: () => highRiskDestinations,
+  highRiskForCountry: (countryCode: string): HighRiskDestination | undefined =>
+    highRiskDestinations.find((h) => h.countryCode === countryCode && h.active),
 };
 
 /* --------------------------------------------------------------------- FX (§13.4) */

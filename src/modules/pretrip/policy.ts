@@ -8,6 +8,7 @@ import { computeSummary } from './pricing';
 import { effectiveLegs, sharedLegs } from './group';
 import { policyThresholds as PT } from '@/config/policyThresholds';
 import { ruleActive } from '@/config/policyRules';
+import { highRiskDestinationsForRequest } from './risk';
 
 export interface EvaluatedCheck {
   code: string;
@@ -118,6 +119,14 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string):
   const summary = computeSummary(req.expenses, approvalAmountBasis);
   if (ruleActive('HIGH', now) && summary.approvalAmount > PT.highEstimateSgd) {
     checks.push({ code: 'HIGH', label: 'High estimate', outcome: POLICY_OUTCOME.Warning, detail: `Approval amount SGD ${summary.approvalAmount.toFixed(0)} is above SGD ${PT.highEstimateSgd.toLocaleString('en-SG')}.` });
+  }
+
+  // §4.8 high-risk destination — surface the advisory; traveller + approver acknowledgements
+  // are enforced separately at submission and approval.
+  if (ruleActive('HIGH_RISK', now)) {
+    for (const h of highRiskDestinationsForRequest(req)) {
+      checks.push({ code: 'HIGH_RISK', label: `High-risk destination — ${h.name} (${h.riskLevel})`, outcome: POLICY_OUTCOME.Warning, detail: `${h.advisory} Source: ${h.source}.` });
+    }
   }
 
   return checks;

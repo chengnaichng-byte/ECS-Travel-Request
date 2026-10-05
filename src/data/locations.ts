@@ -9,6 +9,7 @@ export const countries: Country[] = [
   { code: 'JP', name: 'Japan',          overseas: true },
   { code: 'GB', name: 'United Kingdom', overseas: true },
   { code: 'FR', name: 'France',         overseas: true },
+  { code: 'EG', name: 'Egypt',          overseas: true },
 ];
 
 export const cities: City[] = [
@@ -17,6 +18,7 @@ export const cities: City[] = [
   { code: 'OSA', name: 'Osaka',     countryCode: 'JP', timezone: 'UTC+9' },
   { code: 'LON', name: 'London',    countryCode: 'GB', timezone: 'UTC+0' },
   { code: 'PAR', name: 'Paris',     countryCode: 'FR', timezone: 'UTC+1' },
+  { code: 'CAI', name: 'Cairo',     countryCode: 'EG', timezone: 'UTC+2' },
 ];
 
 export const airports: Airport[] = [
@@ -26,7 +28,8 @@ export const airports: Airport[] = [
   { code: 'KIX', name: 'Osaka Kansai',           cityCode: 'OSA' },
   { code: 'LHR', name: 'London Heathrow',        cityCode: 'LON' },
   { code: 'CDG', name: 'Paris Charles de Gaulle', cityCode: 'PAR' },
+  { code: 'CAI', name: 'Cairo International',     cityCode: 'CAI' },
 ];
 
 /** Approx. non-stop flight hours from Singapore — drives travel-class duration bands (§13.19). */
-export const flightHoursFromSIN: Record<string, number> = { TYO: 7, OSA: 7, LON: 13, PAR: 13, SIN: 0 };
+export const flightHoursFromSIN: Record<string, number> = { TYO: 7, OSA: 7, LON: 13, PAR: 13, CAI: 11, SIN: 0 };

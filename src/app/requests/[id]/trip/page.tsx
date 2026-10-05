@@ -1,10 +1,14 @@
 // TR-04 Trip Details — purpose, justification, dates, itinerary, travel class and
 // proposed booking method (§4.4 replaces the retrospective TRS checkbox).
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
+import { currentPersonaId } from '@/shared/session';
+import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip, addLeg, removeLeg, moveLeg } from '@/modules/pretrip/actions';
 import { LegTimeline } from '@/components/LegTimeline';
 import { travelPurposes } from '@/data/travelPurposes';
+import { activeProviders } from '@/data/tmcProviders';
 import { countries, cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { BOOKING_METHOD_LABEL } from '@/shared/enums';
@@ -20,6 +24,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const { error } = await searchParams;
   const req = await loadRequest(id);
   if (!req) notFound();
+  const canEdit = canEditRequest(await currentPersonaId(), req);
 
   // §13.19 entitlement pre-fill for the (single-destination) trip.
   const onDate = req.startDate ?? new Date();
@@ -37,6 +42,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
     <div>
       <Stepper id={id} active="trip" />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
+      {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s trip details.</div>}
       <form action={saveTrip.bind(null, id)} className="space-y-5">
         <Card title="Trip Purpose & Justification">
           <div className="grid md:grid-cols-2 gap-4">
@@ -54,6 +60,14 @@ export default async function TripStep({ params, searchParams }: { params: Promi
                 {Object.entries(BOOKING_METHOD_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </div>
+            <div>
+              <label className="label">Preferred TMC (optional)</label>
+              <select name="tmcProviderId" defaultValue={req.tmcProviderId ?? ''} className="field">
+                <option value="">Auto — route by policy</option>
+                {activeProviders().map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <p className="text-xs text-[var(--ecs-muted)] mt-1">The request is routed to one TMC; leave on Auto to route by destination and policy, or pick a preferred provider.</p>
+            </div>
             <div className="md:col-span-2">
               <label className="label">Description / justification</label>
               <textarea name="description" defaultValue={req.description ?? ''} rows={2} className="field" placeholder="e.g. Presenting a paper at IEEE conference" />
@@ -69,6 +83,12 @@ export default async function TripStep({ params, searchParams }: { params: Promi
             <div className="md:col-span-2">
               <label className="label">Invitation / acceptance reference</label>
               <input name="invitationRef" defaultValue={req.invitationRef ?? ''} className="field" placeholder="e.g. IEEE-2027-ACCEPT-4821" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="visaLetterRequired" defaultChecked={req.visaLetterRequired} className="w-4 h-4" />
+                <span>A <strong>visa letter</strong> is required for this trip (§4.13) — the immigration office is notified once the request is approved.</span>
+              </label>
             </div>
           </div>
         </Card>
@@ -139,7 +159,9 @@ export default async function TripStep({ params, searchParams }: { params: Promi
         </Card>
 
         <div className="flex justify-end gap-2">
-          <button type="submit" className="btn-primary">Save trip &amp; continue →</button>
+          {canEdit
+            ? <button type="submit" className="btn-primary">Save trip &amp; continue →</button>
+            : <Link href={`/requests/${id}/estimates`} className="btn-primary">Continue →</Link>}
         </div>
       </form>
 
@@ -191,7 +213,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
             </div>
           )}
 
-          <form action={addLeg.bind(null, id)} className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2 items-end border-t border-[var(--ecs-border)] pt-3">
+          {canEdit && <form action={addLeg.bind(null, id)} className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2 items-end border-t border-[var(--ecs-border)] pt-3">
             <div><label className="label">Mode</label>
               <select name="transportMode" className="field"><option value="AIR">Air</option><option value="RAIL">Rail</option><option value="OTHER">Other</option></select>
             </div>
@@ -208,7 +230,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
             <div><label className="label">Personal</label><div className="pt-2"><input type="checkbox" name="isPersonal" className="w-4 h-4" /></div></div>
             <div><label className="label">Booking req.</label><div className="pt-2"><input type="checkbox" name="bookingRequired" defaultChecked className="w-4 h-4" /></div></div>
             <button className="btn-secondary">Add leg</button>
-          </form>
+          </form>}
         </Card>
       </div>
     </div>

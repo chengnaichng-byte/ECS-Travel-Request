@@ -57,6 +57,8 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
     bookingFor: g.bookingFor, guest: 'guest' in g ? g.guest : undefined,
     travellers: req.travellers, bookingMethod: req.bookingMethod, bookingDeadline: req.bookingDeadline,
     approvedCostCeilingSgd: ceiling, approvedExceptions: exceptions, legs: sharedLegs(req), accommodation: acc,
+    travelPurpose: EcsReference.travelPurpose(req.purposeId ?? '')?.name,
+    eventStartDate: req.eventStartDate, eventEndDate: req.eventEndDate, approvalValidUntil: req.authorisationExpiry,
     charging: chargingBlock(req), approvals: approvalsBlock(req),
     travellerCategory: isGuestRequest(req) ? 'GUEST' : (emp?.travelPolicyGroup ?? 'STAFF'),
     travellerEmail: isGuestRequest(req) ? req.guestEmail : null,
@@ -118,6 +120,13 @@ export function assembleOutboundInstructions(
     if (on('approvedExceptions')) {
       out.approvedExceptions = exceptions.filter((c) => !c.travellerId || c.travellerId === t.employeeId).map((c) => c.label);
     }
+    // §4.6 approved-request context (shared across the group).
+    if (on('tripPurpose')) { const pn = EcsReference.travelPurpose(req.purposeId ?? '')?.name; if (pn) out.travelPurpose = pn; }
+    if (on('eventDates') && (req.eventStartDate || req.eventEndDate)) {
+      out.eventStartDate = req.eventStartDate ? req.eventStartDate.toISOString().slice(0, 10) : null;
+      out.eventEndDate = req.eventEndDate ? req.eventEndDate.toISOString().slice(0, 10) : null;
+    }
+    if (on('approvalValidity')) out.approvalValidUntil = req.authorisationExpiry ? req.authorisationExpiry.toISOString().slice(0, 10) : null;
     // §29 enrichment — charging/approvals shared across the group; traveller context + personal flag per traveller.
     if (on('charging') && charging.length) out.charging = charging;
     if (on('approvalMetadata') && approvals.length) out.approvals = approvals;

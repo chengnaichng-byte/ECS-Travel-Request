@@ -91,6 +91,11 @@ model TravelRequest {
   personalStart     DateTime?                       // personal extension (§13.18)
   personalEnd       DateTime?
   personalAck       Boolean  @default(false)         // §12 traveller acknowledges personal portion is at own cost
+  highRiskAck       Boolean  @default(false)         // §4.8 traveller acknowledged the high-risk advisory before submission
+  highRiskApproverAck Boolean @default(false)        // §4.8 an approver acknowledged the high-risk advisory during approval
+  visaLetterRequired Boolean @default(false)         // §4.13 traveller indicated a visa letter is required
+  visaLetterNotifiedAt DateTime?                     // §4.13 set when the daily visa-letter batch notified the office
+  tmcProviderId     String?                          // multi-TMC: traveller/admin preferred TMC provider (null = auto by policy)
   eventStartDate    DateTime?                        // §10 event/conference dates (may differ from travel dates)
   eventEndDate      DateTime?
   invitationRef     String?                          // §10 invitation / acceptance reference
@@ -99,6 +104,7 @@ model TravelRequest {
   classBasis        String?                         // derivation basis text
   classJustification String?                        // required when chosen class > entitlement
   bookingMethod     String?                         // §2.2 proposed booking method
+  chargingMode      String   @default("REQUEST")    // §17 REQUEST (whole-request split) | LINE (cross-charge per cost line)
 
   // Derived approval routing snapshot
   approvalAmountSgd  Float?                         // amount basis result (SGD, §13.4)
@@ -197,6 +203,7 @@ model EstimatedExpense {
   expectedDate   DateTime?
   isShared       Boolean @default(false)    // §13.14 shared apportioned line
   shareMap       String?                    // JSON {employeeId: pct}
+  chargingCode   String?                    // §17 per-line charging account (LINE cross-charge mode); null = follows request-level split
   notes          String?
 
   // Airfare-specific (§4.5)
@@ -290,6 +297,7 @@ model TravelBooking {
   requestId     String
   request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   travellerId   String?                     // §9.3 per-traveller booking in a group fan-out (AC15)
+  tmcProviderId String?                     // multi-TMC: the provider that made this booking
   pnr           String?
   ticketNo      String?
   channel       String?                     // TMC | SELF_BOOKED
@@ -373,6 +381,7 @@ model IntegrationMessage {
   request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   direction     String                      // OUTBOUND | INBOUND
   kind          String                      // TMC_HANDOFF | TMC_RESPONSE
+  tmcProviderId String?                     // multi-TMC: the provider this message was exchanged with
   payload       String                      // canonical JSON
   createdAt     DateTime @default(now())
 }

@@ -16,6 +16,7 @@ const NAV: NavItem[] = [
   { href: '/workbench', label: 'Travel Administration', icon: '⚑' },
   { href: '/finance', label: 'Finance Oversight', icon: '$' },
   { href: '/reports', label: 'Reporting', icon: '▦' },
+  { href: '/visa-letters', label: 'Visa Letters', icon: '✉' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
   { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
   { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },

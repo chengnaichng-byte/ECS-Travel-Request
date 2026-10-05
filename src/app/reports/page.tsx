@@ -3,7 +3,7 @@
 import { listRequests } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
-import { EcsIdentity, EcsCharging } from '@/shared/ecs/services';
+import { EcsIdentity, EcsCharging, EcsReference } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, POLICY_OUTCOME } from '@/shared/enums';
 import { PageTitle, Card } from '@/components/ui';
 
@@ -68,6 +68,16 @@ export default async function ReportsPage() {
     if (r.bookingStatus === BOOKING_STATUS.SelfBooked) selfBooked++;
   }
 
+  // §4.8 active travellers by location (crisis/emergency view) — highlights high-risk.
+  const byLocation = new Map<string, { country: string; trips: number; travellers: number; risk?: string }>();
+  for (const r of live) {
+    const cc = r.destCountry ?? '—';
+    const e = byLocation.get(cc) ?? { country: EcsReference.country(cc)?.name ?? cc, trips: 0, travellers: 0, risk: EcsReference.highRiskForCountry(cc)?.riskLevel };
+    e.trips += 1; e.travellers += r.isGroup ? r.travellers.length : 1;
+    byLocation.set(cc, e);
+  }
+  const locations = [...byLocation.values()].sort((a, b) => (a.risk ? 0 : 1) - (b.risk ? 0 : 1) || b.travellers - a.travellers);
+
   const sortRows = (m: Map<string, number>, money = false) =>
     [...m.entries()].sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value, sub: money ? fmtSgd(value) : String(value) }));
   const deptName = (m: Map<string, number>) =>
@@ -111,6 +121,23 @@ export default async function ReportsPage() {
           <p className="text-xs text-[var(--ecs-muted)] mt-2">Compliance counts are over live (non-draft, non-terminated) requests.</p>
         </Card>
       </div>
+
+      <Card title="Travel Risk — active travellers by location (§4.8)">
+        <p className="text-xs text-[var(--ecs-muted)] mb-2">For emergency / crisis response: live travellers grouped by destination; high-risk destinations are flagged first.</p>
+        <table className="w-full text-sm">
+          <thead><tr><th className="th">Destination</th><th className="th text-right">Trips</th><th className="th text-right">Travellers</th><th className="th">Risk</th></tr></thead>
+          <tbody>
+            {locations.map((l) => (
+              <tr key={l.country} className={l.risk ? 'bg-red-50' : 'hover:bg-[var(--ecs-panel-2)]'}>
+                <td className="td font-medium">{l.country}</td>
+                <td className="td text-right">{l.trips}</td>
+                <td className="td text-right">{l.travellers}</td>
+                <td className="td">{l.risk ? <span className="pill-exc">{l.risk}</span> : <span className="text-[var(--ecs-muted)]">—</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
     </div>
   );
 }

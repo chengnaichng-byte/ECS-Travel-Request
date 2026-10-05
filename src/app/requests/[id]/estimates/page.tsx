@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
+import { currentPersonaId } from '@/shared/session';
+import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAccommodation, addOda, addOther, deleteExpense } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
-import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
+import { computeSummary, computeOda, fmtSgd } from '@/modules/pretrip/pricing';
 import { countries, cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { hotelCaps, odaRates } from '@/data/policyRates';
@@ -25,8 +27,29 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const req = await loadRequest(id);
   if (!req) notFound();
   const settings = await getSettings();
+  const canEdit = canEditRequest(await currentPersonaId(), req);
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
   const allowIncidental = settings.expenseScope === 'ALL';
+  // Pre-fill the add-forms from the trip the request already captured, so the traveller
+  // doesn't re-key the destination and dates (§4.4/§4.5).
+  const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
+  const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+  const firstLeg = sharedLegs[0];
+  const destAirport = airports.find((a) => a.cityCode === req.destCity)?.code ?? '';
+  const tripDefaults = {
+    origin: firstLeg?.originCode ?? 'SIN',
+    destAirport: firstLeg?.destCode ?? destAirport,
+    classId: req.travelClassId ?? '',
+    destCity: req.destCity ?? '',
+    destCountry: req.destCountry ?? '',
+    start: d(req.startDate),
+    end: d(req.endDate),
+    nights: req.startDate && req.endDate ? String(Math.max(Math.round((req.endDate.getTime() - req.startDate.getTime()) / 86400000), 0)) : '',
+  };
+  // Auto-computed ODA preview for this trip (policy rate × eligible days over the official range).
+  const odaPreview = req.destCountry && req.startDate && req.endDate
+    ? computeOda({ countryCode: req.destCountry, arrive: req.startDate, depart: req.endDate, personalDays: 0 })
+    : null;
   const isGroup = req.isGroup;
   const gTravellers: [string, string][] = req.travellers.map((t) => [t.employeeId, EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId]);
   const attribution = (e: { isShared: boolean; travellerId: string | null }) =>
@@ -36,6 +59,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     <div>
       <Stepper id={id} active="estimates" />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
+      {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request's estimates.</div>}
 
       {/* Existing lines */}
       <Card title={`Estimated Travel Costs (${req.expenses.length})`} className="mb-5">
@@ -56,7 +80,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                     </td>
                     <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
                     <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
-                    <td className="td text-right"><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></td>
+                    <td className="td text-right">{canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -68,15 +92,15 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         )}
       </Card>
 
-      <div className="grid md:grid-cols-2 gap-5">
+      {canEdit && <div className="grid md:grid-cols-2 gap-5">
         {/* Airfare (TR-06) */}
         <Card title="Add Airfare (TR-06)">
           <form action={addAirfare.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Select name="originCode" label="Origin" defaultValue="SIN" opts={airports.map((a) => [a.code, a.code])} />
-              <Select name="destCode" label="Destination" opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
-              <Select name="proposedClassId" label="Proposed class" opts={travelClasses.map((c) => [c.id, c.name])} />
-              <Input name="expectedDate" label="Expected date" type="date" />
+              <Select name="originCode" label="Origin" defaultValue={tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
+              <Select name="destCode" label="Destination" defaultValue={tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
+              <Select name="proposedClassId" label="Proposed class" defaultValue={tripDefaults.classId} opts={travelClasses.map((c) => [c.id, c.name])} />
+              <Input name="expectedDate" label="Expected date" type="date" defaultValue={tripDefaults.start} />
               <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
               <Input name="amount" label="Quoted amount" type="number" />
               <Input name="sponsorship" label="Expected sponsorship" type="number" />
@@ -90,12 +114,12 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         <Card title="Add Accommodation (TR-07)">
           <form action={addAccommodation.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Select name="city" label="City" opts={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} />
+              <Select name="city" label="City" defaultValue={tripDefaults.destCity} opts={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} />
               <Input name="quotedNightly" label="Quoted rate / night" type="number" />
-              <Input name="nights" label="Nights" type="number" />
+              <Input name="nights" label="Nights" type="number" defaultValue={tripDefaults.nights} />
               <Input name="personalNights" label="Personal nights" type="number" defaultValue="0" />
-              <Input name="checkIn" label="Check-in" type="date" />
-              <Input name="checkOut" label="Check-out" type="date" />
+              <Input name="checkIn" label="Check-in" type="date" defaultValue={tripDefaults.start} />
+              <Input name="checkOut" label="Check-out" type="date" defaultValue={tripDefaults.end} />
             </div>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" /> Conference hotel</label>
             {isGroup && (
@@ -113,13 +137,16 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         <Card title="Add ODA (TR-08)">
           <form action={addOda.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Select name="country" label="Country" opts={countries.filter((c) => c.code !== 'SG').map((c) => [c.code, c.name])} />
-              <Select name="city" label="City" opts={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} />
-              <Input name="arrive" label="Arrival" type="date" />
-              <Input name="depart" label="Departure" type="date" />
+              <Select name="country" label="Country" defaultValue={tripDefaults.destCountry} opts={countries.filter((c) => c.code !== 'SG').map((c) => [c.code, c.name])} />
+              <Select name="city" label="City" defaultValue={tripDefaults.destCity} opts={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} />
+              <Input name="arrive" label="Arrival" type="date" defaultValue={tripDefaults.start} />
+              <Input name="depart" label="Departure" type="date" defaultValue={tripDefaults.end} />
               <Input name="personalDays" label="Personal days" type="number" defaultValue="0" />
               {isGroup && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
             </div>
+            {odaPreview && odaPreview.dailyRate > 0 && (
+              <p className="text-xs text-[var(--ecs-navy-2)]">Auto-computed for this trip: <strong>{fmtSgd(odaPreview.sgdAmount)}</strong> ({odaPreview.eligibleDays} eligible days @ {fmtSgd(odaPreview.dailyRate)}/day over {tripDefaults.start} → {tripDefaults.end}). Adjust dates/personal days to recompute.</p>
+            )}
             <p className="text-xs text-[var(--ecs-muted)]">Indicative estimate; excludes personal days. Rates — {odaRates.map((o) => `${o.countryCode} ${fmtSgd(o.dailyRateSgd)}/day`).join(', ')}.</p>
             <button className="btn-secondary w-full">Add ODA estimate</button>
           </form>
@@ -141,7 +168,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             </form>
           </Card>
         )}
-      </div>
+      </div>}
 
       <div className="flex justify-between mt-5">
         <Link href={`/requests/${id}/trip`} className="btn-secondary">← Back</Link>

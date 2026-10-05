@@ -24,6 +24,10 @@ export function buildOutbound(req: {
   bookingDeadline: Date | null;
   approvedCostCeilingSgd: number;
   approvedExceptions: string[];
+  travelPurpose?: string;
+  eventStartDate?: Date | null;
+  eventEndDate?: Date | null;
+  approvalValidUntil?: Date | null;
   legs: { originCode: string; destCode: string; departDate: Date | null; travelClassId: string | null }[];
   accommodation: { city: string; nights: number; cappedNightlySgd: number }[];
   charging?: { code: string; type: string; businessArea?: string | null; companyCode?: string | null; percent: number; isResearch: boolean; primary: boolean }[];
@@ -61,6 +65,13 @@ export function buildOutbound(req: {
   if (on('bookingDeadline')) out.bookingDeadline = req.bookingDeadline ? req.bookingDeadline.toISOString().slice(0, 10) : null;
   if (on('costCeiling')) out.approvedCostCeilingSgd = req.approvedCostCeilingSgd;
   if (on('approvedExceptions')) out.approvedExceptions = req.approvedExceptions;
+  // §4.6 approved-request context
+  if (on('tripPurpose') && req.travelPurpose) out.travelPurpose = req.travelPurpose;
+  if (on('eventDates') && (req.eventStartDate || req.eventEndDate)) {
+    out.eventStartDate = req.eventStartDate ? req.eventStartDate.toISOString().slice(0, 10) : null;
+    out.eventEndDate = req.eventEndDate ? req.eventEndDate.toISOString().slice(0, 10) : null;
+  }
+  if (on('approvalValidity')) out.approvalValidUntil = req.approvalValidUntil ? req.approvalValidUntil.toISOString().slice(0, 10) : null;
   // §29 enrichment
   if (on('charging') && req.charging?.length) out.charging = req.charging;
   if (on('approvalMetadata') && req.approvals?.length) out.approvals = req.approvals;
@@ -73,15 +84,16 @@ export function buildOutbound(req: {
  * Simulate the TMC returning a booking (§13.9). Produces a PNR, ticket and fares.
  * `overFare` lets the demo drive a booking-deviation scenario (S09).
  */
-export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: number }, meta?: InboundMeta): CanonicalInbound {
+export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: number; pnrPrefix?: string }, meta?: InboundMeta): CanonicalInbound {
   const air = out.segments.filter((s) => s.type === 'AIR');
   const hotel = out.segments.filter((s) => s.type === 'HOTEL');
   const baseFare = (out.approvedCostCeilingSgd ?? 5000) * 0.6 * (1 + (opts?.overFarePct ?? 0) / 100);
   const pnrSeed = out.authorisationNumber.replace(/\D/g, '').slice(-4) || '0001';
+  const prefix = opts?.pnrPrefix ?? 'PNR';
   return {
     ...(meta ? { meta } : {}),
     authorisationNumber: out.authorisationNumber,
-    pnr: `PNR${pnrSeed}`,
+    pnr: `${prefix}${pnrSeed}`,
     ticketNumbers: air.map((_, i) => `TKT-${pnrSeed}-${i + 1}`),
     bookingStatus: BOOKING_STATUS.Booked,
     channel: out.bookingMethod,
@@ -93,4 +105,25 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
       ...hotel.map((s) => ({ type: 'HOTEL' as const, city: s.city, roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0) })),
     ],
   };
+}
+
+/** Provider-specific adapter registry. In production each TMC has its own mapping of the
+ * canonical model to/from the provider's wire format; here the outbound build is shared
+ * (the canonical payload) and providers differ by their booking-reference prefix. The
+ * handoff/receive actions pick the adapter by the resolved provider's `adapterKey`. */
+export interface TmcAdapter {
+  buildOutbound: typeof buildOutbound;
+  simulateInbound: (out: CanonicalOutbound, opts?: { overFarePct?: number }, meta?: InboundMeta) => CanonicalInbound;
+}
+const withPrefix = (pnrPrefix: string): TmcAdapter => ({
+  buildOutbound,
+  simulateInbound: (out, opts, meta) => simulateInbound(out, { ...opts, pnrPrefix }, meta),
+});
+export const tmcAdapters: Record<string, TmcAdapter> = {
+  fcm: withPrefix('FCM'),
+  ctc: withPrefix('CTC'),
+  crisis24: withPrefix('C24'),
+};
+export function adapterFor(adapterKey: string | null | undefined): TmcAdapter {
+  return (adapterKey && tmcAdapters[adapterKey]) || tmcAdapters.fcm;
 }

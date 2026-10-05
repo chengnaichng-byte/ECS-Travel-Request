@@ -54,7 +54,11 @@ export async function listNotifications(limit = 40): Promise<NotificationItem[]>
       case 'APPROVE': recipient = `${traveller} (traveller)`; email = { to: emailAddr, subject: `Your request ${req.requestNumber} progressed` }; break;
       case 'REJECT': recipient = `${requestor} (requestor)`; email = { to: emailAddr, subject: `${req.requestNumber} was rejected` }; break;
       case 'SENDBACK': recipient = `${requestor} (requestor)`; email = { to: emailAddr, subject: `${req.requestNumber} sent back for changes` }; break;
-      case 'STATUS': recipient = `${traveller} (traveller)`; email = /Travel Authorisation/.test(e.summary) ? { to: emailAddr, subject: `Travel Authorisation issued — ${req.requestNumber}` } : null; break;
+      case 'STATUS':
+        if (/High-risk travel/.test(e.summary)) { recipient = 'Risk Management Office'; email = { to: 'risk-office@ntu.edu.sg', subject: `High-risk travel notification — ${req.requestNumber}` }; }
+        else if (/Visa letter notification sent/.test(e.summary)) { recipient = 'Immigration & Passes Office'; email = { to: 'immigration@ntu.edu.sg', subject: `Visa letter — ${req.requestNumber}` }; }
+        else { recipient = `${traveller} (traveller)`; email = /Travel Authorisation/.test(e.summary) ? { to: emailAddr, subject: `Travel Authorisation issued — ${req.requestNumber}` } : null; }
+        break;
       case 'INTEGRATION': recipient = 'Travel Administrator / traveller'; email = /sent to TMC|retransmit/.test(e.summary) ? { to: 'tmc@agency.example', subject: `Booking instruction — ${req.requestNumber}` } : null; break;
       case 'TE_LINK': recipient = `${traveller} (claimant)`; email = null; break;
     }

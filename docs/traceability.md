@@ -155,7 +155,7 @@ Server-side enforcement added so the lifecycle no longer trusts the UI (`src/mod
 
 ## Downstream integration & approval evidence (P2)
 
-- **Enriched TMC payload (§29).** The canonical outbound now carries, each behind an admin Integration-Contract toggle: `charging[]` (CC/WBS, business area, company code, primary-share flag), `approvals[]` (role, approver, decided-at), `traveller` (policy group — or GUEST — plus contact) and `personalTravel`. This gives the TMC the cost object it needs for direct airfare posting and full booking context.
+- **Enriched TMC payload (§29).** The canonical outbound now carries, each behind an admin Integration-Contract toggle: `charging[]` (CC/WBS, business area, company code, primary-share flag), `approvals[]` (role, approver, decided-at), `traveller` (policy group — or GUEST — plus contact) and `personalTravel`. This gives the TMC the cost object it needs for direct airfare posting and full booking context. **(RFI §4.6, added 2026-10-02:** also `travelPurpose`, `eventStartDate`/`eventEndDate` and `approvalValidUntil`, completing the approved-request hand-off set.)
 - **Direct airfare posting to SAP (§36).** When Airfare treatment = `DIRECT_SAP`, `postAirfareToSap` builds a posting document (`src/integrations/sap/posting.ts`): GL from the airfare expense type, booked fare/taxes/fees split across the trip's cost objects, PNR references. Stored as a `SAP_AIRFARE_POST` message and shown on the booking page. Idempotent.
 - **Claim prepopulation completeness (§35).** The confirmed TMC booking reference (PNR/ticket) is carried into the claim header (`teBookingRef`); booked amounts already flow per line. A group fan-out picks the claimant's own booking.
 - **Approval Pack (§24).** `/requests/[id]/pack` is a print-optimised one-page summary (traveller, trip, itinerary, costs, charging, approval trail, exceptions); browser Print → Save as PDF. "Download PDF" in More Actions links to it.
@@ -186,6 +186,19 @@ Server-side enforcement added so the lifecycle no longer trusts the UI (`src/mod
 - **Trip/leg field completeness (§10/§11).** Event start/end dates and an invitation reference on the trip header; per-leg departure time and a "booking required?" flag on the itinerary; surfaced on the trip editor, the review step and the approval pack.
 - **Personal travel (§12).** A Personal Travel card shows the extension window and the estimated incremental personal cost (personal nights × nightly rate, excluded from the NTU-funded budget); the declaration carries a configurable COI statement and a personal-travel acknowledgement recorded on submission.
 
+## RFI gaps closed (P4)
+
+- **High-risk travel management (§4.8, P4.1).** Configurable high-risk destinations (`data/highRiskDestinations.ts`: country, risk level, advisory, source, active flag — shown in the Config Viewer). `modules/pretrip/risk.ts` flags a request high-risk from its destination or any itinerary leg's country. A `HighRiskAdvisory` card appears on the review step and the approver detail; the traveller must tick a **required acknowledgement** before submitting (server-enforced, `TravelRequest.highRiskAck`), and the approver must acknowledge in a modal to approve (`highRiskApproverAck`). Submission **notifies the Risk Management Office** (audit event surfaced as a risk-office email in the notifications feed), and `/reports` includes an **active-travellers-by-location** view (emergency/crisis) that flags high-risk destinations. A `HIGH_RISK` config-driven policy rule surfaces the advisory in the policy checks. (Cairo/Egypt added to the location + rate masters as a bookable high-risk demo destination.)
+
+- **Visa letter notification (§4.13, P4.2).** A "visa letter required" flag on the trip step (`TravelRequest.visaLetterRequired`). The recipient immigration office is determined by organisational unit (`config/visaLetter.ts`: per-department override + a University-wide default). After the request is approved it waits on the **Visa Letters** page (`/visa-letters`); the **daily batch** (`runVisaLetterBatch`, idempotent via `visaLetterNotifiedAt`) generates a `VISA_LETTER` notification carrying the required content — traveller, destination, travel dates, purpose, funding source and the approved Travel-Authorisation reference — to the mapped office, with an audit entry and an unresolved-recipient failure path; the notifications feed shows it as an immigration-office email.
+
+## Estimates UX & edit authority (2026-10-05)
+
+- **Estimate forms pre-filled from the trip.** The airfare destination/class/expected-date, accommodation city/nights/check-in-out and ODA country/city/arrival-departure now default from the request's destination, itinerary and official dates, so the traveller doesn't re-key what the trip already captured. The ODA card shows the **auto-computed** amount for the trip (policy rate × eligible days over the official range).
+- **Expanded ECS expense-type master.** `data/expenseTypes.ts` now mirrors the fuller shared ECS/TE master — airfare, accommodation, ODA, conference/registration (major) plus ground transport, meals & subsistence, visa & immigration, travel insurance, communications and other (incidental) — so full-cost estimates (`expenseScope = ALL`) itemise properly instead of collapsing into "Other". Consumed read-only (§13.18).
+- **Edit-authority gate.** `canEditRequest` (guards.ts) permits the creator, a Travel/System Administrator, the traveller, a delegate, or a Travel Requestor in the traveller's department — using explicit remit (not the permissive create-fallback), so read-only roles (e.g. Finance) and approvers cannot edit a draft. Enforced server-side on every draft mutation (`requireEdit` on saveTrip / addLeg / removeLeg / moveLeg / addAirfare / addAccommodation / addOda / addOther / deleteExpense / saveCharging / submit) and in the UI (the trip, estimates and charging steps show a read-only banner and hide the edit forms for unauthorised viewers).
+- *Still to do:* a summary-first redesign of the estimates step (cost summary + add-in-drawer + inline edit, matching the ECS/detail pattern).
+
 ## Design decisions (prototype)
 
 **D1 — Approval route (reshaped 2026-10-02; configurable in production).** Pre-trip does **not** auto-route to the traveller's reporting officer — there is **no RO step**. The base route is:
@@ -198,6 +211,23 @@ Implemented in `route.ts` (`buildRoute`). The **Additional Approver** is *option
 **D2 — Group travellers confirm inclusion; they do not approve.** A group request is **approved once on the group total** by the DOA route above (DOA derived from the highest-charging department). Individual travellers are **not** approvers. After approvals complete, if any traveller has not yet acknowledged participation the request is held at **Pending Traveller Confirmation**; each traveller (or the Travel Administrator, via override) confirms *inclusion* (`confirmInclusion` sets `confirmed=true`), and once **all** are confirmed the Travel Authorisation is issued (`finalizeApproval`). The acting traveller sees a **"✓ Confirm my inclusion"** button in the request's **top action bar** (shown when the persona is an unconfirmed traveller on the request), as well as in the Group Management panel. So the confirmation is a participation acknowledgement / self-approval-safety gate, **not** a per-traveller approval of the request. `allTravellersConfirmed` / `overrideConfirmations` implement the gate.
 
 **D3 — Per-traveller sub-itineraries within a group are supported but expected to be rare.** The model allows a group traveller to deviate with their own sub-itinerary (own dates/class/ODA/accommodation share, §13.20), which re-derives their attribution and triggers reapproval only when material. In practice most group members travel on the shared itinerary, so this is a **deliberately-retained capability for the uncommon case**, not the default path — the group is created and costed on the shared itinerary and only diverges if someone explicitly *Creates own itinerary*. It is **gated behind the `groupSubItineraries` site property** (Module Settings TR-19, default **on**): when off, the per-traveller *Create own itinerary* editor is hidden and every traveller follows the shared group itinerary (the per-traveller **class** override, a separate §13.19 feature, stays available). `GroupTravellers` receives `allowSub={settings.groupSubItineraries}`.
+
+**D4 — One request routes to exactly one TMC (no split-booking).** The provider-neutral contract and
+adapter boundary support several TMCs, but a single travel request is handed off to **one** provider,
+selected by `resolveTmcProvider` (explicit traveller/admin preference → high-risk specialist desk →
+regional provider covering the destination → default). Splitting a request's bookings across TMCs is
+**deliberately not allowed** (user decision, 2026-10-05); provider-specific mapping stays in the
+adapter layer (`adapterFor`), and the resolved provider is tagged on the hand-off, bookings and
+integration messages. Registry: `src/data/tmcProviders.ts`; migration `multi_tmc_provider`.
+
+**D5 — Per-line cross-charging rolls up to the canonical request-level allocation.** Charging can be
+allocated as one whole-request split **or** per cost line (cross-charge), but either way the effective
+split is stored in `ChargingAllocation` (percent + SGD per account), which remains the **single source
+of truth** for approval routing (§13.14 highest-share DOA, §18 cross-BA concurrence, §6.2 funding
+owner) and the review/finance breakdowns. By-line mode aggregates each line's NTU-funded amount onto
+its account at save (`chargingRollup.rollupByCode`) and also persists `EstimatedExpense.chargingCode`
+so the per-line assignment round-trips. The default account is the traveller's profile
+`defaultChargingCode`. Migration `charging_mode_and_line_code`.
 
 ## Notes on scope
 

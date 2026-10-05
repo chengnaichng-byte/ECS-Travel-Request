@@ -9,6 +9,8 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { isGuestRequest } from '@/modules/pretrip/traveller';
+import { isHighRisk } from '@/modules/pretrip/risk';
+import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
 import { computeSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs } from '@/modules/pretrip/group';
 import { REQUEST_STATUS, POLICY_OUTCOME } from '@/shared/enums';
@@ -84,7 +86,7 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
           {isDraft && <Link href={`/requests/${id}/trip`} className="btn-primary">Continue editing →</Link>}
           {isDraft && req.status === REQUEST_STATUS.SentBack && <form action={reopenDraft.bind(null, id)}><button className="btn-secondary">Reopen as draft</button></form>}
           {(isDraft || isInitialPending) && <form action={withdrawRequest.bind(null, id)}><button className="btn-secondary">Withdraw</button></form>}
-          {isPending && canAct && <DecisionBar id={id} roleLabel={ROLE_LABEL[pendingStep!.roleType] ?? pendingStep!.roleType} amendment={isAmendment} />}
+          {isPending && canAct && <DecisionBar id={id} roleLabel={ROLE_LABEL[pendingStep!.roleType] ?? pendingStep!.roleType} amendment={isAmendment} highRisk={isHighRisk(req)} />}
           {isPending && !canAct && pendingStep && <span className="text-xs text-[var(--ecs-muted)]">Awaiting {ROLE_LABEL[pendingStep.roleType] ?? pendingStep.roleType}: {EcsIdentity.employee(pendingStep.approverId ?? '')?.name ?? '—'}</span>}
           {iCanConfirm && <form action={confirmInclusion.bind(null, id)}><button className="btn-primary">✓ Confirm my inclusion</button></form>}
           {isApproved && (
@@ -103,6 +105,8 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       {isAmendment && <div className="card p-4 bg-amber-50 border-amber-200 text-sm text-amber-800">Under <strong>material-amendment reapproval</strong> (§13.14): the route has been re-derived and restarted; the Travel Authorisation is retained and a new approved version is created on reapproval.</div>}
 
       {isDraft && <Stepper id={id} active="traveller" />}
+
+      <HighRiskAdvisory req={req} />
 
       <SummaryCard req={req} bookingDeadlineDays={settings.bookingDeadlineDays} />
 

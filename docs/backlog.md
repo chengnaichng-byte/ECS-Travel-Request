@@ -168,6 +168,76 @@ Also fixed a latent bug: `getGuardSettings` now falls back to the catalogue defa
 
 *(Batch 1's then-open items — P3.2, P3.5, P3.7, P3.9 amount-split, P3.10, P3.11, P3.12 — were all completed in batch 2 above. P3 is now fully delivered.)*
 
+### P4 — RFI Appendix X gaps *(from the TMC RFI gap assessment, [rfi-gap-assessment.md](rfi-gap-assessment.md); open)*
+
+Net-new pre-trip requirements surfaced by *Appendix X – Functional and Integration Requirements*
+(ECS-led, Option 1). The §4.6 payload gap (travel purpose, event dates, approval validity) was
+**already closed** (2026-10-02) and is not listed here.
+
+| ID | Item | RFI § | Effort | Status |
+|---|---|---|---|---|
+| P4.1 | **High-risk travel management** — configurable high-risk destinations; advisory shown to traveller & approver; **mandatory traveller + approver acknowledgements**; notify the relevant office; active-travellers-by-location (crisis) report | §4.8 | M–L | ✅ **done** (2026-10-02) |
+| P4.2 | **Visa letter notification** — "visa letter required" flag; post-approval (daily/scheduled) notification to the org-unit-mapped office with the approved travel info; failure handling + audit | §4.13 | M | ✅ **done** (2026-10-02) |
+| P4.3 | **Executive & advanced approval workflow** — executive-traveller identification + override route (incl. a separate President path); plus parallel approvals, general escalation, reminders, out-of-office, workflow versioning & effective-dating | §4.12 / §4.12.2 | L | ⬜ open |
+| P4.4 | **Policy breadth** — hotel **star rating** and **preferred suppliers** policy dimensions | §4.10 | S | ⬜ open |
+| P4.5 | **TES as a distinct eligibility integration** — eligibility/conditions/exceptions with effective dates sourced from a TES boundary (vs today's internal class register), incl. re-validation on amendment | §4.5 | M | ⬜ open |
+| P4.6 | **Refunds / airline credits / unused tickets** — inbound sync + a "refunded" booking status + downstream handling | §4.16 / B.2 | M | ◐ TMC-side (ECS consumes) |
+| P4.7 | **CTA reconciliation & reversals** — CTA-statement reconciliation; reversal/refund/credit-note postings to ERP; duplicate-claim prevention surfaced | §4.17 / §4.18 | M | ◐ TMC/ERP-side |
+| P4.8 | **Reporting breadth** — refunds, unused tickets, carbon emissions, active-travellers-by-location | §4.20 | S–M | ⬜ open |
+| P4.9 | **Data portability / bulk export** — open-format export of requests/approvals/bookings/audit | §4.21 | S | ◐ largely TMC-vendor requirement |
+
+Priorities within P4 (ECS pre-trip core first): **P4.1 high-risk** and **P4.2 visa letter** are the
+clearest net-new pre-trip features; **P4.3** is the largest. P4.6/P4.7/P4.9 are mostly TMC/ERP
+platform mechanics the ECS module references rather than owns.
+
+**P4.1 delivered & verified live (2026-10-02):** `src/data/highRiskDestinations.ts` (configurable
+country classification + advisory + source + active flag; in the Config Viewer) + `modules/pretrip/risk.ts`
+(detects high-risk from destination/legs) + `HIGH_RISK` policy rule. A high-risk request shows a
+**`HighRiskAdvisory`** on review and the approver detail; the traveller must tick a **required
+acknowledgement** before submit (server-gated, `TravelRequest.highRiskAck`) and the approver must
+acknowledge in a modal to approve (`highRiskApproverAck`); submission **notifies the Risk Management
+Office** (audit → risk-office mock email in the notifications feed); and `/reports` has an
+**active-travellers-by-location** crisis view flagging high-risk destinations. A bookable high-risk
+demo destination (Cairo, Egypt) was added to the location/rate masters. Migration `p4_high_risk_travel`.
+
+**P4.2 delivered & verified live (2026-10-02):** a "visa letter required" flag on the trip step
+(`TravelRequest.visaLetterRequired`); `config/visaLetter.ts` maps the recipient immigration office
+by organisational unit (department override + University default). After approval the request sits
+**Pending** on a new **Visa Letters** page (`/visa-letters`, nav item); a **"Run daily visa-letter
+batch"** action (`runVisaLetterBatch`, idempotent via `visaLetterNotifiedAt`) generates a
+`VISA_LETTER` notification carrying the §4.13 content (traveller, destination, travel dates, purpose,
+funding source, approved TA reference) to the mapped office, audits it, and the notifications feed
+shows it as an immigration-office email; failure handling logs an unresolved-recipient case.
+Migration `p4_visa_letter`.
+
+### P5 — Multi-TMC & charging UX (delivered 2026-10-05)
+
+| # | Item | Spec | Status |
+|---|------|------|--------|
+| P5.1 | **Multi-TMC routing** — provider registry; one request routes to ONE TMC (no split-booking per request); explicit-preference → high-risk specialist desk → regional provider → default; provider-specific adapter/PNR; provider tagged on hand-off/booking/messages | RFI Option 1 (multiple TMCs) | ✅ **done** |
+| P5.2 | **Charging tab ECS redesign** — cost lines shown first; cross-charge **by travel request OR by cost line**; live computed cost-allocation roll-up per charging account; default account from traveller profile | §17 / ECS cost-allocation parity | ✅ **done** |
+
+**P5.1 delivered & verified live (2026-10-05):** `src/data/tmcProviders.ts` provider registry
+(FCM default/global, CTC regional Asia-Pacific, Crisis24 high-risk desk — each with scope, booking
+methods, transport, PNR prefix). `src/modules/pretrip/tmcRouting.ts` `resolveTmcProvider(req)` picks
+**one** provider by precedence (explicit preference → high-risk specialist → regional covering the
+destination → default); the user rule is **no split-booking across TMCs within a request**. Adapter
+layer gained per-provider adapters (`adapterFor`) so each TMC stamps its own PNR prefix. Schema:
+`TravelRequest.tmcProviderId` (preferred, null = auto), `TravelBooking.tmcProviderId`,
+`IntegrationMessage.tmcProviderId`; canonical meta carries `tmc`. Trip form "Preferred TMC" select,
+booking page shows the routed provider + reason, Config Viewer "TMC Providers" card. Verified all four
+paths (default / regional / high-risk / explicit override). Migration `multi_tmc_provider`.
+
+**P5.2 delivered & verified live (2026-10-05):** the Charging step now shows the **estimated cost
+lines first** (gross / sponsor / NTU-funded), then a **Charging & Cost Allocation** section with an
+**Allocate: By travel request / By cost line (cross-charge)** toggle and a **live computed
+cost-allocation roll-up** per charging account at the bottom. `ChargingAllocation` stays the canonical
+request-level split that drives all routing (§13.14 / §18 / §6.2) and the review/finance breakdowns;
+in by-line mode `saveCharging` aggregates each line's NTU-funded amount onto its account
+(`chargingRollup.ts` `rollupByCode`, shared with the live UI) and writes the effective allocation rows
++ persists `EstimatedExpense.chargingCode`. Default account = the traveller's profile
+`defaultChargingCode` (department-derived). Migration `charging_mode_and_line_code`.
+
 ---
 
 ## 4. Suggested sequencing

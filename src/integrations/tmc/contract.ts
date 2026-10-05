@@ -11,6 +11,7 @@ export interface OutboundMeta {
   sentAt: string;           // ISO timestamp of emission
   sourceStatus: string;     // request status at time of send (snapshot)
   contractVersion: string;  // integration-contract version in effect
+  tmc?: string;             // multi-TMC: the provider this message is routed to
 }
 export interface InboundMeta {
   messageId: string;
@@ -18,6 +19,7 @@ export interface InboundMeta {
   correlationId: string | null; // the outbound messageId this responds to
   sourceStatus: string;
   contractVersion: string;
+  tmc?: string;             // multi-TMC: the provider this response came from
 }
 
 export interface CanonicalOutbound {
@@ -36,6 +38,11 @@ export interface CanonicalOutbound {
   bookingDeadline?: string | null;    // omitted when excluded from the contract
   approvedCostCeilingSgd?: number;    // omitted when excluded from the contract
   approvedExceptions?: string[];      // omitted when excluded from the contract
+  // §4.6 approved-request context required in the ECS-led hand-off
+  travelPurpose?: string;             // purpose name
+  eventStartDate?: string | null;     // event / conference dates (may differ from travel dates)
+  eventEndDate?: string | null;
+  approvalValidUntil?: string | null; // approval validity period (authorisation expiry)
   // §29 payload enrichment (each gated by its contract toggle)
   charging?: { code: string; type: string; businessArea?: string | null; companyCode?: string | null; percent: number; isResearch: boolean; primary: boolean }[];
   approvals?: { role: string; approver: string; decidedAt: string | null }[];

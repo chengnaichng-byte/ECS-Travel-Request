@@ -16,6 +16,8 @@ import { employees } from '@/data/employees';
 import { delegations } from '@/data/delegations';
 import { policyRules } from '@/config/policyRules';
 import { rejectionReasons } from '@/data/rejectionReasons';
+import { highRiskDestinations } from '@/data/highRiskDestinations';
+import { tmcProviders } from '@/data/tmcProviders';
 
 function T({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
   return (
@@ -64,6 +66,18 @@ export default function ConfigViewer() {
         <T head={['Employee', 'Display name', 'Entitled class', 'Policy group', 'Duration', 'Effective from', 'Effective to']}
           rows={travelClassRegister.map((r) => [r.employeeId, r.displayName, travelClasses.find((c) => c.id === r.entitledClassId)?.name ?? r.entitledClassId, r.policyGroup, `≥ ${r.minHours}h`, r.effectiveFrom, r.effectiveTo])} />
         <p className="text-xs text-[var(--ecs-muted)] mt-2">Employees not listed default to Economy. Duration condition applies the entitled class only to flight legs meeting the hours threshold (§13.19).</p>
+      </Card>
+
+      <Card title="TMC Providers (multi-TMC registry)">
+        <T head={['ID', 'Name', 'Scope', 'Booking methods', 'Transport', 'Role', 'Status']}
+          rows={tmcProviders.map((p) => [p.id, p.name, p.scope === 'ALL' ? 'Global' : p.scope.join(', '), p.bookingMethods.join(', '), p.transport, p.isDefault ? 'Default' : p.highRiskOnly ? 'High-risk desk' : 'Regional', p.active ? 'Active' : 'Inactive'])} />
+        <p className="text-xs text-[var(--ecs-muted)] mt-2">A travel request is routed to ONE provider: an explicit preference wins, else the high-risk specialist desk, else a regional provider covering the destination, else the default. The provider-specific mapping lives in the adapter layer.</p>
+      </Card>
+
+      <Card title="High-Risk Travel Destinations (§4.8)">
+        <T head={['Country', 'Name', 'Risk level', 'Source', 'Effective', 'Status']}
+          rows={highRiskDestinations.map((h) => [h.countryCode, h.name, h.riskLevel, h.source, h.effectiveFrom, h.active ? 'Active' : 'Inactive'])} />
+        <p className="text-xs text-[var(--ecs-muted)] mt-2">A request to an active high-risk country shows the advisory and requires mandatory traveller + approver acknowledgements; the Risk Management Office is notified on submission (§4.8).</p>
       </Card>
 
       <Card title="Rejection Reasons (§26 · reused ECS master)">

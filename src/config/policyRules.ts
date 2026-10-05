@@ -31,6 +31,7 @@ export const policyRules: PolicyRule[] = [
   { code: 'LONG', name: 'Long trip', category: 'Duration', defaultOutcome: POLICY_OUTCOME.Warning, effectiveFrom: '2025-01-01', active: true, description: 'Trip duration beyond the long-trip threshold.' },
   { code: 'HIGH', name: 'High estimate', category: 'Estimate', defaultOutcome: POLICY_OUTCOME.Warning, effectiveFrom: '2025-01-01', active: true, description: 'Approval amount above the high-estimate threshold.' },
   { code: 'DUPLICATE', name: 'Overlapping / duplicate trip', category: 'Duplicate', defaultOutcome: POLICY_OUTCOME.Warning, effectiveFrom: '2025-01-01', active: true, description: 'Another live trip for the same traveller overlaps these dates (§25/§40).' },
+  { code: 'HIGH_RISK', name: 'High-risk travel destination', category: 'High-risk', defaultOutcome: POLICY_OUTCOME.Warning, effectiveFrom: '2025-01-01', active: true, description: 'Destination is designated high-risk; advisory shown and traveller + approver acknowledgements are mandatory (§4.8).' },
 ];
 
 const byCode = new Map(policyRules.map((r) => [r.code, r]));

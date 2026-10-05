@@ -7,6 +7,8 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
+import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
+import { tmcProvider } from '@/data/tmcProviders';
 import { BOOKING_STATUS, TMC_INFLIGHT_STATUSES } from '@/shared/enums';
 import { Card, KV, Empty } from '@/components/ui';
 
@@ -26,6 +28,10 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   const canPostSap = settings.airfareTreatment === 'DIRECT_SAP' && req.bookingStatus === BOOKING_STATUS.Booked && !sapPost;
   // §30/§39 TMC lifecycle — can receive a response while in flight; can advance the status.
   const inFlight = req.bookingStatus === BOOKING_STATUS.SentToTMC || TMC_INFLIGHT_STATUSES.includes(req.bookingStatus);
+  // Multi-TMC: the single provider this request routes to (resolved), and the one that booked.
+  const routing = resolveTmcProvider(req);
+  const sentProviderId = (() => { try { return outbound ? JSON.parse(outbound.payload).meta?.tmc ?? null : null; } catch { return null; } })();
+  const activeProviderId = sentProviderId ?? bookings[0]?.tmcProviderId ?? routing.provider.id;
   // §9.3 group fan-out (AC15) — the outbound hand-off carries N traveller instructions.
   let fanoutCount = 0;
   if (outbound) { try { const p = JSON.parse(outbound.payload); if (p?.mode === 'GROUP_FANOUT') fanoutCount = p.instructionCount ?? p.instructions?.length ?? 0; } catch { /* ignore */ } }
@@ -82,6 +88,12 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
           <form action={postAirfareToSap.bind(null, id)}><button className="btn-secondary">Post airfare to ERP (SAP)</button></form>
         )}
         <Link href={`/requests/${id}`} className="btn-ghost">← Back to request</Link>
+      </div>
+
+      <div className="card px-4 py-3 text-sm flex flex-wrap items-center gap-x-6 gap-y-1">
+        <div><span className="text-[var(--ecs-muted)]">TMC provider</span> <strong className="text-[var(--ecs-navy)]">{tmcProvider(activeProviderId)?.name ?? routing.provider.name}</strong></div>
+        <div className="text-xs text-[var(--ecs-muted)]">{req.bookingStatus === BOOKING_STATUS.NotSent ? `Will route to this provider — ${routing.reason}.` : 'Provider this request was handed off to.'}</div>
+        <div className="text-xs text-[var(--ecs-muted)] font-mono">{tmcProvider(activeProviderId)?.transport}</div>
       </div>
 
       {req.bookingStatus === BOOKING_STATUS.Failed && (
