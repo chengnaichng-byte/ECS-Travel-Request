@@ -71,15 +71,19 @@ export function CostItemsTable({ rows, group, summaryRows = [] }: { rows: CostRo
             <td className="td text-right">{fmtSgd(totals.n)}</td>
             <td className="td"></td>
           </tr>
-          {summaryRows.map((s, i) => (
-            <tr key={i} className={s.strong ? 'font-semibold text-[var(--ecs-navy)]' : 'text-[var(--ecs-muted)]'}>
-              <td className={`td text-right ${s.divider ? 'border-t border-[var(--ecs-border)]' : 'border-0'}`} colSpan={5}>{s.label}</td>
-              <td className={`td text-right whitespace-nowrap ${s.divider ? 'border-t border-[var(--ecs-border)]' : 'border-0'} ${s.strong ? 'text-[var(--ecs-navy)]' : 'text-[var(--ecs-text)]'}`}>
-                {s.paren ? `(${fmtSgd(s.value)})` : fmtSgd(s.value)}
-              </td>
-              <td className={`td ${s.divider ? 'border-t border-[var(--ecs-border)]' : 'border-0'}`} colSpan={3}></td>
-            </tr>
-          ))}
+          {summaryRows.map((s, i) => {
+            const bt = s.divider ? 'border-t border-[var(--ecs-border)]' : 'border-0';
+            return (
+              <tr key={i} className={s.strong ? 'font-semibold text-[var(--ecs-navy)]' : 'text-[var(--ecs-muted)]'}>
+                {/* Figures stack in the right-most money (NTU-funded) column, aligned with the Total. */}
+                <td className={`td text-right ${bt}`} colSpan={7}>{s.label}</td>
+                <td className={`td text-right whitespace-nowrap ${bt} ${s.strong ? 'text-[var(--ecs-navy)]' : 'text-[var(--ecs-text)]'}`}>
+                  {s.paren ? `(${fmtSgd(s.value)})` : fmtSgd(s.value)}
+                </td>
+                <td className={`td ${bt}`}></td>
+              </tr>
+            );
+          })}
         </tfoot>
       </table>
     </div>

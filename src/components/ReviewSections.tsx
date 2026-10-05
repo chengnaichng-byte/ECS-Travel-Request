@@ -242,7 +242,7 @@ export function PolicyExceptionsCard({ req, letter, className }: { req: FullRequ
               <span className={sevClass[v.severity]}>{v.severity}</span>
             </div>
             <div className="text-xs text-[var(--ecs-muted)] mt-1">{v.detail}{v.travellerName ? ` · ${v.travellerName}` : ''}</div>
-            {v.impactSgd > 0 && <div className="text-sm mt-1">Impact (est.) <span className="font-semibold">{fmtSgd(v.impactSgd)}</span></div>}
+            {v.impactSgd > 0 && <div className="text-sm mt-2 pt-2 border-t border-[#f0d9a8] flex items-center justify-between"><span className="text-[var(--ecs-muted)]">Impact (est.)</span><span className="font-semibold tabular-nums">{fmtSgd(v.impactSgd)}</span></div>}
           </div>
         ))}
       </div>
