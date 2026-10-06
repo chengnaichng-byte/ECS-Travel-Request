@@ -489,6 +489,19 @@ export async function addAirfare(id: string, fd: FormData) {
       },
     });
   }
+  // §13.19 individual request: the traveller sets the proposed class on the airfare line and
+  // records the request-level class + any higher-class justification here (groups book each
+  // traveller at their own entitlement, so they have no single chosen class to justify).
+  if (tids.length === 1 && tids[0] === null) {
+    const proposed = str(fd, 'proposedClassId');
+    await prisma.travelRequest.update({
+      where: { id },
+      data: {
+        ...(proposed ? { travelClassId: proposed } : {}),
+        classJustification: str(fd, 'classJustification') || null,
+      },
+    });
+  }
   await audit(id, 'AMEND', `Airfare estimate added (${currency} ${foreign})${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
 }

@@ -51,6 +51,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     ? computeOda({ countryCode: req.destCountry, arrive: req.startDate, depart: req.endDate, personalDays: 0 })
     : null;
   const isGroup = req.isGroup;
+  // §13.19 entitled class for this itinerary (individual) — the baseline above which the traveller
+  // must justify an upgrade on the airfare line.
+  const entitledClassName = travelClasses.find((c) => c.id === (req.entitledClassId ?? req.travelClassId))?.name ?? 'Economy';
   // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
@@ -178,6 +181,13 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               <Input name="sponsorship" label="Expected sponsorship" type="number" />
               {isGroup && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
             </div>
+            {!isGroup && (
+              <div>
+                <label className="label">Justification for higher class (required if above entitlement — §13.19)</label>
+                <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
+                <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledClassName}</strong> for this itinerary. Choosing a higher proposed class requires a justification.</p>
+              </div>
+            )}
             <button className="btn-secondary w-full">Add airfare estimate</button>
           </form>
         </Card>
