@@ -1,0 +1,805 @@
+<title>ECS Pre-Trip Build Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  /* Layout: fixed left spec-nav + single reading column; tables/code scroll inside their own box.
+     Technical engineering-document identity — IBM Plex family, NTU navy + restrained red. */
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --surface-2:#eef1f5; --ink:#15202b; --ink-2:#44515f;
+    --muted:#6b7886; --line:#d8dee6; --line-2:#e7ebf0;
+    --navy:#1a2b4a; --navy-2:#2d4575; --red:#c8102e; --accent:#2d4575;
+    --good:#0f7a52; --good-bg:#e4f4ec; --warn:#9a6a00; --warn-bg:#fdf1d8; --crit:#a4122a; --crit-bg:#fbe7ea;
+    --code-bg:#0f1b2d; --code-ink:#dfe7f2; --code-line:#2a3b55;
+    --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --maxw:62rem;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0c121c; --surface:#121a26; --surface-2:#182334; --ink:#e7edf5; --ink-2:#b4c0cf;
+    --muted:#8595a8; --line:#273243; --line-2:#1d2838; --navy:#9db4e0; --navy-2:#b9cbec; --accent:#9db4e0;
+    --red:#ff7085; --good:#4cc795; --good-bg:#10271f; --warn:#e2ad4a; --warn-bg:#2a2010; --crit:#ff8095; --crit-bg:#2c1218;
+    --code-bg:#0a1320; --code-ink:#d4deec; --code-line:#223046; color-scheme:dark;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0c121c; --surface:#121a26; --surface-2:#182334; --ink:#e7edf5; --ink-2:#b4c0cf;
+    --muted:#8595a8; --line:#273243; --line-2:#1d2838; --navy:#9db4e0; --navy-2:#b9cbec; --accent:#9db4e0;
+    --red:#ff7085; --good:#4cc795; --good-bg:#10271f; --warn:#e2ad4a; --warn-bg:#2a2010; --crit:#ff8095; --crit-bg:#2c1218;
+    --code-bg:#0a1320; --code-ink:#d4deec; --code-line:#223046; color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{display:grid;grid-template-columns:17rem minmax(0,1fr);gap:0;max-width:84rem;margin:0 auto}
+  /* Sidebar nav */
+  nav.toc{position:sticky;top:env(safe-area-inset-top,0px);align-self:start;height:100vh;overflow-y:auto;
+    padding:1.5rem 1rem 3rem;border-right:1px solid var(--line);background:var(--surface)}
+  nav.toc .brand{font-weight:600;color:var(--navy);letter-spacing:.01em;font-size:.95rem;line-height:1.25;margin-bottom:.15rem}
+  nav.toc .brand b{color:var(--red)}
+  nav.toc .sub{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;margin-bottom:1.1rem}
+  nav.toc a{display:block;color:var(--ink-2);text-decoration:none;font-size:.82rem;padding:.2rem .4rem;border-radius:5px;margin:.05rem 0}
+  nav.toc a:hover{background:var(--surface-2);color:var(--ink)}
+  nav.toc a .n{color:var(--muted);font-family:var(--mono);font-size:.74rem;margin-right:.45rem}
+  nav.toc .grp{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.09em;margin:1rem 0 .3rem;padding:0 .4rem}
+  /* Main */
+  main{padding:2.2rem clamp(16px,4vw,3rem) 6rem;min-width:0}
+  .masthead{border-bottom:2px solid var(--navy);padding-bottom:1.3rem;margin-bottom:2rem}
+  .masthead .kicker{font-family:var(--mono);font-size:.74rem;letter-spacing:.06em;color:var(--red);text-transform:uppercase}
+  h1{font-size:clamp(1.7rem,4.5vw,2.5rem);line-height:1.08;margin:.3rem 0 .5rem;letter-spacing:-.01em;text-wrap:balance;font-weight:600}
+  .masthead p{color:var(--ink-2);max-width:60ch;margin:.4rem 0 0}
+  .meta{display:flex;flex-wrap:wrap;gap:.5rem 1.4rem;margin-top:1rem;font-size:.8rem;color:var(--muted)}
+  .meta b{color:var(--ink-2);font-weight:600}
+  section{scroll-margin-top:1.5rem;padding-top:1.6rem;margin-top:1.6rem;border-top:1px solid var(--line-2)}
+  section:first-of-type{border-top:0}
+  h2{font-size:1.5rem;margin:0 0 .2rem;letter-spacing:-.01em;font-weight:600;display:flex;gap:.6rem;align-items:baseline}
+  h2 .num{font-family:var(--mono);font-size:.95rem;color:var(--red);font-weight:500}
+  h3{font-size:1.08rem;margin:1.6rem 0 .4rem;color:var(--navy);font-weight:600}
+  h4{font-size:.92rem;margin:1.1rem 0 .3rem;color:var(--ink);font-weight:600;font-family:var(--mono);letter-spacing:.01em}
+  p{max-width:66ch}
+  .lead{font-size:1.02rem;color:var(--ink-2);max-width:68ch}
+  a.ref{color:var(--navy-2);text-decoration:none;border-bottom:1px solid var(--line)}
+  code{font-family:var(--mono);font-size:.84em;background:var(--surface-2);padding:.08em .35em;border-radius:4px;color:var(--navy-2);word-break:break-word}
+  :root[data-theme="dark"] code,@media(prefers-color-scheme:dark){code{color:var(--navy)}}
+  ul,ol{max-width:66ch;padding-left:1.2rem}
+  li{margin:.2rem 0}
+  li::marker{color:var(--muted)}
+  /* Cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.9rem;margin:1rem 0}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:.9rem 1rem}
+  .card h4{margin:.1rem 0 .3rem;font-family:var(--sans);font-size:.95rem;color:var(--navy)}
+  .card p{font-size:.85rem;color:var(--ink-2);margin:.2rem 0 0;max-width:none}
+  .card .tag{font-family:var(--mono);font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  /* Decision block */
+  .decision{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--red);border-radius:0 8px 8px 0;padding:.8rem 1rem;margin:.8rem 0}
+  .decision .d-id{font-family:var(--mono);font-size:.72rem;color:var(--red);font-weight:600}
+  .decision .d-t{font-weight:600;margin:.1rem 0 .25rem}
+  .decision p{font-size:.88rem;color:var(--ink-2);margin:.15rem 0;max-width:none}
+  .decision .why{font-size:.82rem;color:var(--muted)}
+  /* Tables */
+  .tbl-box{overflow-x:auto;border:1px solid var(--line);border-radius:9px;margin:1rem 0;background:var(--surface)}
+  table{border-collapse:collapse;width:100%;font-size:.84rem;min-width:34rem}
+  th,td{text-align:left;padding:.5rem .7rem;border-bottom:1px solid var(--line-2);vertical-align:top}
+  thead th{background:var(--surface-2);color:var(--ink);font-weight:600;font-size:.76rem;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0}
+  tbody tr:last-child td{border-bottom:0}
+  td code{font-size:.8em;background:transparent;padding:0;color:var(--navy-2)}
+  .tbl-box.narrow table{min-width:0}
+  td .fld{font-family:var(--mono);font-size:.82em;color:var(--navy-2);white-space:nowrap}
+  /* Code / pseudocode */
+  pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--code-line);border-radius:9px;
+    padding:1rem 1.1rem;overflow-x:auto;font-family:var(--mono);font-size:.8rem;line-height:1.55;margin:1rem 0}
+  pre .c{color:#7f93b0}            /* comment */
+  pre .k{color:#7fb2ff}            /* keyword */
+  pre .s{color:#8fe0b0}            /* string/value */
+  pre .f{color:#f0c674}            /* function/name */
+  pre b{color:#fff;font-weight:600}
+  /* Pills */
+  .pill{display:inline-block;font-family:var(--mono);font-size:.68rem;font-weight:600;padding:.12em .5em;border-radius:999px;letter-spacing:.02em;white-space:nowrap}
+  .p-good{background:var(--good-bg);color:var(--good)} .p-warn{background:var(--warn-bg);color:var(--warn)}
+  .p-crit{background:var(--crit-bg);color:var(--crit)} .p-navy{background:var(--surface-2);color:var(--navy-2)}
+  /* Screen block */
+  .screen{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1.1rem 1.2rem;margin:1rem 0}
+  .screen .s-head{display:flex;flex-wrap:wrap;gap:.5rem .8rem;align-items:baseline;border-bottom:1px solid var(--line-2);padding-bottom:.6rem;margin-bottom:.7rem}
+  .screen .s-step{font-family:var(--mono);font-size:.74rem;color:#fff;background:var(--navy);padding:.15em .55em;border-radius:5px}
+  .screen .s-t{font-weight:600;font-size:1.05rem;color:var(--navy)}
+  .screen .s-route{font-family:var(--mono);font-size:.72rem;color:var(--muted);margin-left:auto}
+  .screen h4{margin:.9rem 0 .25rem}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:.15rem .9rem;font-size:.85rem;margin:.3rem 0}
+  .kv dt{color:var(--muted);font-family:var(--mono);font-size:.78rem}
+  .callout{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:.6rem .85rem;font-size:.84rem;color:var(--ink-2);margin:.7rem 0}
+  .callout b{color:var(--ink)}
+  figure{margin:1rem 0 0}
+  figure img{width:100%;max-width:100%;border:1px solid var(--line);border-radius:8px;display:block;background:var(--surface-2)}
+  figure figcaption{font-size:.76rem;color:var(--muted);margin-top:.4rem;font-family:var(--mono);letter-spacing:.01em}
+  .shot-label{font-family:var(--mono);font-size:.68rem;color:var(--red);text-transform:uppercase;letter-spacing:.06em;margin:.9rem 0 .1rem;font-weight:600}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:860px){
+    .wrap{grid-template-columns:1fr}
+    nav.toc{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);
+      display:grid;grid-template-columns:repeat(auto-fill,minmax(8rem,1fr));gap:0 .4rem;max-height:none}
+    nav.toc .brand,nav.toc .sub{grid-column:1/-1}
+    nav.toc .grp{grid-column:1/-1}
+    .two{grid-template-columns:1fr}
+  }
+  footer{border-top:1px solid var(--line);margin-top:3rem;padding-top:1.2rem;color:var(--muted);font-size:.8rem}
+  .legend{display:flex;flex-wrap:wrap;gap:.5rem;margin:.6rem 0}
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <div class="brand"><b>NTU</b> ECS · Pre-Trip Travel Request</div>
+  <div class="sub">Build Specification</div>
+  <a href="#overview"><span class="n">1</span>The Pre-Trip module</a>
+  <a href="#architecture"><span class="n">1.1</span>Architecture</a>
+  <a href="#interactions"><span class="n">1.2</span>System interactions</a>
+  <a href="#decisions"><span class="n">2</span>Design decisions</a>
+  <a href="#data"><span class="n">3</span>Data model</a>
+  <a href="#status"><span class="n">4</span>Status &amp; lifecycle</a>
+  <div class="grp">Screens</div>
+  <a href="#s-dashboard"><span class="n">5.1</span>Dashboard</a>
+  <a href="#s-traveller"><span class="n">5.2</span>Request / Traveller</a>
+  <a href="#s-trip"><span class="n">5.3</span>Trip details</a>
+  <a href="#s-estimates"><span class="n">5.4</span>Estimates</a>
+  <a href="#s-charging"><span class="n">5.5</span>Charging</a>
+  <a href="#s-policy"><span class="n">5.6</span>Policy review</a>
+  <a href="#s-review"><span class="n">5.7</span>Review &amp; submit</a>
+  <a href="#s-approvals"><span class="n">5.8</span>Approver / DOA</a>
+  <a href="#s-claim"><span class="n">5.9</span>TE claim</a>
+  <a href="#s-config"><span class="n">5.10</span>Configuration</a>
+  <div class="grp">Logic</div>
+  <a href="#validation"><span class="n">6</span>Validation rules</a>
+  <a href="#routing"><span class="n">7</span>Approval routing</a>
+  <a href="#entitlement"><span class="n">8</span>Class entitlement</a>
+  <a href="#charging-logic"><span class="n">9</span>Charging &amp; allocation</a>
+  <a href="#claim-logic"><span class="n">10</span>Claim &amp; auto-grant</a>
+  <a href="#config-ref"><span class="n">11</span>Configuration ref.</a>
+  <a href="#tmc"><span class="n">12</span>TMC integration</a>
+  <a href="#masters"><span class="n">13</span>Reference masters</a>
+</nav>
+
+<main>
+  <div class="masthead">
+    <div class="kicker">NTU Employee Claim System · Module Build Pack</div>
+    <h1>ECS Pre-Trip Travel Request — Build Specification</h1>
+    <p class="lead">A vendor-ready specification of the Pre-Trip Travel Request module: every screen, field, validation rule, program algorithm and configuration switch needed to build it, plus the design decisions that shaped them.</p>
+    <div class="meta">
+      <span><b>Audience</b> Implementation vendor / OutSystems build team</span>
+      <span><b>Status</b> Prototype-validated, build-ready</span>
+      <span><b>Companion</b> Feature Walkthrough artifact (end-user view)</span>
+    </div>
+  </div>
+
+  <!-- 1 OVERVIEW -->
+  <section id="overview">
+    <h2><span class="num">1</span>The Pre-Trip module</h2>
+    <p class="lead">The Pre-Trip module captures a travel request before a trip, derives entitlements and the estimated cost, routes it for approval, issues a Travel Authorisation, hands a governed booking instruction to a Travel Management Company (TMC), and seeds the downstream Travel Expense (TE) claim.</p>
+
+    <h3>Purpose</h3>
+    <p>The module closes the gap between an employee's <b>intent to travel</b> and a <b>booked, policy-compliant, financially authorised trip</b>. It replaces email/spreadsheet approvals and retrospective booking with a single governed flow: capture the trip, derive the entitlement and cost, obtain the right financial authority (DOA), and instruct the TMC — <b>before any spend is committed</b>. It then pre-populates the post-trip expense claim so the claim reconciles to what was approved.</p>
+    <div class="cards">
+      <div class="card"><div class="tag">Outcome</div><h4>Policy enforced before spend</h4><p>Caps, class entitlement and exceptions are evaluated and routed to the right approver before booking, not discovered at claim time.</p></div>
+      <div class="card"><div class="tag">Outcome</div><h4>One Travel Authorisation per trip</h4><p>A dated, amount-bound TA (TA-YYYY-NNNNNN) is the single source of truth the TMC and the claim both reconcile against.</p></div>
+      <div class="card"><div class="tag">Outcome</div><h4>Clean TMC hand-off &amp; claim</h4><p>A governed, field-filtered booking instruction per traveller; a pre-filled TE claim whose DOA is auto-granted when it matches the estimate.</p></div>
+    </div>
+
+    <h3>Capabilities</h3>
+    <div class="cards">
+      <div class="card"><h4>Request capture</h4><p>Individual, <b>group</b> (coordinator-raised, multi-traveller) and <b>guest</b> (non-employee) requests.</p></div>
+      <div class="card"><h4>Itinerary &amp; trip types</h4><p>Round-trip / one-way / multi-city (multi-country), always-on leg builder, personal segments.</p></div>
+      <div class="card"><h4>Entitlement derivation</h4><p>Travel class derived from the itinerary (longest-duration leg), per traveller for groups.</p></div>
+      <div class="card"><h4>Cost estimation</h4><p>Airfare, accommodation (cap-checked), ODA (rate × eligible days), incidentals; FX conversion; sponsorship.</p></div>
+      <div class="card"><h4>Policy engine</h4><p>Common + pre-trip rules → pass / exception / hard stop; hard stops block submission.</p></div>
+      <div class="card"><h4>Configurable approval routing</h4><p>RO · Additional · Funding Owner · Cross-BA · Exception · DOA — computed from context + settings.</p></div>
+      <div class="card"><h4>Charging &amp; allocation</h4><p>ECS cascade, per-line multi-account splits, auto-allocate by Workday department.</p></div>
+      <div class="card"><h4>Authorisation &amp; booking</h4><p>TA issue, validity &amp; booking-deadline tracking, booking-status lifecycle.</p></div>
+      <div class="card"><h4>TMC hand-off</h4><p>Governed payload (integration contract), group fan-out (one instruction per traveller), inbound status.</p></div>
+      <div class="card"><h4>Claim seeding</h4><p>Pre-populates the TE claim; DOA auto-granted within tolerance.</p></div>
+      <div class="card"><h4>Amendments &amp; audit</h4><p>Material-amendment re-approval, immutable version snapshots, field-level audit.</p></div>
+      <div class="card"><h4>Configuration</h4><p>Runtime Module Settings drive routing switches, thresholds, caps basis and tolerances.</p></div>
+    </div>
+
+    <h3>Scope &amp; boundary</h3>
+    <p>The module <b>extends the existing ECS / ECS-Travel platform</b>. It does not re-implement HR, finance or DOA masters — it <b>reads</b> them. The build team replaces the prototype's mock service layer with real calls to ECS/OutSystems.</p>
+    <div class="cards">
+      <div class="card"><div class="tag">Reused (read-only)</div><h4>ECS reference masters</h4><p>Employees &amp; appointments, reporting lines, DOA lines, charging accounts (CC/WBS), policy caps &amp; ODA rates, FX rates, workflow amount bands, roles, TMC providers, location master.</p></div>
+      <div class="card"><div class="tag">New (transactional)</div><h4>Pre-Trip data store</h4><p>Travel requests, travellers, itinerary legs, estimated expenses, charging allocations, policy checks, approval steps, bookings, TE claims, audit, attachments.</p></div>
+      <div class="card"><div class="tag">Integration seam</div><h4>Mock ECS services</h4><p><code>EcsIdentity</code>, <code>EcsCharging</code>, <code>EcsWorkflow</code>, <code>EcsRoles</code>, <code>EcsReference</code>, <code>EcsFx</code>, <code>EcsTravelClassRegister</code> — the interface the vendor wires to live ECS.</p></div>
+    </div>
+
+    <div class="callout"><b>Stack note.</b> The reference prototype is built on Next.js (server actions), Prisma and SQLite. This spec describes <b>behaviour, data and logic</b> — not the prototype stack. On OutSystems, screens map to Screens/Blocks, server actions to Server Actions, the data model to Entities, and the mock services to integration (REST / service actions). Field types and rules below are platform-agnostic.</p></div>
+
+    <h3>End-to-end flow</h3>
+    <pre><span class="c"># happy path</span>
+Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
+       ─▶ <b>Estimates</b> (airfare / accommodation / ODA / other — per traveller)
+       ─▶ <b>Charging</b> (cost object + allocation)
+       ─▶ <b>Policy review</b> (caps, class, exceptions)
+       ─▶ <b>Review &amp; submit</b> (pick DOA, declare)
+       ─▶ Approval route (RO? ▸ Funding/Cross-BA? ▸ Exception? ▸ <b>DOA</b>)
+       ─▶ <b>Approved</b> + Travel Authorisation (TA-YYYY-NNNNNN)
+       ─▶ TMC hand-off (booking instruction) ─▶ Booked
+       ─▶ Trip taken ─▶ <b>TE claim</b> (pre-populated; DOA auto-granted within tolerance)</pre>
+
+    <h3 id="architecture">High-level architecture</h3>
+    <p>Five layers. The module owns the presentation, domain logic and transactional store; it <b>reads</b> reference masters and talks to external systems through a thin integration seam.</p>
+    <div class="tbl-box narrow"><table>
+      <thead><tr><th>Layer</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><b>Presentation</b></td><td>Wizard screens (Trip → Estimates → Charging → Policy → Submit), approver/DOA queue, TE claim, configuration. Server-rendered with client interactivity for the itinerary, charging splitter and live validation.</td></tr>
+        <tr><td><b>Domain logic</b></td><td>Approval-route engine, class-entitlement derivation, cost/ODA/accommodation computation, policy evaluation, charging roll-up, claim workflow &amp; auto-grant.</td></tr>
+        <tr><td><b>Integration seam</b></td><td>ECS service interfaces (<code>EcsIdentity · EcsCharging · EcsWorkflow · EcsRoles · EcsReference · EcsFx · EcsTravelClassRegister</code>) + the TMC adapter and notification/visa hooks. The one place wired to live systems.</td></tr>
+        <tr><td><b>Transactional store</b></td><td>Requests, travellers, legs, estimates, allocations, policy checks, approval steps, bookings, claims, versions, audit, attachments.</td></tr>
+        <tr><td><b>Reference masters</b></td><td>Read-only ECS masters (identity, DOA lines, charging accounts, policy rates, class register, locations, FX, TMC providers) — never written by this module.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3 id="interactions">Interaction with other systems</h3>
+    <pre class="mermaid">flowchart TB
+  subgraph ECS["ECS / OutSystems masters (read)"]
+    HR["HR identity, roles, reporting lines"]
+    DOAS["DOA system (lines, amount bands)"]
+    WD["Workday (home-dept cost object)"]
+    FIN["SAP Finance (CC/WBS, GL, GST, IO)"]
+    POL["Policy masters (caps, ODA, class)"]
+    FX["FX rates"]
+  end
+  PT(["Pre-Trip Travel Request module"])
+  TMC["TMC / GDS"]
+  VISA["Immigration / Visa office"]
+  NOTIF["Notifications"]
+  TE["TE Claim module"]
+  HR --> PT
+  DOAS --> PT
+  WD --> PT
+  FIN --> PT
+  POL --> PT
+  FX --> PT
+  PT -->|"governed booking instruction"| TMC
+  TMC -->|"booking status"| PT
+  PT -->|"visa-letter batch"| VISA
+  PT -->|"approval and action alerts"| NOTIF
+  PT -->|"seeds approved request"| TE
+  PT -->|"allocation to GL postings"| FIN</pre>
+
+    <div class="tbl-box"><table>
+      <thead><tr><th>System</th><th>Direction</th><th>What flows</th></tr></thead>
+      <tbody>
+        <tr><td><b>ECS / ECS-Travel core</b></td><td>Read</td><td>Employee identity, appointments, roles, reporting lines; the request is created in the ECS context.</td></tr>
+        <tr><td><b>DOA system</b></td><td>Read</td><td>Per-department DOA lines (+ research line) and amount bands → the eligible DOA candidates and the tier.</td></tr>
+        <tr><td><b>Workday (HR)</b></td><td>Read</td><td>Each employee's home-department cost object (<code>defaultChargingCode</code>) — drives auto-allocate-by-department.</td></tr>
+        <tr><td><b>SAP / Finance</b></td><td>Read + Write*</td><td>Charging accounts (CC/WBS), GL accounts, GST codes, Internal Orders (read). The approved allocation drives the GL postings (*via the downstream claim / finance interface).</td></tr>
+        <tr><td><b>Policy masters</b></td><td>Read</td><td>Hotel caps, ODA daily rates, travel-class register (policy group, min hours, entitled class).</td></tr>
+        <tr><td><b>FX service</b></td><td>Read</td><td>Entry-date conversion to SGD, re-locked at submission.</td></tr>
+        <tr><td><b>Location / GDS airport master</b></td><td>Read (sync)</td><td>IATA airports — the same reference the TMC books against; synced from the TMC/GDS feed in production.</td></tr>
+        <tr><td><b>TMC</b></td><td>Outbound + Inbound</td><td>Governed booking instruction (field-filtered by the Integration Contract; one per traveller for a group) → booking status / traveller-action responses.</td></tr>
+        <tr><td><b>Immigration / Visa office</b></td><td>Outbound</td><td>Daily visa-letter batch for approved trips flagged as needing a visa letter (§4.13).</td></tr>
+        <tr><td><b>Notifications</b></td><td>Outbound</td><td>Approval requests, send-backs, booking actions, deadlines.</td></tr>
+        <tr><td><b>TE Claim module</b></td><td>Outbound (seed)</td><td>The approved request pre-populates the claim; the claim reconciles to the TA and auto-grants the DOA within tolerance.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 2 DECISIONS -->
+  <section id="decisions">
+    <h2><span class="num">2</span>Core design decisions</h2>
+    <p class="lead">These decisions are binding — they shaped the data model, screens and logic below. Deviating from one changes multiple downstream behaviours.</p>
+
+    <div class="decision"><div class="d-id">DD-01 · Approval routing is configuration-driven</div><div class="d-t">The route is computed, never hard-coded per user.</div><p>An evaluator takes the request context (amount basis, charging department, research flag, exceptions, group flag) and emits an ordered list of approval steps. Decision points are toggled by <b>Module Settings</b> (the existing ECS Configuration mechanism), not by code.</p><p class="why">Why: the same engine serves the Travel Request and the TE claim; policy changes are config, not a release.</p></div>
+
+    <div class="decision"><div class="d-id">DD-02 · DOA is always required and traveller-selected</div><div class="d-t">Every request ends at a DOA; the requestor picks the approver.</div><p>The DOA step is never dropped. The system offers the <b>eligible DOA candidates</b> (the charging department's DOA line from the amount-band tier upward, excluding travellers) and the requestor chooses — it is <b>not pre-selected</b>. Research routes use the research DOA line.</p><p class="why">Why: the DOA holds financial authority; choosing (rather than auto-assigning) records intent and supports delegation.</p></div>
+
+    <div class="decision"><div class="d-id">DD-03 · RO is a configurable decision point</div><div class="d-t">Reporting Officer step = ALWAYS · INDIVIDUAL_ONLY · NEVER.</div><p>Default <code>INDIVIDUAL_ONLY</code>: present for an individual request, dropped for a group (the group coordinator raises it). Resolved as the traveller's Reporting Officer; skipped if the RO is a traveller on the request (self-approval guard).</p></div>
+
+    <div class="decision"><div class="d-id">DD-04 · Travel class = derived entitlement, not a form input</div><div class="d-t">No class picker on the trip form.</div><p>Class is derived from the itinerary: each flown leg's duration gives its entitled class and the <b>highest wins</b> — so the <b>longest-duration leg</b> drives the class (critical for multi-city). It is shown read-only in the cost items, review and detail pages.</p><p class="why">Why: removes manual error and upgrade abuse; entitlement is deterministic from the register + itinerary.</p></div>
+
+    <div class="decision"><div class="d-id">DD-05 · Group travel is per-traveller for class &amp; cost; shared for itinerary</div><div class="d-t">One shared itinerary &amp; dates; each traveller at their own entitlement.</div><p>Group members share the itinerary and dates (no per-traveller deviation). But <b>travel class is per traveller</b> (each at their own entitled class — the coordinator cannot justify an upgrade on another's behalf), and <b>all costs are per traveller</b>: airfare, ODA <b>and accommodation</b>. An upgrade for one person is handled by removing them from the group and raising a single request.</p></div>
+
+    <div class="decision"><div class="d-id">DD-06 · Accommodation is never shared — each traveller books, pays and claims their own room</div><div class="d-t">No shared/apportioned hotel line.</div><p>Accommodation creates <b>one line per traveller</b> (own room, own nights), flowing to that traveller's own TE claim. "Shared — apportion" survives only for genuinely shared incidentals (e.g. a shared taxi under <i>Other</i>), where it is displayed apportioned across the group.</p></div>
+
+    <div class="decision"><div class="d-id">DD-07 · Charging allocation is per-expense-line and fully granular</div><div class="d-t">Each cost line splits across one or more cost centres; lines are already per traveller.</div><p>ITEM-mode allocation gives every line a split of <code>{account, %}</code> rows (must total 100%). The request-level allocation that drives routing is the <b>roll-up</b> of net × % over every line × split. An <b>"Auto-allocate by traveller's Workday department"</b> preset fills each line from the attributed traveller's home-department cost centre.</p></div>
+
+    <div class="decision"><div class="d-id">DD-08 · TE claim DOA is auto-granted within a configurable tolerance</div><div class="d-t">No re-approval when the claim matches the approved estimate.</div><p>The claim route mirrors the request (Verifier → Exception? → RO? → DOA). The DOA step is <b>auto-granted</b> from the approved Travel Request when the claim is within the configured tolerance (% and absolute SGD), adds no new expense type, introduces no new policy exception, and keeps the same charging department. No new expense type can be added at the claim.</p></div>
+
+    <div class="decision"><div class="d-id">DD-09 · One always-on itinerary; trip type is a preset, not a mode</div><div class="d-t">Round-trip / One-way / Multi-city reshape the same leg builder.</div><p>The leg table is always shown. Trip type presets it: Round-trip = Outbound + mirrored Return, One-way = one leg, Multi-city = user-determined (add / reorder / remove). A round-trip may carry a personal segment. Main destination (for ODA defaults) = longest-stay leg.</p></div>
+
+    <div class="decision"><div class="d-id">DD-10 · Booking arrangement and TMC booking method are separate</div><div class="d-t">What arranges the trip vs how the TMC fulfils it.</div><p><b>Booking arrangement</b>: Auto (route by policy to a TMC) · a specific TMC provider · Self-booked · Host-arranged · No booking. <b>TMC booking method</b> (TMC channel: online / agent-assisted / offline) applies only when arranged via a TMC. The resolved TMC is shown read-only on the trip form.</p></div>
+
+    <div class="decision"><div class="d-id">DD-11 · The airport master is the TMC's booking source</div><div class="d-t">One IATA location master, shared.</div><p>From/To on every leg read the shared ECS Location master (IATA airports). Each leg's code is carried verbatim into the TMC booking instruction. In production this master is synced from the TMC/GDS airport feed.</p></div>
+
+    <div class="decision"><div class="d-id">DD-12 · A Travel Request has no "Reject"</div><div class="d-t">Dissent = Send Back.</div><p>An approver who disagrees <b>sends the request back</b> (→ Sent Back → Draft) to be revised and resubmitted. There is no terminal reject on the request. (The TE claim keeps standard claim controls.)</p></div>
+  </section>
+
+  <!-- 3 DATA MODEL -->
+  <section id="data">
+    <h2><span class="num">3</span>Data model</h2>
+    <p>Transactional entities (new). Status/type fields are constrained strings; allowed values are in <a href="#status" class="ref">§4</a> and inline. Reference masters are in <a href="#masters" class="ref">§13</a>.</p>
+
+    <h3>TravelRequest — header &amp; lifecycle</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">requestNumber</td><td>string, unique</td><td>TR-YYYY-NNNNNN</td></tr>
+        <tr><td class="fld">authorisationNo</td><td>string, unique?</td><td>TA-YYYY-NNNNNN — set on final approval</td></tr>
+        <tr><td class="fld">status / bookingStatus</td><td>enum string</td><td>Approval + booking state machines (§4)</td></tr>
+        <tr><td class="fld">isGroup</td><td>bool</td><td>Multi-traveller request</td></tr>
+        <tr><td class="fld">requestorId / travellerId</td><td>employee id</td><td>Creator may ≠ traveller; <code>GUEST</code> for non-employee</td></tr>
+        <tr><td class="fld">travellerType, guest*</td><td>string</td><td>EMPLOYEE | GUEST (+ guest name/email/org)</td></tr>
+        <tr><td class="fld">additionalApproverId</td><td>employee id?</td><td>Optional traveller-selected extra approver</td></tr>
+        <tr><td class="fld">selectedDoaId</td><td>employee id?</td><td>Traveller-chosen DOA (not pre-selected)</td></tr>
+        <tr><td class="fld">purposeId, description</td><td>ref / text</td><td>Travel purpose (drives research flag)</td></tr>
+        <tr><td class="fld">tripType</td><td>enum</td><td>ROUND_TRIP | ONE_WAY | MULTI_CITY</td></tr>
+        <tr><td class="fld">destCountry, destCity</td><td>ref</td><td>Derived from longest-stay leg on save</td></tr>
+        <tr><td class="fld">startDate, endDate</td><td>date</td><td>Official travel window</td></tr>
+        <tr><td class="fld">personalStart, personalEnd</td><td>date?</td><td>Personal extension (excluded from ODA/accommodation)</td></tr>
+        <tr><td class="fld">eventStartDate, eventEndDate, invitationRef</td><td>date / text</td><td>Event is a segment within the official window</td></tr>
+        <tr><td class="fld">bookingArrangement</td><td>enum</td><td>AUTO | TMC-&lt;id&gt; | SELF_BOOKED | HOST_ARRANGED | NO_BOOKING</td></tr>
+        <tr><td class="fld">bookingMethod</td><td>enum?</td><td>TMC channel — only when arranged via a TMC</td></tr>
+        <tr><td class="fld">tmcProviderId</td><td>ref?</td><td>Resolved/selected TMC (null = auto by policy)</td></tr>
+        <tr><td class="fld">travelClassId, entitledClassId, classBasis</td><td>ref / text</td><td>Request-level class = derived entitlement</td></tr>
+        <tr><td class="fld">chargingMode</td><td>enum</td><td>MAIN | CLAIM | ITEM (allocation entry mode)</td></tr>
+        <tr><td class="fld">approvalAmountSgd, bookingDeadline, authorisationExpiry</td><td>num / date</td><td>Derived approval snapshot (§13.3/§13.4)</td></tr>
+        <tr><td class="fld">visaLetterRequired, highRiskAck, personalAck</td><td>bool</td><td>Declarations / flags</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="two">
+      <div>
+        <h3>TravelRequestTraveller</h3>
+        <div class="tbl-box narrow"><table>
+          <thead><tr><th>Field</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="fld">employeeId</td><td>Group member</td></tr>
+            <tr><td class="fld">isRequestor</td><td>Coordinator flag</td></tr>
+            <tr><td class="fld">sharePct</td><td>Share of NTU-funded cost</td></tr>
+            <tr><td class="fld">entitledClassId / chosenClassId</td><td>Per-traveller class (DD-05)</td></tr>
+            <tr><td class="fld">classBasis / classJustification</td><td>Derivation / upgrade reason</td></tr>
+            <tr><td class="fld">confirmed, confirmedAt</td><td>Inclusion confirmation</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3>ItineraryLeg</h3>
+        <div class="tbl-box narrow"><table>
+          <thead><tr><th>Field</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="fld">travellerId</td><td>null = shared group leg</td></tr>
+            <tr><td class="fld">seq</td><td>Order</td></tr>
+            <tr><td class="fld">originCode / destCode</td><td>IATA (shared master)</td></tr>
+            <tr><td class="fld">departDate / arriveDate</td><td>Within travel window</td></tr>
+            <tr><td class="fld">durationHours</td><td>Derived from dest city → drives class</td></tr>
+            <tr><td class="fld">nights</td><td>Stay at destination</td></tr>
+            <tr><td class="fld">isPersonal</td><td>Personal segment (excl. ODA)</td></tr>
+            <tr><td class="fld">entitledClassId / chosenClassId</td><td>Per-leg entitlement</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <h3>EstimatedExpense — one cost line (per traveller)</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">travellerId</td><td>employee id?</td><td>Attributed traveller; null = requestor/shared owner</td></tr>
+        <tr><td class="fld">category / expenseTypeId</td><td>enum / ref</td><td>AIRFARE | ACCOMMODATION | ODA | CONFERENCE | OTHER</td></tr>
+        <tr><td class="fld">currency, foreignAmount, sgdAmount</td><td>num</td><td>Converted at entry-date FX, re-locked at submit</td></tr>
+        <tr><td class="fld">sponsorForeign, sponsorSgd</td><td>num</td><td>Expected sponsorship (reduces NTU-funded)</td></tr>
+        <tr><td class="fld">estimateBasis</td><td>enum</td><td>QUOTED | CAP | LOWER | RATE</td></tr>
+        <tr><td class="fld">isShared, shareMap</td><td>bool / JSON</td><td>Only for genuinely shared incidentals (DD-06)</td></tr>
+        <tr><td class="fld">chargingCode</td><td>ref?</td><td>Single per-line account (ITEM mode)</td></tr>
+        <tr><td class="fld">allocJson</td><td>JSON?</td><td>Per-line <b>multi-account split</b> <code>[{code,pct,io}]</code> (DD-07)</td></tr>
+        <tr><td class="fld">originCode, destCode, proposedClassId, fareCeiling</td><td>—</td><td>Airfare-specific</td></tr>
+        <tr><td>+ AccommodationEstimate</td><td>1:1</td><td>city, nights, personalNights, quotedNightly, capNightly, budgetedNightly, exceptionOutcome</td></tr>
+        <tr><td>+ ODAEstimate</td><td>1:1</td><td>country, city, arrive, depart, eligibleDays, personalDays, dailyRate</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="two">
+      <div>
+        <h3>ChargingAllocation — request-level roll-up</h3>
+        <div class="tbl-box narrow"><table><thead><tr><th>Field</th><th>Notes</th></tr></thead><tbody>
+          <tr><td class="fld">chargingCode, chargingType</td><td>CC / WBS id</td></tr>
+          <tr><td class="fld">companyCode, businessArea</td><td>SAP org</td></tr>
+          <tr><td class="fld">percent, amountSgd</td><td>Share of allocated amount</td></tr>
+          <tr><td class="fld">internalOrder, isMain, isResearch</td><td>SAP IO; main account flag; research</td></tr>
+        </tbody></table></div>
+        <p style="font-size:.82rem;color:var(--muted)">Drives DOA routing (highest-share department), cross-BA concurrence and the finance breakdown.</p>
+      </div>
+      <div>
+        <h3>ApprovalStep</h3>
+        <div class="tbl-box narrow"><table><thead><tr><th>Field</th><th>Notes</th></tr></thead><tbody>
+          <tr><td class="fld">seq, roleType</td><td>RO | Additional | FundingOwner | Exception | DOA | ResearchDOA</td></tr>
+          <tr><td class="fld">approverId</td><td>Resolved approver</td></tr>
+          <tr><td class="fld">status, decidedAt, comments</td><td>Pending | Approved | SentBack</td></tr>
+          <tr><td class="fld">autoGranted</td><td>TE claim DOA auto-grant (DD-08)</td></tr>
+        </tbody></table></div>
+      </div>
+    </div>
+
+    <h3>TravelExpenseClaim &amp; TEExpenseLine</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Entity · field</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">Claim.claimNumber, claimantId, status</td><td>Draft → Submitted → … ; one claimant</td></tr>
+        <tr><td class="fld">Claim.lessCorpCard, lessPersonal</td><td>Deductions from reimbursable total</td></tr>
+        <tr><td class="fld">Claim.chargingMode, chargingMainCode, chargingJson</td><td>Allocation snapshot (same editor as the request)</td></tr>
+        <tr><td class="fld">Claim.approvalSteps[]</td><td>Verifier → Exception? → RO? → DOA (auto-grant)</td></tr>
+        <tr><td class="fld">Line.expenseTypeId, treatment</td><td>LOCKED | EDITABLE | REFERENCE | EXCLUDED (from the TR estimate)</td></tr>
+        <tr><td class="fld">Line.approvedSgd, bookedSgd, actualSgd, varianceSgd</td><td>Pre-populated from the TR; variance tracked</td></tr>
+        <tr><td class="fld">Line.receiptType, receiptOk</td><td>LOCAL_GST | FOREIGN_NO_GST | NO_RECEIPT</td></tr>
+        <tr><td class="fld">Line.chargingCode, allocJson</td><td>Per-line (multi-)account split, as the request</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 4 STATUS -->
+  <section id="status">
+    <h2><span class="num">4</span>Status model &amp; lifecycle</h2>
+    <p>Two independent state machines on an approved request: <b>approval status</b> and <b>booking status</b>. Invalid transitions must not be offered.</p>
+
+    <h3>Approval status transitions</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>From</th><th>Allowed to</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pill p-navy">Draft</span></td><td>Submitted · Withdrawn</td></tr>
+        <tr><td><span class="pill p-navy">Submitted</span></td><td>Pending Additional · Pending Exception · Pending DOA</td></tr>
+        <tr><td><span class="pill p-navy">Pending RO Approval</span></td><td>Pending DOA · Pending Exception · Sent Back</td></tr>
+        <tr><td><span class="pill p-navy">Pending Additional Approval</span></td><td>Pending Exception · Pending DOA · Sent Back</td></tr>
+        <tr><td><span class="pill p-navy">Pending Exception Approval</span></td><td>Pending DOA · Sent Back</td></tr>
+        <tr><td><span class="pill p-navy">Pending DOA Approval</span></td><td><span class="pill p-good">Approved</span> · Sent Back</td></tr>
+        <tr><td><span class="pill p-good">Approved</span></td><td>Amendment In Progress · Cancelled · Expired · Closed</td></tr>
+        <tr><td><span class="pill p-warn">Amendment In Progress</span></td><td>Approved · Sent Back · Cancelled</td></tr>
+        <tr><td><span class="pill p-warn">Sent Back</span></td><td>Draft · Withdrawn</td></tr>
+        <tr><td><span class="pill p-navy">Expired</span></td><td>Pending RO · Pending DOA · Cancelled (re-validate)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout"><b>No Reject (DD-12).</b> There is no transition to a terminal "Rejected" on a Travel Request — disagreement routes through <b>Sent Back → Draft</b>.</div>
+
+    <h3>Booking status (post-approval, independent)</h3>
+    <div class="legend">
+      <span class="pill p-navy">Not Sent</span><span class="pill p-navy">Sent to TMC</span><span class="pill p-navy">Received by TMC</span>
+      <span class="pill p-warn">Booking In Progress</span><span class="pill p-warn">Traveller Action Required</span><span class="pill p-warn">Partially Booked</span>
+      <span class="pill p-good">Booked</span><span class="pill p-good">Travel Completed</span><span class="pill p-good">Self-Booked</span>
+      <span class="pill p-crit">Booking Failed</span><span class="pill p-crit">Cancelled</span>
+    </div>
+  </section>
+
+  <!-- 5 SCREENS -->
+  <section id="screens">
+    <h2><span class="num">5</span>Screens</h2>
+    <p>Each step is a stage in the request wizard (Traveller → Trip → Estimates → Charging → Policy Review → Submit), plus the approver, claim and configuration surfaces. Fields, layout and behaviour below; validation is consolidated in <a href="#validation" class="ref">§6</a>.</p>
+
+    <div class="screen" id="s-dashboard">
+      <div class="s-head"><span class="s-step">5.1</span><span class="s-t">Travel Request Dashboard</span><span class="s-route">/dashboard</span></div>
+      <p>Entry point. Buckets of the user's requests with a load-demo seed for non-production environments.</p>
+      <h4>Content</h4>
+      <ul>
+        <li>Summary tiles: <b>Drafts &amp; sent back</b>, <b>Pending approval</b>, <b>Approved — unbooked</b>, <b>Completed — unclaimed</b>.</li>
+        <li>All-requests table: Request · Traveller · Purpose · Destination · Travel dates · Est. NTU cost · Exceptions · Status · Booking.</li>
+        <li>Group requests tagged <span class="pill p-navy">Group</span>; row links to the detail page.</li>
+      </ul>
+      <div class="shot-label">Prototype UI</div>
+      <figure><img src="screens/dashboard.jpg" alt="Travel Request Dashboard — summary tiles and the all-requests table"><figcaption>Dashboard — summary tiles (drafts, pending, approved-unbooked, completed-unclaimed) and the all-requests table.</figcaption></figure>
+    </div>
+
+    <div class="screen" id="s-traveller">
+      <div class="s-head"><span class="s-step">5.2</span><span class="s-t">Request detail / Traveller</span><span class="s-route">/requests/{id}</span></div>
+      <p>Request header, approval status, workflow visual, and (for groups) the traveller roster. Read-only summary of the approved request; the editing wizard steps follow.</p>
+      <h4>Header summary</h4>
+      <div class="kv">
+        <dt>Purpose · Destination · Dates</dt><dd>Trip header</dd>
+        <dt>Travel class</dt><dd>Individual: entitled class. <b>Group:</b> "Each traveller flies at their own class entitlement" + a <b>Class column in the roster</b></dd>
+        <dt>Booking arrangement · TMC</dt><dd>Resolved TMC provider shown</dd>
+        <dt>Primary charging account</dt><dd>Main CC/WBS + %</dd>
+      </div>
+      <h4>Group roster (isGroup)</h4>
+      <p># · Traveller · Department · <b>Class</b> · Travel dates · Est. cost · Exception · Booking — one row per traveller, each at their own entitled class.</p>
+      <h4>Actions (post-approval)</h4>
+      <p>Booking · Send to TMC · Self-booked · Create TE claim · More actions (amend, cancel). Workflow chevrons show the realised route with approver names.</p>
+      <div class="shot-label">Prototype UI</div>
+      <figure><img src="screens/detail.jpg" alt="Group request detail — approval status, workflow chevrons and header summary"><figcaption>Group request detail — approval status, realised workflow (Submitted → Funding Owner → DOA → Approved + TA number), and the per-traveller travel-class statement.</figcaption></figure>
+      <figure><img src="screens/roster.jpg" alt="Traveller roster with a Class column"><figcaption>Group summary + Traveller Roster — each member with their department, <b>own entitled class</b> (Premium Economy / Economy / Business) and cost share.</figcaption></figure>
+    </div>
+
+    <div class="screen" id="s-trip">
+      <div class="s-head"><span class="s-step">5.3</span><span class="s-t">Trip details</span><span class="s-route">/requests/{id}/trip</span></div>
+      <p>Purpose, booking arrangement, dates and the always-on itinerary. <b>No travel-class input</b> (DD-04).</p>
+      <h4>Trip Purpose &amp; Justification</h4>
+      <div class="kv">
+        <dt>Travel purpose</dt><dd>Reference list; research purposes flag the research route</dd>
+        <dt>Booking arrangement</dt><dd>Auto (TMC) · provider · Self-booked · Host-arranged · No booking (DD-10)</dd>
+        <dt>TMC booking method</dt><dd>TMC channel — enabled only for TMC arrangements</dd>
+        <dt>TMC (resolved)</dt><dd><b>Read-only</b> — resolved provider from the arrangement (e.g. "CTC Travel (Asia-Pacific)")</dd>
+        <dt>Description, Invitation ref, Visa letter</dt><dd>Justification + §4.13 visa flag</dd>
+      </div>
+      <h4>Dates — ordered Official → Event → Personal</h4>
+      <p>Official start/end frame the whole trip; the <b>event</b> (§10) is a segment within them; <b>personal</b> extension (§4.5) extends before or after. The outbound &amp; return legs pre-fill from the official dates.</p>
+      <h4>Destination &amp; Itinerary (DD-09)</h4>
+      <ul>
+        <li><b>Trip type</b> selector presets the leg table (Round-trip 2 · One-way 1 · Multi-city N).</li>
+        <li><b>Main destination</b> indicator (read-only) — derived live from the longest-stay leg.</li>
+        <li><b>Itinerary legs</b>: Leg · From · To · Depart · Arrive · Nights · Personal (+ add/reorder/remove for multi-city). From/To = IATA master, shown "CODE — Airport name".</li>
+      </ul>
+      <div class="shot-label">Prototype UI</div>
+      <figure><img src="screens/trip.jpg" alt="Trip form — resolved TMC, dates ordered official/event/personal, trip type and the always-on itinerary"><figcaption>Trip form — <b>resolved TMC</b> (read-only), Dates ordered Official → Event → Personal, the trip-type preset, the derived <b>Main destination</b> and the always-on itinerary legs. No travel-class input (DD-04).</figcaption></figure>
+    </div>
+
+    <div class="screen" id="s-estimates">
+      <div class="s-head"><span class="s-step">5.4</span><span class="s-t">Estimated travel costs</span><span class="s-route">/requests/{id}/estimates</span></div>
+      <p>Per-traveller cost lines, pre-filled from the trip. Four add-forms: Airfare, Accommodation, ODA, Other/Conference.</p>
+      <h4>List (group = collapsible, one row per expense type)</h4>
+      <p>Grouped by cost item with a subtotal; expand to the per-traveller rows. Individual = flat table. Gross estimate → less sponsorship → NTU-funded.</p>
+      <h4>Add-forms — group behaviour</h4>
+      <div class="kv">
+        <dt>Traveller selector</dt><dd>Individual traveller <b>or "All travellers"</b> — one line per traveller in a single submit</dd>
+        <dt>Airfare · Proposed class</dt><dd>Group: <b>read-only</b> "per traveller — set to entitlement"; line stamped with each traveller's class</dd>
+        <dt>Accommodation</dt><dd><b>Per traveller</b> (own room) — no Shared checkbox (DD-06)</dd>
+        <dt>Other / Conference</dt><dd>May be <b>Shared — apportioned</b> for genuinely shared incidentals</dd>
+      </div>
+      <div class="callout">ODA is auto-computed from policy rate × eligible days over the official range (personal days excluded). Accommodation shows quoted/night vs cap and flags an exception over the cap.</div>
+      <div class="shot-label">Prototype UI</div>
+      <figure><img src="screens/estimates.jpg" alt="Group estimates — collapsible per cost item, expanded to per-traveller rooms"><figcaption>Group estimates — collapsible, one row per cost item; Overseas Accommodation expanded to <b>one room per traveller</b> (DD-06). Add-forms show the per-traveller class and the Traveller / All-travellers selector.</figcaption></figure>
+    </div>
+
+    <div class="screen" id="s-charging">
+      <div class="s-head"><span class="s-step">5.5</span><span class="s-t">Charging &amp; allocation</span><span class="s-route">/requests/{id}/charging</span></div>
+      <p>ECS 4-level cascade + allocation. Drives DOA routing.</p>
+      <h4>Estimated Cost Lines</h4>
+      <p>Type · <b>Traveller</b> (group) · Detail · Gross · Sponsor · NTU-funded, with the NTU-funded total.</p>
+      <h4>Main charging account — cascade</h4>
+      <p>Company Code → Business Area → CC/WBS → Charging Account. Defaults to the traveller's profile cost object. Closed accounts cannot be charged.</p>
+      <h4>Cost allocation modes</h4>
+      <ul>
+        <li><b>MAIN</b> — whole request to the main account.</li>
+        <li><b>CLAIM</b> (Allocation at Claim/Item Level) — a %/amount split of the whole request across accounts.</li>
+        <li><b>ITEM</b> (Allocation per Expense Item) — <b>per-line splitter</b> grouped by cost item; each line splits across 1+ accounts (% to 100). <b>Auto by dept</b> per line + <b>Auto-allocate all by traveller's department</b> (DD-07).</li>
+      </ul>
+      <h4>Allocation Outcome (TR) / Accounting Entries (TE)</h4>
+      <p>Computed GL postings per account × expense type: Company · BA · CC/WBS · Internal Order · GL · Expense type · Amount · % · Main acct · GST. Must total 100% before submit.</p>
+      <div class="shot-label">Prototype UI</div>
+      <figure><img src="screens/charging.jpg" alt="Charging ITEM mode — per-line splitter auto-allocated by traveller's department, and the Allocation Outcome roll-up"><figcaption>ITEM-mode allocation auto-allocated by department: each per-traveller room routes 100% to that traveller's dept (Alice/Grace → CC-1000, Henry → CC-2000), and the <b>Allocation Outcome</b> rolls up the GL postings.</figcaption></figure>
+    </div>
+
+    <div class="screen" id="s-policy">
+      <div class="s-head"><span class="s-step">5.6</span><span class="s-t">Policy review</span><span class="s-route">/requests/{id}/policy</span></div>
+      <p>Runs the common + pre-trip rules and lists outcomes: <span class="pill p-good">Pass</span> <span class="pill p-warn">Exception</span> <span class="pill p-crit">Hard stop</span>. Hard stops block submission; exceptions are carried to the Exception Approver or surfaced to the DOA per config.</p>
+    </div>
+
+    <div class="screen" id="s-review">
+      <div class="s-head"><span class="s-step">5.7</span><span class="s-t">Review &amp; submit</span><span class="s-route">/requests/{id}/review</span></div>
+      <h4>Approval Route (visual) — above the Trip card</h4>
+      <p>Chevron preview of the computed route. The requestor <b>selects the DOA</b> (required; from eligible candidates; not pre-selected) and may add one Additional Approver — the chevrons update live.</p>
+      <h4>Trip card</h4>
+      <p>Purpose · Destination · Dates · Travel class (group = per-traveller statement) · Booking arrangement · <b>TMC</b> · Traveller. Multi-city shows the full leg list.</p>
+      <h4>Estimated cost items</h4>
+      <p>Grouped by type (group = expandable to per traveller): Gross → less sponsorship → Estimated NTU-funded → Approval amount (per basis) → approved booking ceiling.</p>
+      <h4>Declaration &amp; submit</h4>
+      <p>Official-purpose + conflict-of-interest declaration; high-risk acknowledgement when applicable. Submit disabled while any hard stop remains or no DOA is chosen.</p>
+      <div class="shot-label">Prototype UI</div>
+      <figure><img src="screens/review.jpg" alt="Review &amp; submit — approval route visual, DOA selector, Trip and Charging cards"><figcaption>Review &amp; submit — the computed <b>Approval Route</b> chevrons (Traveller → Funding Owner / Cross-BA → DOA), the required <b>DOA selector</b> (not pre-selected), and the Trip card with the resolved TMC and per-traveller class statement.</figcaption></figure>
+    </div>
+
+    <div class="screen" id="s-approvals">
+      <div class="s-head"><span class="s-step">5.8</span><span class="s-t">Approver / DOA dashboard</span><span class="s-route">/approvals</span></div>
+      <p>Per-role queue (acting-as role selector). Each pending step shows the request, the approval amount, exceptions, and the right-aligned numeric data. Decisions: <b>Approve</b> or <b>Send Back</b> (with reason). A high-risk request requires an approver acknowledgement.</p>
+    </div>
+
+    <div class="screen" id="s-claim">
+      <div class="s-head"><span class="s-step">5.9</span><span class="s-t">TE claim (Create from TR)</span><span class="s-route">/claims/{id}</span></div>
+      <p>Pre-populated from the approved request so the claimant does not re-key. Header (report type, travel dates, deductions), expense lines (pre-filled, treatment-controlled), and the same charging editor.</p>
+      <h4>Pre-population</h4>
+      <p>Each estimate line seeds a claim line (approved amount, charging), with per-line treatment LOCKED / EDITABLE / REFERENCE / EXCLUDED. <b>No new expense type</b> may be added at the claim.</p>
+      <h4>Workflow</h4>
+      <p>Verifier → Exception? → RO? → <b>DOA (auto-granted within tolerance)</b> — see <a href="#claim-logic" class="ref">§10</a>.</p>
+    </div>
+
+    <div class="screen" id="s-config">
+      <div class="s-head"><span class="s-step">5.10</span><span class="s-t">Configuration / Module Settings</span><span class="s-route">/settings · /config-viewer</span></div>
+      <p>The existing ECS Configuration mechanism — a single settings row drives routing switches, thresholds, caps basis, declarations and tolerances. Full catalogue in <a href="#config-ref" class="ref">§11</a>.</p>
+    </div>
+  </section>
+
+  <!-- 6 VALIDATION -->
+  <section id="validation">
+    <h2><span class="num">6</span>Validation rules</h2>
+    <p>Every rule is enforced <b>server-side</b> (authoritative); the client mirrors them for instant feedback and disables the action while a blocking rule fails.</p>
+
+    <h3>Trip &amp; dates</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Rule</th><th>Enforcement</th></tr></thead>
+      <tbody>
+        <tr><td>Travel purpose, ≥1 itinerary leg with a destination, travel dates, booking arrangement required</td><td>Block save</td></tr>
+        <tr><td>Official end ≥ official start</td><td>Block</td></tr>
+        <tr><td>Each leg: arrive ≥ depart</td><td>Block</td></tr>
+        <tr><td>Legs chronological — leg <code>n+1</code> depart ≥ leg <code>n</code> depart</td><td>Block</td></tr>
+        <tr><td>Each leg departs within the travel window (widened by a personal extension on either side)</td><td>Block</td></tr>
+        <tr><td>Personal extension: end ≥ start, and the window <b>does not overlap</b> the official dates (before start or after end only)</td><td>Block</td></tr>
+        <tr><td>Event dates within the official window (§10) — event is a segment of the trip</td><td>Block</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Charging</h3>
+    <ul>
+      <li>Each cost line's split must total <b>100%</b> (ITEM mode); the request-level allocation must total 100% before submit.</li>
+      <li>A closed/inactive account cannot be charged.</li>
+      <li>Auto-by-department falls back to the main account and flags any traveller with no mapped department cost centre.</li>
+    </ul>
+
+    <h3>Submission</h3>
+    <ul>
+      <li>All <b>hard stops</b> resolved (AC06).</li>
+      <li>A <b>DOA is selected</b> when candidates exist (DD-02).</li>
+      <li>High-risk destination acknowledgement checked when applicable (§4.8).</li>
+      <li>Status transition is in the allowed set (§4); self-approval prevented (an approver who is a traveller is skipped/escalated).</li>
+    </ul>
+
+    <h3>TE claim</h3>
+    <ul>
+      <li>No expense type absent from the approved request.</li>
+      <li>A line claimed with <code>NO_RECEIPT</code> &gt; 0 raises a new exception (blocks auto-grant).</li>
+      <li>Claim over the approved amount beyond tolerance raises a new exception.</li>
+    </ul>
+  </section>
+
+  <!-- 7 ROUTING -->
+  <section id="routing">
+    <h2><span class="num">7</span>Program logic — approval routing</h2>
+    <p>The route builder consumes the request + settings and emits ordered steps. Order: Additional → RO → Funding Owner → Cross-BA concurrence → Exception → DOA.</p>
+    <pre><span class="k">function</span> <span class="f">buildRoute</span>(req, settings):
+  steps = []; travellers = req.isGroup ? req.travellers : [req.travellerId]
+  dept = <span class="f">highestChargingDept</span>(req)          <span class="c"># department bearing the largest %</span>
+  research = <span class="f">isResearch</span>(req) <b>and</b> <b>not</b> settings.sameRouteResearch
+
+  <span class="c"># 1 · Additional Approver (traveller-chosen, optional) — self-approval guard</span>
+  <span class="k">if</span> req.additionalApproverId <b>and</b> notTraveller:
+     steps += ADDITIONAL(req.additionalApproverId)
+
+  <span class="c"># 2 · RO decision point (DD-03)</span>
+  roNeeded = settings.roRequirement == <span class="s">"ALWAYS"</span>
+          <b>or</b> (settings.roRequirement == <span class="s">"INDIVIDUAL_ONLY"</span> <b>and</b> <b>not</b> req.isGroup)
+  <span class="k">if</span> roNeeded <b>and</b> RO(traveller) notTraveller: steps += RO
+
+  <span class="c"># 3 · Funding Owner (cross-charge requiring owner concurrence)</span>
+  <span class="k">if</span> anyAllocation.crossCharge <b>and</b> fundingOwner: steps += FUNDING_OWNER
+
+  <span class="c"># 4 · Cross-business-area concurrence (§18)</span>
+  <span class="k">for</span> each non-primary BA whose share &gt; settings.crossBaThresholdSgd:
+     steps += FUNDING_OWNER(thatBA)            <span class="c"># skip duplicates / travellers</span>
+
+  <span class="c"># 5 · Exception approver — only if a policy exception exists AND configured on</span>
+  <span class="k">if</span> hasException <b>and</b> settings.exceptionApproverRequired: steps += EXCEPTION
+
+  <span class="c"># 6 · DOA (always) — tier from the amount band, line per research route (DD-02)</span>
+  band = <span class="f">bandForAmount</span>(approvalAmount)
+  doaId = req.selectedDoaId   <span class="c"># traveller-chosen; else pickDoa(line, band.tier, escalate past travellers)</span>
+  steps += (research ? RESEARCH_DOA : DOA)(doaId)
+  <span class="k">return</span> steps</pre>
+
+    <h4>DOA candidate derivation (what the requestor chooses from)</h4>
+    <pre><span class="k">function</span> <span class="f">doaCandidatesFor</span>(req, approvalAmount):
+  line = research ? dept.researchDoaLine : dept.doaLine
+  band = <span class="f">bandForAmount</span>(approvalAmount)
+  tier = min(band.doaTierIndex, line.length-1)
+  <span class="k">return</span> line.slice(tier)                    <span class="c"># required tier upward (higher authority can also approve)</span>
+         .filter(id <b>not in</b> travellers)          <span class="c"># never a traveller (self-approval, §13.5)</span></pre>
+    <div class="callout"><b>Status derivation.</b> The request's <code>Pending *</code> status is set from the first pending step's role (RO → Pending RO Approval, Additional → Pending Additional, Exception → Pending Exception, else Pending DOA).</div>
+  </section>
+
+  <!-- 8 ENTITLEMENT -->
+  <section id="entitlement">
+    <h2><span class="num">8</span>Program logic — travel class entitlement</h2>
+    <p>Entitlement is derived from the <b>Travel Class Register</b> (per-employee policy group, entitled class, minimum flight-hours threshold, effective dates) across the whole itinerary.</p>
+    <pre><span class="k">function</span> <span class="f">entitledForDuration</span>(employee, hours, onDate):
+  entry = register(employee, onDate)
+  <span class="k">return</span> entry <b>and</b> hours &gt;= entry.minHours ? entry.entitledClassId : <span class="s">ECONOMY</span>
+
+<span class="k">function</span> <span class="f">entitledForItinerary</span>(employee, legs, onDate):   <span class="c"># DD-04</span>
+  perLeg = [ <span class="f">entitledForDuration</span>(employee, leg.durationHours, onDate)
+             <span class="k">for</span> leg <b>in</b> legs <b>if not</b> leg.isPersonal ]
+  <span class="k">return</span> <b>highest-rank</b>(perLeg)                 <span class="c"># longest-duration leg drives the class</span></pre>
+    <ul>
+      <li><b>Individual:</b> request-level <code>travelClassId</code> = <code>entitledForItinerary(traveller, legs)</code>.</li>
+      <li><b>Group (DD-05):</b> compute per traveller and store on each <code>TravelRequestTraveller.chosenClassId / entitledClassId</code>. Each airfare line is stamped with that traveller's class; lines re-sync if the itinerary changes.</li>
+      <li>Leg duration is derived server-side from the destination city's flight-hours — not trusted from the form.</li>
+    </ul>
+  </section>
+
+  <!-- 9 CHARGING -->
+  <section id="charging-logic">
+    <h2><span class="num">9</span>Program logic — charging &amp; allocation</h2>
+    <h4>Per-line split → request-level roll-up (ITEM mode)</h4>
+    <pre><span class="k">function</span> <span class="f">resolveItem</span>(lines):
+  charges = []
+  <span class="k">for</span> line <b>in</b> lines:
+     allocs = line.allocJson <b>or</b> [{code: line.mainAccount, pct: 100}]
+     line.save(allocJson = allocs.length&gt;1 ? allocs : null)   <span class="c"># persist genuine splits</span>
+     <span class="k">for</span> a <b>in</b> allocs: charges += {code: a.code, net: line.net * a.pct/100}
+  rows = <span class="f">rollupByCode</span>(charges)         <span class="c"># sum net per account → % of total</span>
+  persist ChargingAllocation(rows)        <span class="c"># drives routing — unchanged contract</span></pre>
+
+    <h4>Auto-allocate by traveller's Workday department (DD-07)</h4>
+    <pre><span class="k">function</span> <span class="f">deptAllocsFor</span>(line):
+  shares = line.isShared
+         ? (line.shareMap <b>or</b> equalSplit(req.travellers))   <span class="c"># shared incidental</span>
+         : [{ eid: line.travellerId, pct: 100 }]              <span class="c"># per-traveller line</span>
+  byCode = {}
+  <span class="k">for</span> s <b>in</b> shares:
+     cc = employee(s.eid).defaultChargingCode                <span class="c"># Workday home-dept cost object</span>
+     byCode[cc] += s.pct                                      <span class="c"># aggregate same-dept travellers</span>
+  <span class="k">return</span> byCode  <span class="c"># → one {account, %} row per department, editable after fill</span></pre>
+    <div class="callout">Because accommodation (and airfare, ODA) are now <b>per traveller</b> (DD-06), each line auto-allocates 100% to that traveller's department — <b>no split</b>. A shared incidental splits across departments by share. The highest-share department derives the DOA (§13.14).</div>
+  </section>
+
+  <!-- 10 CLAIM -->
+  <section id="claim-logic">
+    <h2><span class="num">10</span>Program logic — TE claim &amp; DOA auto-grant</h2>
+    <p>The claim route reuses the same configurable rules; the DOA step is auto-granted when the claim matches the approved request.</p>
+    <pre><span class="k">function</span> <span class="f">doaAutoGrant</span>(claim, req, settings):   <span class="c"># DD-08</span>
+  <span class="k">if</span> req.status <b>not in</b> [Approved, Closed]:  <span class="k">return</span> false  <span class="s">"not approved"</span>
+  <span class="k">if</span> <b>not</b> req.authorisationNo:               <span class="k">return</span> false  <span class="s">"no TA"</span>
+  over = <span class="f">claimTotal</span>(claim) - <span class="f">approvedAmount</span>(req)
+  withinTol = over &lt;= settings.teAutoGrantToleranceAbsSgd
+          <b>and</b> over &lt;= approvedAmount * settings.teAutoGrantTolerancePct/100
+  <span class="k">if</span> <b>not</b> withinTol:                         <span class="k">return</span> false  <span class="s">"beyond tolerance"</span>
+  <span class="k">if</span> <span class="f">claimHasNewExpenseType</span>(claim, req):   <span class="k">return</span> false  <span class="s">"new expense type"</span>
+  <span class="k">if</span> <span class="f">claimHasNewException</span>(claim, req):     <span class="k">return</span> false  <span class="s">"new exception"</span>
+  <span class="k">if</span> claimChargingDept != reqChargingDept:  <span class="k">return</span> false  <span class="s">"DOA changed"</span>
+  <span class="k">return</span> <b>true</b>  <span class="c"># DOA step marked Approved · autoGranted, cites the TA</span></pre>
+    <p><b>New exception</b> = over the approved amount beyond tolerance <b>or</b> any line claimed without a receipt. The Verifier (Travel Administrator) is always first; the Exception and RO steps follow the same config as the request.</p>
+  </section>
+
+  <!-- 11 CONFIG -->
+  <section id="config-ref">
+    <h2><span class="num">11</span>Configuration reference — Module Settings</h2>
+    <p>Single settings row (the ECS Configuration mechanism). Runtime-togglable; changes affect routing and derivation immediately.</p>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Setting</th><th>Values · default</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">roRequirement</td><td>ALWAYS · <b>INDIVIDUAL_ONLY</b> · NEVER</td><td>RO decision point (DD-03)</td></tr>
+        <tr><td class="fld">exceptionApproverRequired</td><td>bool · <b>true</b></td><td>Insert an Exception step, else surface to DOA</td></tr>
+        <tr><td class="fld">sameRouteResearch</td><td>bool · <b>false</b></td><td>Treat research like non-research (no Research DOA line)</td></tr>
+        <tr><td class="fld">approvalAmountBasis</td><td>GROSS · <b>NET_NTU</b> · MAJOR_COST · ALLOCATION</td><td>Which amount drives the band / DOA tier</td></tr>
+        <tr><td class="fld">crossBaThresholdSgd</td><td>int · <b>500</b></td><td>Cross-BA concurrence threshold (§18)</td></tr>
+        <tr><td class="fld">teAutoGrantTolerancePct</td><td>int · <b>10</b></td><td>Claim DOA auto-grant tolerance (% over)</td></tr>
+        <tr><td class="fld">teAutoGrantToleranceAbsSgd</td><td>int · <b>500</b></td><td>Claim DOA auto-grant tolerance (abs SGD)</td></tr>
+        <tr><td class="fld">hotelEstimateBasis</td><td>QUOTED · CAP · <b>LOWER</b></td><td>Accommodation budget basis</td></tr>
+        <tr><td class="fld">expenseScope</td><td>MAJOR_ONLY · <b>ALL</b></td><td>Whether incidental/other lines are captured</td></tr>
+        <tr><td class="fld">chargingSplitMode</td><td><b>PERCENT</b> · AMOUNT</td><td>Allocation entry mode</td></tr>
+        <tr><td class="fld">selfApprovalLimitSgd</td><td>int · <b>0</b></td><td>Amount at/below which a traveller-approver self-approves (0 = never)</td></tr>
+        <tr><td class="fld">authorisationValidityDays / bookingDeadlineDays</td><td>int · <b>30 / 14</b></td><td>TA validity &amp; booking deadline (§13.3)</td></tr>
+        <tr><td class="fld">attachmentMaxMb</td><td>int · <b>7</b></td><td>Max upload size per file</td></tr>
+        <tr><td class="fld">declarationText / coiText</td><td>text</td><td>Submission declarations</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 12 TMC -->
+  <section id="tmc">
+    <h2><span class="num">12</span>TMC integration</h2>
+    <p>On approval (and hand-off), a <b>governed booking instruction</b> is assembled from the request, filtered by the admin Integration Contract (per-field include/treatment flags).</p>
+    <h4>Hand-off payload (per instruction)</h4>
+    <ul>
+      <li><b>Authorisation</b> &amp; traveller (or guest) identity; booking method; booking deadline; approval validity.</li>
+      <li><b>Air segments</b> — origin / destination (IATA, verbatim), depart date, approved class. <b>Hotel segments</b> — city, nights, capped nightly.</li>
+      <li>Approved cost ceiling; approved exceptions; charging (primary bears the airfare posting); approval metadata.</li>
+      <li><b>Group fan-out (§9.3):</b> one approval → <b>one instruction per traveller</b>, each carrying that traveller's own class, nights and cost share.</li>
+    </ul>
+    <div class="callout"><b>Booking arrangement</b> decides the channel: AUTO routes to a TMC by policy/destination; a provider id targets a specific TMC; Self-booked / Host-arranged / No booking skip the hand-off. The resolved TMC is shown read-only on the trip form and the review/detail pages.</div>
+  </section>
+
+  <!-- 13 MASTERS -->
+  <section id="masters">
+    <h2><span class="num">13</span>Reference masters (read from ECS)</h2>
+    <div class="cards">
+      <div class="card"><div class="tag">Identity</div><h4>Employees &amp; appointments</h4><p>Department, business area, reporting officer, travel policy group, <b>defaultChargingCode</b> (Workday home-dept cost object), roles.</p></div>
+      <div class="card"><div class="tag">Authority</div><h4>DOA lines &amp; workflow bands</h4><p>Per-department DOA line (+ research line); amount bands → DOA tier index + label.</p></div>
+      <div class="card"><div class="tag">Finance</div><h4>Charging accounts</h4><p>CC/WBS with company code, business area, department, research flag, funding owner, active/closed.</p></div>
+      <div class="card"><div class="tag">Policy</div><h4>Caps &amp; ODA rates</h4><p>Per-city hotel caps; per-country ODA daily rates; travel-class register (policy group, min hours, entitled class, effective dates).</p></div>
+      <div class="card"><div class="tag">Location</div><h4>Countries · cities · airports</h4><p>IATA airport master (shared with the TMC); city → country; flight-hours from base.</p></div>
+      <div class="card"><div class="tag">Rates</div><h4>FX &amp; expense types</h4><p>Entry-date FX (re-locked at submit); expense types with GL account &amp; GST code.</p></div>
+      <div class="card"><div class="tag">Vendors</div><h4>TMC providers</h4><p>Provider + region + booking methods (channels); policy routing.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <p>ECS Pre-Trip Travel Request — Build Specification · NTU Employee Claim System. Companion to the end-user Feature Walkthrough. Section references (§) map to the Build Pack. This document describes behaviour, data and logic; the implementation platform (OutSystems) and the prototype stack (Next.js/Prisma) are separate concerns.</p>
+  </footer>
+</main>
+</div>
