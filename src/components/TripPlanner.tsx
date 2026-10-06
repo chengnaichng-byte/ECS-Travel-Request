@@ -49,17 +49,13 @@ const toD = (s: string) => (s ? new Date(s + 'T00:00:00') : null);
 export function TripPlanner({
   airports, airportMeta, initialTripType, initialLegs,
   initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
-  travelClasses, prefillClass, entitledName, basis, groupEntitlements, initialJustification, continueHref, disabled,
+  continueHref, disabled,
 }: {
   airports: Opt[];
   airportMeta: Record<string, AirportMeta>;
   initialTripType: TripType;
   initialLegs: LegIn[];
   initialStart: string; initialEnd: string; initialEventStart: string; initialEventEnd: string; initialPersonalStart: string; initialPersonalEnd: string;
-  travelClasses: ClassOpt[];
-  prefillClass: string; entitledName: string; basis: string;
-  groupEntitlements: { name: string; className: string; classId: string }[];
-  initialJustification: string;
   continueHref: string;
   disabled?: boolean;
 }) {
@@ -226,36 +222,8 @@ export function TripPlanner({
             </p>
           </div>
 
-          {groupEntitlements.length > 0 ? (
-            // §13.14 Group: each traveller books at their OWN entitled class — no shared selector
-            // and no justification (the requestor can't justify an upgrade on a traveller's behalf).
-            <div className="border-t border-[var(--ecs-border)] pt-4">
-              <div className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mb-1">Travel class — per traveller</div>
-              <p className="text-xs text-[var(--ecs-muted)] mb-2">Group travel books each traveller at their own entitled class for this itinerary (longest-duration leg). The requestor does not set or justify a class on travellers&apos; behalf. An upgrade for one person is handled by removing them from the group and raising a single travel request.</p>
-              <ul className="text-sm space-y-1">
-                {groupEntitlements.map((g, i) => (
-                  <li key={i} className="flex items-center justify-between gap-3">
-                    <span>{g.name}</span>
-                    <span className="font-medium">{g.className}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-3 gap-4 border-t border-[var(--ecs-border)] pt-4">
-              <div>
-                <label className="label">Travel class</label>
-                <select name="travelClassId" defaultValue={prefillClass} disabled={disabled} className="field">
-                  {travelClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledName}</strong> · <span className="italic">{basis}</span> (§13.19)</p>
-              </div>
-              <div className="md:col-span-2">
-                <label className="label">Justification for higher class (required if above entitlement — §13.19)</label>
-                <textarea name="classJustification" defaultValue={initialJustification} rows={2} disabled={disabled} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
-              </div>
-            </div>
-          )}
+          {/* §13.19 Travel class is derived from the itinerary entitlement (shown in the cost
+              items / review, and per traveller for groups) — it is not set on this form. */}
 
           {blocking && (
             <div className="card p-3 text-sm text-red-800 bg-red-50 border-red-200">

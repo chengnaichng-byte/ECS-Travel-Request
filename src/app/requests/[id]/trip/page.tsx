@@ -8,11 +8,11 @@ import { saveTrip } from '@/modules/pretrip/actions';
 import { travelPurposes } from '@/data/travelPurposes';
 import { activeProviders } from '@/data/tmcProviders';
 import { airports, cities, countries } from '@/data/locations';
-import { travelClasses } from '@/data/travelClass';
 import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS } from '@/shared/enums';
 import { BookingFields } from '@/components/BookingFields';
 import { TripPlanner } from '@/components/TripPlanner';
-import { EcsReference, EcsTravelClassRegister, EcsIdentity } from '@/shared/ecs/services';
+import { isTmcArrangement } from '@/modules/pretrip/booking';
+import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { Card, Stepper } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -26,32 +26,9 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   if (!req) notFound();
   const canEdit = canEditRequest(await currentPersonaId(), req);
 
-  const onDate = req.startDate ?? new Date();
   const sortedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
-  // §13.19 entitlement is derived across the WHOLE itinerary, not just the main destination:
-  // each flown (non-personal) leg's duration gives its entitled class and the HIGHEST wins —
-  // i.e. the longest-duration leg drives the class (important for multi-city trips).
-  const cityOfAirport = (ap: string) => EcsReference.airport(ap)?.cityCode ?? ap;
-  const flownLegs = sortedLegs.filter((l) => !l.isPersonal).map((l) => {
-    const city = cityOfAirport(l.destCode);
-    return { durationHours: EcsReference.flightHours(city), destCode: city };
-  });
-  const legsForEntitlement = flownLegs.length ? flownLegs : (req.destCity ? [{ durationHours: EcsReference.flightHours(req.destCity), destCode: req.destCity }] : []);
-  const derived = legsForEntitlement.length ? EcsTravelClassRegister.entitledForItinerary(req.travellerId, legsForEntitlement, onDate) : null;
-  const entitledId = derived?.classId ?? req.entitledClassId ?? 'TC-ECO';
-  const basis = derived?.basis ?? req.classBasis ?? 'Add an itinerary leg to derive the entitlement';
-  const prefillClass = req.travelClassId ?? entitledId;
-  const entitledName = travelClasses.find((c) => c.id === entitledId)?.name ?? 'Economy';
-  // §13.14 group entitlement differs per traveller — compute each member's entitled class for
-  // this same itinerary so the form shows WHO is entitled to what (the group still travels on
-  // one shared selected class; anyone below it needs the higher-class justification).
-  const clsName = (cid: string) => travelClasses.find((c) => c.id === cid)?.name ?? cid;
-  const groupEntitlements = req.isGroup && legsForEntitlement.length
-    ? req.travellers.map((t) => {
-        const ent = EcsTravelClassRegister.entitledForItinerary(t.employeeId, legsForEntitlement, onDate);
-        return { name: EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId, className: clsName(ent.classId), classId: ent.classId };
-      })
-    : [];
+  // §2.2 resolved TMC for the current booking arrangement (shown read-only in the trip section).
+  const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
   const tripType = (req.tripType === 'ONE_WAY' || req.tripType === 'MULTI_CITY' ? req.tripType : 'ROUND_TRIP') as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
   const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
   // airport → city/country names, so the leg builder can show the derived main destination.
@@ -85,6 +62,10 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               initialMethod={req.bookingMethod ?? ''}
             />
             <div className="md:col-span-3">
+              <label className="label">TMC (resolved)</label>
+              <div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{tmcText}<span className="ml-1 text-xs">· derived from the booking arrangement on save (§2.2)</span></div>
+            </div>
+            <div className="md:col-span-3">
               <label className="label">Description / justification</label>
               <textarea name="description" defaultValue={req.description ?? ''} rows={2} className="field" placeholder="e.g. Presenting a paper at IEEE conference" />
             </div>
@@ -112,12 +93,6 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           initialEventEnd={d(req.eventEndDate)}
           initialPersonalStart={d(req.personalStart)}
           initialPersonalEnd={d(req.personalEnd)}
-          travelClasses={travelClasses.map((c) => ({ id: c.id, name: c.name }))}
-          prefillClass={prefillClass}
-          entitledName={entitledName}
-          basis={basis}
-          groupEntitlements={groupEntitlements}
-          initialJustification={req.classJustification ?? ''}
           continueHref={`/requests/${id}/estimates`}
           disabled={!canEdit}
         />

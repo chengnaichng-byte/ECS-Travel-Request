@@ -99,11 +99,12 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
         {req.expenses.length === 0 ? <Empty>No estimate lines yet — add airfare, accommodation and ODA on the Estimates step.</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr><th className="th">Type</th><th className="th">Detail</th><th className="th text-right">Gross (SGD)</th><th className="th text-right">Sponsor (SGD)</th><th className="th text-right">NTU-funded (SGD)</th></tr></thead>
+              <thead><tr><th className="th">Type</th>{req.isGroup && <th className="th">Traveller</th>}<th className="th">Detail</th><th className="th text-right">Gross (SGD)</th><th className="th text-right">Sponsor (SGD)</th><th className="th text-right">NTU-funded (SGD)</th></tr></thead>
               <tbody>
                 {req.expenses.map((e) => (
                   <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
                     <td className="td font-medium">{EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category}</td>
+                    {req.isGroup && <td className="td text-xs text-[var(--ecs-navy-2)] whitespace-nowrap">{e.isShared ? 'Shared — apportioned' : (EcsIdentity.employee(e.travellerId ?? '')?.name ?? '—')}</td>}
                     <td className="td text-xs text-[var(--ecs-muted)]">{detailOf(e)}</td>
                     <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}</td>
                     <td className="td text-right whitespace-nowrap">{e.sponsorSgd > 0 ? `− ${fmtSgd(e.sponsorSgd)}` : '—'}</td>
@@ -113,7 +114,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
               </tbody>
               <tfoot>
                 <tr className="font-semibold">
-                  <td className="td" colSpan={2}>Estimated NTU-funded cost</td>
+                  <td className="td" colSpan={req.isGroup ? 3 : 2}>Estimated NTU-funded cost</td>
                   <td className="td text-right">{fmtSgd(summary.gross)}</td>
                   <td className="td text-right">{summary.sponsorship > 0 ? `− ${fmtSgd(summary.sponsorship)}` : '—'}</td>
                   <td className="td text-right">{fmtSgd(summary.ntuFunded)}</td>

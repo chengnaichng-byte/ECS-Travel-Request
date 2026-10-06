@@ -502,9 +502,9 @@ export async function addAccommodation(id: string, fd: FormData) {
   const quotedNightly = num(fd, 'quotedNightly');
   if (!city || nights <= 0 || quotedNightly <= 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
   const calc = computeAccommodation({ cityCode: city, nights, personalNights, quotedNightly, basis: settings.hotelEstimateBasis });
-  // §13.14 a shared line is one apportioned row; otherwise create per selected traveller (or all).
-  const isShared = str(fd, 'shared') === 'on';
-  const tids = isShared ? [null] : await travellerFanout(id, fd);
+  // §13.14 accommodation is per-traveller — each books, pays and claims their own room, so a
+  // line is created per selected traveller (or all). No shared/apportioned hotel line.
+  const tids = await travellerFanout(id, fd);
   for (const tid of tids) {
     const exp = await prisma.estimatedExpense.create({
       data: {
@@ -513,7 +513,6 @@ export async function addAccommodation(id: string, fd: FormData) {
         estimateBasis: settings.hotelEstimateBasis, expectedDate: dateOrNull(fd, 'checkIn'),
         notes: str(fd, 'notes'),
         travellerId: tid,
-        isShared,
       },
     });
     await prisma.accommodationEstimate.create({

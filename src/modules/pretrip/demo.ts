@@ -386,9 +386,11 @@ async function buildGroupDraft(desc: string, start: string, end: string): Promis
   }
   const settings = await getSettings();
   const hcalc = computeAccommodation({ cityCode: 'TYO', nights: 4, personalNights: 0, quotedNightly: 330, basis: settings.hotelEstimateBasis });
-  const sharedAmount = hcalc.sgdAmount * travellerIds.length; // rooms budgeted at the cap
-  const he = await prisma.estimatedExpense.create({ data: { requestId: id, isShared: true, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: sharedAmount, sgdAmount: sharedAmount, estimateBasis: settings.hotelEstimateBasis } });
-  await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: 'TYO', nights: 4, personalNights: 0, quotedNightly: 330, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
+  // §13.14 accommodation is per-traveller — each books/pays/claims their own room (one line each).
+  for (const tid of travellerIds) {
+    const he = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: hcalc.sgdAmount, sgdAmount: hcalc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+    await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: 'TYO', nights: 4, personalNights: 0, quotedNightly: 330, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
+  }
 
   await prisma.travelRequest.update({ where: { id }, data: { chargingMode: 'CLAIM' } });
   for (const [code, pct] of [['CC-1000', 60], ['CC-2000', 40]] as [string, number][]) {
