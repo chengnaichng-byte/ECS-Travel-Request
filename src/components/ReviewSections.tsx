@@ -65,7 +65,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
           )}
         </Field>
         <Field label="Official Travel Dates" accent>{fmtDate(req.startDate)} – {fmtDate(req.endDate)} {durationDN(req.startDate, req.endDate) && <span className="text-[var(--ecs-muted)]">({durationDN(req.startDate, req.endDate)})</span>}</Field>
-        <Field label={`Proposed Travel Class${req.isGroup ? ' (Group)' : ''}`} accent>{cls}</Field>
+        <Field label={`Proposed Travel Class${req.isGroup ? ' (per traveller)' : ''}`} accent>{req.isGroup ? 'Each at own entitlement — see roster' : cls}</Field>
         <Field label="Travel Authorisation Validity" accent>
           {fmtDate(req.createdAt)} – {fmtDate(validityEnd)}
           <div className="mt-1"><span className="pill-pass">{days} days to book</span></div>
@@ -156,7 +156,7 @@ export function TravellerRoster({ req, letter, className }: { req: FullRequest; 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr>
-            <th className="th">#</th><th className="th">Traveller</th><th className="th">Department</th>
+            <th className="th">#</th><th className="th">Traveller</th><th className="th">Department</th><th className="th">Class</th>
             <th className="th">Travel Dates</th><th className="th text-right">Est. Cost (SGD)</th><th className="th">Exception</th><th className="th">Booking</th>
           </tr></thead>
           <tbody>
@@ -169,6 +169,7 @@ export function TravellerRoster({ req, letter, className }: { req: FullRequest; 
                   <td className="td">{i + 1}</td>
                   <td className="td font-medium">{EcsIdentity.employee(t.employeeId)?.name}{t.isRequestor && <span className="pill-navy ml-1">Coord.</span>}</td>
                   <td className="td text-xs">{EcsIdentity.department(EcsIdentity.employee(t.employeeId)?.departmentId ?? '')?.name}</td>
+                  <td className="td text-xs">{EcsReference.travelClass(t.chosenClassId ?? t.entitledClassId ?? req.travelClassId ?? '')?.name ?? '—'}</td>
                   <td className="td whitespace-nowrap text-xs">{fmtDate(start)} – {fmtDate(end)}{t.ownStartDate && <span className="text-[var(--ecs-muted)]"> (own)</span>}</td>
                   <td className="td text-right whitespace-nowrap">{fmtSgd(s?.totalSgd ?? 0)}</td>
                   <td className="td">{exceptionByTraveller.has(t.employeeId) ? <span className="pill-exc">Yes</span> : <span className="pill-info">No</span>}</td>
@@ -179,7 +180,7 @@ export function TravellerRoster({ req, letter, className }: { req: FullRequest; 
           </tbody>
           <tfoot>
             <tr className="font-semibold">
-              <td className="td" colSpan={4}>Total ({req.travellers.length} travellers)</td>
+              <td className="td" colSpan={5}>Total ({req.travellers.length} travellers)</td>
               <td className="td text-right">{fmtSgd(shares.reduce((s, r) => s + r.totalSgd, 0))}</td>
               <td className="td">{exceptionByTraveller.size}</td>
               <td className="td text-xs">0 / {req.travellers.length} Booked</td>
