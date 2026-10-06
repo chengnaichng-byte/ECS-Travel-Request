@@ -110,6 +110,31 @@
   figure img{width:100%;max-width:100%;border:1px solid var(--line);border-radius:8px;display:block;background:var(--surface-2)}
   figure figcaption{font-size:.76rem;color:var(--muted);margin-top:.4rem;font-family:var(--mono);letter-spacing:.01em}
   .shot-label{font-family:var(--mono);font-size:.68rem;color:var(--red);text-transform:uppercase;letter-spacing:.06em;margin:.9rem 0 .1rem;font-weight:600}
+  /* System map diagram (plain HTML — renders in browser, repo file and PDF) */
+  .sysmap{border:1px solid var(--line);border-radius:10px;padding:1.1rem;background:var(--surface);margin:1rem 0}
+  .sysmap .lab{text-align:center;font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:.2rem 0 .45rem}
+  .sysmap .row{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center}
+  .sysmap .box{border:1px solid var(--line);border-radius:7px;padding:.4rem .65rem;font-size:.78rem;background:var(--surface-2);color:var(--ink-2);text-align:center;max-width:16rem}
+  .sysmap .hub{margin:.75rem auto;max-width:24rem;text-align:center;border:2px solid var(--navy);background:var(--navy);color:#fff;border-radius:9px;padding:.65rem 1rem;font-weight:600;font-size:.95rem}
+  :root[data-theme="dark"] .sysmap .hub,.sysmap .hub{color:#fff}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .sysmap .hub{background:#2d4575;border-color:#4a68a8;color:#fff}}
+  :root[data-theme="dark"] .sysmap .hub{background:#2d4575;border-color:#4a68a8;color:#fff}
+  .sysmap .arrow{text-align:center;color:var(--muted);font-size:1.1rem;line-height:1.1;margin:.15rem 0}
+  /* Print / PDF */
+  @page{margin:14mm 12mm}
+  @media print{
+    :root{--bg:#fff;--surface:#fff;--surface-2:#f2f4f7}
+    body{background:#fff;color:#14202b;font-size:10.5px}
+    nav.toc{display:none}
+    .wrap{display:block;max-width:none}
+    main{padding:0}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    section,.screen,.decision,.card,figure,.tbl-box,pre,.sysmap{break-inside:avoid}
+    h1,h2,h3,h4{break-after:avoid}
+    figure img{max-height:165mm;width:auto;max-width:100%}
+    thead th{position:static}
+    a.ref,code{color:#2d4575}
+  }
   .two{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
   @media(max-width:860px){
     .wrap{grid-template-columns:1fr}
@@ -232,32 +257,29 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     </table></div>
 
     <h3 id="interactions">Interaction with other systems</h3>
-    <pre class="mermaid">flowchart TB
-  subgraph ECS["ECS / OutSystems masters (read)"]
-    HR["HR identity, roles, reporting lines"]
-    DOAS["DOA system (lines, amount bands)"]
-    WD["Workday (home-dept cost object)"]
-    FIN["SAP Finance (CC/WBS, GL, GST, IO)"]
-    POL["Policy masters (caps, ODA, class)"]
-    FX["FX rates"]
-  end
-  PT(["Pre-Trip Travel Request module"])
-  TMC["TMC / GDS"]
-  VISA["Immigration / Visa office"]
-  NOTIF["Notifications"]
-  TE["TE Claim module"]
-  HR --> PT
-  DOAS --> PT
-  WD --> PT
-  FIN --> PT
-  POL --> PT
-  FX --> PT
-  PT -->|"governed booking instruction"| TMC
-  TMC -->|"booking status"| PT
-  PT -->|"visa-letter batch"| VISA
-  PT -->|"approval and action alerts"| NOTIF
-  PT -->|"seeds approved request"| TE
-  PT -->|"allocation to GL postings"| FIN</pre>
+    <div class="sysmap">
+      <div class="lab">Reads from ECS / OutSystems masters</div>
+      <div class="row">
+        <div class="box">HR identity · roles · reporting lines</div>
+        <div class="box">DOA system (lines · amount bands)</div>
+        <div class="box">Workday (home-dept cost object)</div>
+        <div class="box">SAP Finance (CC/WBS · GL · GST · IO)</div>
+        <div class="box">Policy masters (caps · ODA · class)</div>
+        <div class="box">FX rates</div>
+        <div class="box">Location / GDS airport master</div>
+      </div>
+      <div class="arrow">&#8595;</div>
+      <div class="hub">Pre-Trip Travel Request module</div>
+      <div class="arrow">&#8595;</div>
+      <div class="lab">Sends to</div>
+      <div class="row">
+        <div class="box"><b>TMC / GDS</b> — governed booking instruction &#8644; status</div>
+        <div class="box"><b>Immigration / Visa</b> — visa-letter batch</div>
+        <div class="box"><b>Notifications</b> — approval &amp; action alerts</div>
+        <div class="box"><b>SAP Finance</b> — allocation &#8594; GL postings</div>
+        <div class="box"><b>TE Claim module</b> — seeds the approved request</div>
+      </div>
+    </div>
 
     <div class="tbl-box"><table>
       <thead><tr><th>System</th><th>Direction</th><th>What flows</th></tr></thead>
