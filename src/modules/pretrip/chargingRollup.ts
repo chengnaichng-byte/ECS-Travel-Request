@@ -31,28 +31,38 @@ export interface EffectiveRow { chargingCode: string; percent: number; amountSgd
 /** Parse the ECS ChargingAccountEditor form (MAIN | CLAIM | ITEM) into the effective
  *  ChargingAllocation rows + the per-line map. Shared by the TR and TE save actions so the
  *  canonical split (which drives routing) is produced identically on both sides. */
+export interface LineAlloc { code: string; pct: number; io: string }
+
 export function resolveChargingRows(
   fd: Pick<FormData, 'get'>,
   expenses: { id: string; sgdAmount: number; sponsorSgd: number }[],
   total: number,
   defaultCode: string,
-): { mode: 'MAIN' | 'CLAIM' | 'ITEM'; rows: EffectiveRow[]; lineMap: Record<string, string> } {
+): { mode: 'MAIN' | 'CLAIM' | 'ITEM'; rows: EffectiveRow[]; lineMap: Record<string, string>; lineAllocs: Record<string, LineAlloc[]> } {
   const s = (k: string) => { const v = fd.get(k); return typeof v === 'string' ? v : ''; };
   const n = (k: string) => { const v = parseFloat(s(k)); return Number.isFinite(v) ? v : 0; };
   const raw = s('chargingMode');
   const mode = raw === 'CLAIM' || raw === 'ITEM' ? raw : 'MAIN';
   const mainCode = s('mainCode') || defaultCode;
   const lineMap: Record<string, string> = {};
+  const lineAllocs: Record<string, LineAlloc[] | undefined> = {};
 
   if (mode === 'ITEM') {
+    // §17 each (per-traveller) cost line carries its OWN split across one or more accounts; the
+    // request-level ChargingAllocation rows are the roll-up of net × pct over every line × split.
     const charges: { chargingCode: string; netSgd: number }[] = [];
     for (const e of expenses) {
-      const code = s(`line_${e.id}`) || mainCode;
-      lineMap[e.id] = code;
-      if (code) charges.push({ chargingCode: code, netSgd: Math.max(e.sgdAmount - e.sponsorSgd, 0) });
+      const net = Math.max(e.sgdAmount - e.sponsorSgd, 0);
+      let allocs: LineAlloc[] = [];
+      const rawJson = s(`line_${e.id}_allocs`);
+      if (rawJson) { try { allocs = (JSON.parse(rawJson) as LineAlloc[]).filter((a) => a.code && Number(a.pct) > 0).map((a) => ({ code: a.code, pct: Number(a.pct), io: a.io || '' })); } catch { allocs = []; } }
+      if (!allocs.length) { const code = s(`line_${e.id}`) || mainCode; if (code) allocs = [{ code, pct: 100, io: '' }]; }
+      lineAllocs[e.id] = allocs;
+      lineMap[e.id] = allocs[0]?.code || mainCode;
+      for (const a of allocs) charges.push({ chargingCode: a.code, netSgd: net * (a.pct / 100) });
     }
     const rows = rollupByCode(charges).map((r) => ({ chargingCode: r.chargingCode, percent: r.percent, amountSgd: r.amountSgd, internalOrder: null, isMain: r.chargingCode === mainCode }));
-    return { mode, rows, lineMap };
+    return { mode, rows, lineMap, lineAllocs: cleanAllocs(lineAllocs) };
   }
 
   if (mode === 'CLAIM') {
@@ -64,11 +74,17 @@ export function resolveChargingRows(
       if (pct <= 0) continue;
       rows.push({ chargingCode: code, percent: pct, amountSgd: Math.round((pct / 100) * total * 100) / 100, internalOrder: s(`row_io_${i}`) || null, isMain: code === mainCode });
     }
-    return { mode, rows, lineMap };
+    return { mode, rows, lineMap, lineAllocs: {} };
   }
 
   const rows: EffectiveRow[] = mainCode ? [{ chargingCode: mainCode, percent: 100, amountSgd: total, internalOrder: null, isMain: true }] : [];
-  return { mode, rows, lineMap };
+  return { mode, rows, lineMap, lineAllocs: {} };
+}
+
+function cleanAllocs(m: Record<string, LineAlloc[] | undefined>): Record<string, LineAlloc[]> {
+  const out: Record<string, LineAlloc[]> = {};
+  for (const [k, v] of Object.entries(m)) if (v && v.length) out[k] = v;
+  return out;
 }
 
 /** Roll up request-level rows (percent or amount entry) into normalised rows. */

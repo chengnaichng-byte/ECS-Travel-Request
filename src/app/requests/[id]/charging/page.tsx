@@ -41,10 +41,40 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
     research: c.isResearch, crossCharge: !!c.crossCharge, closed: c.active === false,
   }));
   const etOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gl: e.glAccount, gst: e.gstCode }));
+  // §17 auto-by-department preset for a line: map each attributed traveller's share to their
+  // home-department (Workday) default cost centre, aggregated by account.
+  const deptAllocsFor = (e: FullRequest['expenses'][number]): { code: string; pct: number }[] => {
+    let shares: { eid: string; pct: number }[] = [];
+    if (e.isShared) {
+      let sm: Record<string, number> = {};
+      try { sm = e.shareMap ? JSON.parse(e.shareMap) : {}; } catch { sm = {}; }
+      const entries = Object.entries(sm);
+      shares = entries.length
+        ? entries.map(([eid, pct]) => ({ eid, pct: Number(pct) }))
+        : req.travellers.map((t) => ({ eid: t.employeeId, pct: 100 / (req.travellers.length || 1) }));
+    } else if (e.travellerId) {
+      shares = [{ eid: e.travellerId, pct: 100 }];
+    } else {
+      shares = [{ eid: req.travellerId, pct: 100 }];
+    }
+    const byCode = new Map<string, number>();
+    for (const sh of shares) { const cc = EcsIdentity.employee(sh.eid)?.defaultChargingCode; if (cc) byCode.set(cc, (byCode.get(cc) ?? 0) + sh.pct); }
+    return [...byCode.entries()].map(([code, pct]) => ({ code, pct: Math.round(pct * 10) / 10 }));
+  };
+  const initialAllocsFor = (e: FullRequest['expenses'][number]): { code: string; pct: number; io: string }[] | undefined => {
+    if (e.allocJson) { try { const a = JSON.parse(e.allocJson); if (Array.isArray(a) && a.length) return a.map((x: { code: string; pct: number; io?: string }) => ({ code: x.code, pct: Number(x.pct), io: x.io || '' })); } catch { /* ignore */ } }
+    if (e.chargingCode) return [{ code: e.chargingCode, pct: 100, io: '' }];
+    return undefined;
+  };
   const lines: CostLineX[] = req.expenses.map((e) => ({
     id: e.id, typeId: e.expenseTypeId,
     typeName: EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category,
     net: Math.max(e.sgdAmount - e.sponsorSgd, 0),
+    category: e.category,
+    travellerName: e.travellerId ? (EcsIdentity.employee(e.travellerId)?.name ?? e.travellerId) : undefined,
+    isShared: e.isShared,
+    deptAllocs: deptAllocsFor(e),
+    initialAllocs: initialAllocsFor(e),
   }));
 
   // Derive the editor's initial mode from the stored chargingMode (migrating old values).

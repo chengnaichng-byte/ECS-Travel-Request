@@ -210,6 +210,7 @@ model EstimatedExpense {
   isShared       Boolean @default(false)    // §13.14 shared apportioned line
   shareMap       String?                    // JSON {employeeId: pct}
   chargingCode   String?                    // §17 per-line charging account (LINE cross-charge mode); null = follows request-level split
+  allocJson      String?                    // §17 per-line MULTI-account split — JSON [{code,pct,io}] summing to 100 (overrides chargingCode when set)
   notes          String?
 
   // Airfare-specific (§4.5)

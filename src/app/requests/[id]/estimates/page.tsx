@@ -59,6 +59,18 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   ];
   const attribution = (e: { isShared: boolean; travellerId: string | null }) =>
     e.isShared ? 'Shared (apportioned)' : (EcsIdentity.employee(e.travellerId ?? '')?.name ?? '—');
+  // §13.14 group estimates grouped by cost item (expense type) with a per-traveller breakdown
+  // and a rolled-up subtotal, so allocation can be reasoned about per expense.
+  const grouped = (() => {
+    const order: string[] = [];
+    const by = new Map<string, { key: string; name: string; gross: number; lines: typeof req.expenses }>();
+    for (const e of req.expenses) {
+      const k = e.expenseTypeId;
+      if (!by.has(k)) { by.set(k, { key: k, name: EcsReference.expenseType(k)?.name ?? e.category, gross: 0, lines: [] }); order.push(k); }
+      const g = by.get(k)!; g.gross += e.sgdAmount; g.lines.push(e);
+    }
+    return order.map((k) => by.get(k)!);
+  })();
 
   return (
     <div>
@@ -73,21 +85,33 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             <table className="w-full text-sm">
               <thead><tr><th className="th">Type</th><th className="th">Detail</th><th className="th text-right">Amount (SGD)</th><th className="th">Policy</th><th className="th"></th></tr></thead>
               <tbody>
-                {req.expenses.map((e) => (
-                  <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
-                    <td className="td font-medium">{EcsReference.expenseType(e.expenseTypeId)?.name}</td>
-                    <td className="td text-xs text-[var(--ecs-muted)]">
-                      {e.category === EXPENSE_CATEGORY.Airfare && `${e.originCode ?? ''} → ${e.destCode ?? ''} · ${EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? ''}`}
-                      {e.accommodation && `${EcsReference.city(e.accommodation.city)?.name ?? e.accommodation.city} · ${e.accommodation.nights}n · quoted ${fmtSgd(e.accommodation.quotedNightly)}/n vs cap ${fmtSgd(e.accommodation.capNightly)}/n`}
-                      {e.oda && `${EcsReference.country(e.oda.country)?.name} · ${e.oda.eligibleDays} eligible days @ ${fmtSgd(e.oda.dailyRate)}/day`}
-                      {e.category === EXPENSE_CATEGORY.Other || e.category === EXPENSE_CATEGORY.Conference ? (e.notes ?? '') : ''}
-                      {isGroup && <div className="mt-0.5 text-[var(--ecs-navy-2)]">▸ {attribution(e)}</div>}
-                    </td>
-                    <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
-                    <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
-                    <td className="td text-right">{canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
-                  </tr>
-                ))}
+                {isGroup
+                  ? grouped.flatMap((g) => [
+                      <tr key={`h-${g.key}`} className="bg-[var(--ecs-panel)]">
+                        <td className="td font-semibold text-[var(--ecs-navy)]">{g.name}</td>
+                        <td className="td text-xs text-[var(--ecs-muted)]">{g.lines.length} traveller line{g.lines.length > 1 ? 's' : ''}</td>
+                        <td className="td text-right font-semibold whitespace-nowrap">{fmtSgd(g.gross)}</td>
+                        <td className="td" colSpan={2}></td>
+                      </tr>,
+                      ...g.lines.map((e) => (
+                        <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
+                          <td className="td text-xs text-[var(--ecs-navy-2)] pl-6 whitespace-nowrap">▸ {attribution(e)}</td>
+                          <td className="td text-xs text-[var(--ecs-muted)]"><LineDetail e={e} /></td>
+                          <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
+                          <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
+                          <td className="td text-right">{canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                        </tr>
+                      )),
+                    ])
+                  : req.expenses.map((e) => (
+                      <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
+                        <td className="td font-medium">{EcsReference.expenseType(e.expenseTypeId)?.name}</td>
+                        <td className="td text-xs text-[var(--ecs-muted)]"><LineDetail e={e} /></td>
+                        <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
+                        <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
+                        <td className="td text-right">{canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                      </tr>
+                    ))}
               </tbody>
               <tfoot>
                 <tr className="font-semibold"><td className="td" colSpan={2}>Gross estimate</td><td className="td text-right">{fmtSgd(summary.gross)}</td><td className="td" colSpan={2}></td></tr>
@@ -104,7 +128,11 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             <div className="grid grid-cols-2 gap-3">
               <Select name="originCode" label="Origin" defaultValue={tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
               <Select name="destCode" label="Destination" defaultValue={tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
-              <Select name="proposedClassId" label="Proposed class" defaultValue={tripDefaults.classId} opts={travelClasses.map((c) => [c.id, c.name])} />
+              {isGroup ? (
+                <div><label className="label">Proposed class</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed">Per traveller — set to entitlement</div></div>
+              ) : (
+                <Select name="proposedClassId" label="Proposed class" defaultValue={tripDefaults.classId} opts={travelClasses.map((c) => [c.id, c.name])} />
+              )}
               <Input name="expectedDate" label="Expected date" type="date" defaultValue={tripDefaults.start} />
               <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
               <Input name="amount" label="Quoted amount" type="number" />
@@ -133,6 +161,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion across group</label>
               </div>
             )}
+            {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Shared = one booking split across the group by each traveller&apos;s share; at Charging you can auto-allocate each share to the traveller&apos;s home department.</p>}
             <p className="text-xs text-[var(--ecs-muted)]">Basis: {settings.hotelEstimateBasis}. Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
             <button className="btn-secondary w-full">Add accommodation estimate</button>
           </form>
@@ -183,6 +212,22 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   );
 }
 
+type ExpenseRow = {
+  category: string; originCode: string | null; destCode: string | null; proposedClassId: string | null;
+  accommodation: { city: string; nights: number; quotedNightly: number; capNightly: number } | null;
+  oda: { country: string; eligibleDays: number; dailyRate: number } | null;
+  notes: string | null;
+};
+function LineDetail({ e }: { e: ExpenseRow }) {
+  return (
+    <>
+      {e.category === EXPENSE_CATEGORY.Airfare && `${e.originCode ?? ''} → ${e.destCode ?? ''} · ${EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? ''}`}
+      {e.accommodation && `${EcsReference.city(e.accommodation.city)?.name ?? e.accommodation.city} · ${e.accommodation.nights}n · quoted ${fmtSgd(e.accommodation.quotedNightly)}/n vs cap ${fmtSgd(e.accommodation.capNightly)}/n`}
+      {e.oda && `${EcsReference.country(e.oda.country)?.name} · ${e.oda.eligibleDays} eligible days @ ${fmtSgd(e.oda.dailyRate)}/day`}
+      {(e.category === EXPENSE_CATEGORY.Other || e.category === EXPENSE_CATEGORY.Conference) ? (e.notes ?? '') : ''}
+    </>
+  );
+}
 function Input({ name, label, type = 'text', defaultValue }: { name: string; label: string; type?: string; defaultValue?: string }) {
   return <div><label className="label">{label}</label><input name={name} type={type} step="any" defaultValue={defaultValue} className="field" /></div>;
 }

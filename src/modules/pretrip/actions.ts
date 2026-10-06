@@ -304,6 +304,9 @@ export async function saveTrip(id: string, fd: FormData) {
     for (const t of travellers) {
       const ent = EcsTravelClassRegister.entitledForItinerary(t.employeeId, legsForEntitlement, start ?? new Date());
       await prisma.travelRequestTraveller.update({ where: { id: t.id }, data: { chosenClassId: ent.classId, entitledClassId: ent.classId } });
+      // Keep any already-added airfare lines in sync with the (re-derived) entitlement so the
+      // line class never drifts from the itinerary after it changes (§13.19).
+      await prisma.estimatedExpense.updateMany({ where: { requestId: id, travellerId: t.employeeId, category: EXPENSE_CATEGORY.Airfare }, data: { proposedClassId: ent.classId } });
     }
   }
   // §4.4/§13.20 Rebuild the shared itinerary from the submitted legs (same for every trip type).
@@ -592,11 +595,20 @@ export async function saveCharging(id: string, fd: FormData) {
   const ntuFunded = computeSummary(req.expenses, settings.approvalAmountBasis).ntuFunded;
   const raw = resolveChargingRows(fd, req.expenses, ntuFunded, EcsIdentity.employee(req.travellerId)?.defaultChargingCode ?? '');
 
-  // §17 ITEM mode persists per-line accounts; other modes clear them.
+  // §17 ITEM mode persists each line's (possibly multi-account) split; other modes clear them.
   if (raw.mode === 'ITEM') {
-    for (const e of req.expenses) await prisma.estimatedExpense.update({ where: { id: e.id }, data: { chargingCode: raw.lineMap[e.id] || null } });
+    for (const e of req.expenses) {
+      const allocs = raw.lineAllocs[e.id] ?? [];
+      await prisma.estimatedExpense.update({
+        where: { id: e.id },
+        data: {
+          chargingCode: raw.lineMap[e.id] || null,
+          allocJson: allocs.length > 1 ? JSON.stringify(allocs) : null, // store only genuine splits
+        },
+      });
+    }
   } else {
-    await prisma.estimatedExpense.updateMany({ where: { requestId: id }, data: { chargingCode: null } });
+    await prisma.estimatedExpense.updateMany({ where: { requestId: id }, data: { chargingCode: null, allocJson: null } });
   }
 
   await prisma.travelRequest.update({ where: { id }, data: { chargingMode: raw.mode } });

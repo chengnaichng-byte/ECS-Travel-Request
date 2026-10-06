@@ -13,11 +13,31 @@ export interface AccountOpt { code: string; name: string; type: string; companyC
 export interface CompanyOpt { code: string; name: string; }
 export interface BAOpt { code: string; name: string; companyCode: string; }
 export interface ExpenseTypeOpt { id: string; name: string; gl: string; gst: string; }
-export interface CostLineX { id: string; typeId: string; typeName: string; net: number; }
+export interface CostLineX {
+  id: string; typeId: string; typeName: string; net: number;
+  category: string;
+  travellerName?: string;          // per-traveller attribution (group); undefined = requestor/shared
+  isShared: boolean;               // §13.14 shared apportioned line
+  deptAllocs: { code: string; pct: number }[];  // auto-by-department preset (traveller home dept CC × share)
+  initialAllocs?: { code: string; pct: number; io: string }[]; // stored split, if any
+}
 
 interface ClaimRow { ba: string; code: string; io: string; pct: string; }
+interface LineSplit { code: string; pct: string; io: string; }
 
 const fmt = (n: number) => 'SGD ' + n.toLocaleString('en-SG', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+/** Group cost lines by expense type (cost item) for a per-traveller breakdown with a subtotal. */
+function groupByCategory(lines: CostLineX[]): { category: string; typeName: string; net: number; lines: CostLineX[] }[] {
+  const order: string[] = [];
+  const by = new Map<string, { category: string; typeName: string; net: number; lines: CostLineX[] }>();
+  for (const l of lines) {
+    const key = l.typeId;
+    if (!by.has(key)) { by.set(key, { category: key, typeName: l.typeName, net: 0, lines: [] }); order.push(key); }
+    const g = by.get(key)!; g.net += l.net; g.lines.push(l);
+  }
+  return order.map((k) => by.get(k)!);
+}
 
 export function ChargingAccountEditor({
   action, canEdit, total, companyCodes, businessAreas, accounts, expenseTypes, lines,
@@ -58,11 +78,23 @@ export function ChargingAccountEditor({
       : [{ ba: main0?.businessArea ?? '', code: mainCode0, io: '', pct: '100' }];
     return seed;
   });
-  const [lineMap, setLineMap] = useState<Record<string, string>>(() => {
-    const m: Record<string, string> = {};
-    for (const l of lines) m[l.id] = initialLineMap[l.id] ?? mainCode0;
+  // §17 per-line splits (ITEM mode): each cost line carries one or more {account, %} rows.
+  const [lineAllocs, setLineAllocs] = useState<Record<string, LineSplit[]>>(() => {
+    const m: Record<string, LineSplit[]> = {};
+    for (const l of lines) {
+      m[l.id] = l.initialAllocs?.length
+        ? l.initialAllocs.map((a) => ({ code: a.code, pct: String(a.pct), io: a.io || '' }))
+        : [{ code: initialLineMap[l.id] ?? mainCode0, pct: '100', io: '' }];
+    }
     return m;
   });
+  const setLineRow = (lid: string, i: number, patch: Partial<LineSplit>) => setLineAllocs((m) => ({ ...m, [lid]: m[lid].map((r, j) => j === i ? { ...r, ...patch } : r) }));
+  const addLineRow = (lid: string) => setLineAllocs((m) => ({ ...m, [lid]: [...m[lid], { code: '', pct: '', io: '' }] }));
+  const delLineRow = (lid: string, i: number) => setLineAllocs((m) => ({ ...m, [lid]: m[lid].filter((_, j) => j !== i) }));
+  const autoDept = (l: CostLineX) => setLineAllocs((m) => ({ ...m, [l.id]: (l.deptAllocs.length ? l.deptAllocs : [{ code: mainCode0, pct: 100 }]).map((a) => ({ code: a.code, pct: String(a.pct), io: '' })) }));
+  const autoDeptAll = () => setLineAllocs((m) => { const next = { ...m }; for (const l of lines) if (l.deptAllocs.length) next[l.id] = l.deptAllocs.map((a) => ({ code: a.code, pct: String(a.pct), io: '' })); return next; });
+  const lineBalanced = (lid: string) => Math.abs((lineAllocs[lid] ?? []).reduce((s, r) => s + (Number(r.pct) || 0), 0) - 100) < 0.05;
+  const anyDeptPreset = lines.some((l) => l.deptAllocs.length > 0);
 
   const allocReq = mode !== 'MAIN';
   const baOptions = businessAreas.filter((b) => b.companyCode === main.company);
@@ -73,15 +105,15 @@ export function ChargingAccountEditor({
   const effective = useMemo(() => {
     if (mode === 'ITEM') {
       const byCode = new Map<string, number>();
-      for (const l of lines) { const c = lineMap[l.id] || main.code; if (c) byCode.set(c, (byCode.get(c) ?? 0) + l.net); }
+      for (const l of lines) for (const a of (lineAllocs[l.id] ?? [])) { if (a.code) byCode.set(a.code, (byCode.get(a.code) ?? 0) + l.net * ((Number(a.pct) || 0) / 100)); }
       const tot = [...byCode.values()].reduce((s, v) => s + v, 0) || 1;
-      return [...byCode.entries()].map(([code, amt]) => ({ code, amount: amt, percent: Math.round((amt / tot) * 1000) / 10, io: '', isMain: code === main.code }));
+      return [...byCode.entries()].map(([code, amt]) => ({ code, amount: Math.round(amt * 100) / 100, percent: Math.round((amt / tot) * 1000) / 10, io: '', isMain: code === main.code }));
     }
     if (mode === 'CLAIM') {
       return rows.filter((r) => r.code).map((r) => ({ code: r.code, percent: Number(r.pct) || 0, amount: Math.round(((Number(r.pct) || 0) / 100) * total * 100) / 100, io: r.io, isMain: r.code === main.code }));
     }
     return main.code ? [{ code: main.code, percent: 100, amount: total, io: '', isMain: true }] : [];
-  }, [mode, rows, lineMap, lines, total, main.code]);
+  }, [mode, rows, lineAllocs, lines, total, main.code]);
 
   // Accounting Entries — per (account × expense type).
   const entries = useMemo(() => {
@@ -90,9 +122,9 @@ export function ChargingAccountEditor({
     const out: { code: string; typeId: string; amount: number; percent: number; io: string; isMain: boolean }[] = [];
     if (mode === 'ITEM') {
       const map = new Map<string, number>();
-      for (const l of lines) { const c = lineMap[l.id] || main.code; map.set(`${c}|${l.typeId}`, (map.get(`${c}|${l.typeId}`) ?? 0) + l.net); }
+      for (const l of lines) for (const a of (lineAllocs[l.id] ?? [])) { if (!a.code) continue; const amt = l.net * ((Number(a.pct) || 0) / 100); map.set(`${a.code}|${l.typeId}`, (map.get(`${a.code}|${l.typeId}`) ?? 0) + amt); }
       const share = Object.fromEntries(effective.map((e) => [e.code, e.percent]));
-      for (const [key, amt] of map) { const [code, typeId] = key.split('|'); out.push({ code, typeId, amount: amt, percent: share[code] ?? 0, io: '', isMain: code === main.code }); }
+      for (const [key, amt] of map) { const [code, typeId] = key.split('|'); if (amt > 0.005) out.push({ code, typeId, amount: Math.round(amt * 100) / 100, percent: share[code] ?? 0, io: '', isMain: code === main.code }); }
     } else {
       for (const e of effective) for (const [typeId, net] of netByType) {
         const amt = Math.round(net * (e.percent / 100) * 100) / 100;
@@ -100,7 +132,7 @@ export function ChargingAccountEditor({
       }
     }
     return out.sort((a, b) => a.code.localeCompare(b.code) || a.typeId.localeCompare(b.typeId));
-  }, [mode, effective, lines, lineMap, main.code]);
+  }, [mode, effective, lines, lineAllocs, main.code]);
 
   const totalPct = effective.reduce((s, e) => s + e.percent, 0);
   const balanced = Math.abs(totalPct - 100) < 0.05;
@@ -128,7 +160,7 @@ export function ChargingAccountEditor({
           <input type="hidden" name={`row_pct_${i}`} value={r.pct} />
         </span>
       ))}
-      {mode === 'ITEM' && lines.map((l) => <input key={l.id} type="hidden" name={`line_${l.id}`} value={lineMap[l.id] ?? ''} />)}
+      {mode === 'ITEM' && lines.map((l) => <input key={l.id} type="hidden" name={`line_${l.id}_allocs`} value={JSON.stringify((lineAllocs[l.id] ?? []).filter((r) => r.code && Number(r.pct) > 0).map((r) => ({ code: r.code, pct: Number(r.pct) || 0, io: r.io })))} />)}
 
       {/* Main charging account — 4-level cascade */}
       <div className="card p-4">
@@ -208,20 +240,51 @@ export function ChargingAccountEditor({
         )}
 
         {mode === 'ITEM' && (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr><th className="th">Cost line</th><th className="th text-right">Amount (SGD)</th><th className="th">Charge to account</th></tr></thead>
-              <tbody>
-                {lines.length === 0 ? <tr><td className="td italic text-[var(--ecs-muted)]" colSpan={3}>No cost lines yet.</td></tr> : lines.map((l) => (
-                  <tr key={l.id} className="hover:bg-[var(--ecs-panel-2)]">
-                    <td className="td font-medium whitespace-nowrap">{l.typeName}</td>
-                    <td className="td text-right whitespace-nowrap">{fmt(l.net)}</td>
-                    <td className="td"><AccountSelect value={lineMap[l.id] ?? ''} opts={accounts} onChange={(v) => setLineMap((m) => ({ ...m, [l.id]: v }))} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="text-xs text-[var(--ecs-muted)] mt-2">Lines left on the main account follow the account selected above.</p>
+          <div className="mt-3">
+            {anyDeptPreset && canEdit && (
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <p className="text-xs text-[var(--ecs-muted)]">Each cost line can be split across one or more charging accounts. Apportioned lines can be charged to each traveller&apos;s home department (Workday).</p>
+                <button type="button" className="btn-secondary text-xs whitespace-nowrap" onClick={autoDeptAll}>Auto-allocate all by traveller&apos;s dept</button>
+              </div>
+            )}
+            {lines.length === 0 ? <p className="td italic text-[var(--ecs-muted)]">No cost lines yet.</p> : groupByCategory(lines).map((grp) => (
+              <div key={grp.category} className="mb-4 rounded border border-[var(--ecs-border)] overflow-hidden">
+                <div className="flex items-center justify-between bg-[var(--ecs-panel)] px-3 py-1.5 text-sm font-semibold text-[var(--ecs-navy)]">
+                  <span>{grp.typeName}</span><span>{fmt(grp.net)}</span>
+                </div>
+                <div className="divide-y divide-[var(--ecs-border)]">
+                  {grp.lines.map((l) => (
+                    <div key={l.id} className="px-3 py-2">
+                      <div className="flex items-center justify-between gap-3 text-sm mb-1">
+                        <span className="font-medium">{l.travellerName ?? (l.isShared ? 'Shared — apportioned' : 'Requestor')}{l.isShared && <span className="pill-info ml-1">Shared</span>}</span>
+                        <span className="text-[var(--ecs-muted)] whitespace-nowrap">{fmt(l.net)}</span>
+                      </div>
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {(lineAllocs[l.id] ?? []).map((r, i) => (
+                            <tr key={i}>
+                              <td className="td py-1"><AccountSelect value={r.code} opts={accounts} onChange={(v) => setLineRow(l.id, i, { code: v })} /></td>
+                              <td className="td py-1 w-24"><input className="field text-right" disabled={!canEdit} type="number" step="any" value={r.pct} placeholder="%" onChange={(e) => setLineRow(l.id, i, { pct: e.target.value })} /></td>
+                              <td className="td py-1 w-28"><input className="field" disabled={!canEdit} value={r.io} placeholder="Int. order" onChange={(e) => setLineRow(l.id, i, { io: e.target.value })} /></td>
+                              <td className="td py-1 text-right whitespace-nowrap w-28">{fmt(l.net * ((Number(r.pct) || 0) / 100))}</td>
+                              <td className="td py-1 text-right w-8">{canEdit && (lineAllocs[l.id]?.length ?? 0) > 1 && <button type="button" className="btn-ghost text-xs" onClick={() => delLineRow(l.id, i)}>✕</button>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {canEdit && (
+                        <div className="flex items-center gap-3 mt-1">
+                          <button type="button" className="btn-ghost text-xs" onClick={() => addLineRow(l.id)}>＋ split</button>
+                          {l.deptAllocs.length > 0 && <button type="button" className="btn-ghost text-xs" onClick={() => autoDept(l)}>Auto by dept</button>}
+                          {!lineBalanced(l.id) && <span className="text-xs text-amber-700">line must total 100%</span>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-[var(--ecs-muted)]">Each line&apos;s split must total 100%. The Allocation Outcome below rolls every line&apos;s split up to the request-level charging accounts.</p>
           </div>
         )}
 
