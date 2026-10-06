@@ -242,4 +242,7 @@ export async function saveClaimCharging(claimId: string, fd: FormData) {
   await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: { chargingMode: res.mode, chargingMainCode: mainCode, chargingJson } });
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Charging allocation updated on claim ${claim.claimNumber}` } });
   revalidatePath(`/claims/${claimId}`);
+  // Land on a fresh render of the claim so the per-line account selects re-hydrate cleanly from
+  // the saved split (an in-place revalidate can leave native <select>s showing a stale display).
+  redirect(`/claims/${claimId}`);
 }
