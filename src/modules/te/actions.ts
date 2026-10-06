@@ -230,9 +230,12 @@ export async function saveClaimCharging(claimId: string, fd: FormData) {
   const expenses = claim.lines.map((l) => ({ id: l.id, sgdAmount: l.actualSgd, sponsorSgd: l.sponsorSgd }));
   const res = resolveChargingRows(fd, expenses, total, defaultCode);
   if (res.mode === 'ITEM') {
-    for (const l of claim.lines) await prisma.tEExpenseLine.update({ where: { id: l.id }, data: { chargingCode: res.lineMap[l.id] || null } });
+    for (const l of claim.lines) {
+      const allocs = res.lineAllocs[l.id] ?? [];
+      await prisma.tEExpenseLine.update({ where: { id: l.id }, data: { chargingCode: res.lineMap[l.id] || null, allocJson: allocs.length > 1 ? JSON.stringify(allocs) : null } });
+    }
   } else {
-    await prisma.tEExpenseLine.updateMany({ where: { claimId }, data: { chargingCode: null } });
+    await prisma.tEExpenseLine.updateMany({ where: { claimId }, data: { chargingCode: null, allocJson: null } });
   }
   const mainCode = res.rows.find((r) => r.isMain)?.chargingCode ?? res.rows[0]?.chargingCode ?? null;
   const chargingJson = JSON.stringify({ rows: res.rows.map((r) => ({ code: r.chargingCode, percent: r.percent, amount: r.amountSgd ?? 0, io: r.internalOrder ?? '', isMain: r.isMain })), lineMap: res.lineMap });

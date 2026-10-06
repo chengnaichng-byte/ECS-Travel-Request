@@ -407,6 +407,7 @@ model TEExpenseLine {
   foreignAmount Float?
   sponsorSgd    Float   @default(0)
   chargingCode  String?                      // §17 per-item claim allocation (ITEM mode)
+  allocJson     String?                      // §17 per-item MULTI-account split — JSON [{code,pct,io}] (overrides chargingCode)
 }
 
 /// §7.1 TravelExpenseLink — links Travel Request to one or more TE claims

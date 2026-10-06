@@ -58,7 +58,11 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const defaultAccount = emp?.defaultChargingCode ?? chargingCodes[0]?.code ?? '';
   const accounts: AccountOpt[] = chargingCodes.map((c) => ({ code: c.code, name: c.name, type: c.type, companyCode: c.companyCode, businessArea: c.businessArea, research: c.isResearch, crossCharge: !!c.crossCharge, closed: c.active === false }));
   const etOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gl: e.glAccount, gst: e.gstCode }));
-  const costLines: CostLineX[] = claim.lines.map((l) => ({ id: l.id, typeId: l.expenseTypeId, typeName: labelOf(l), net: Math.max(l.actualSgd - l.sponsorSgd, 0), category: l.category ?? l.expenseTypeId, isShared: false, deptAllocs: [], initialAllocs: l.chargingCode ? [{ code: l.chargingCode, pct: 100, io: '' }] : undefined }));
+  const claimInitialAllocs = (l: { allocJson: string | null; chargingCode: string | null }): { code: string; pct: number; io: string }[] | undefined => {
+    if (l.allocJson) { try { const a = JSON.parse(l.allocJson); if (Array.isArray(a) && a.length) return a.map((x: { code: string; pct: number; io?: string }) => ({ code: x.code, pct: Number(x.pct), io: x.io || '' })); } catch { /* ignore */ } }
+    return l.chargingCode ? [{ code: l.chargingCode, pct: 100, io: '' }] : undefined;
+  };
+  const costLines: CostLineX[] = claim.lines.map((l) => ({ id: l.id, typeId: l.expenseTypeId, typeName: labelOf(l), net: Math.max(l.actualSgd - l.sponsorSgd, 0), category: l.category ?? l.expenseTypeId, isShared: false, deptAllocs: [], initialAllocs: claimInitialAllocs(l) }));
   const initialRows = cj.rows.map((r) => ({ ba: chargingCodes.find((c) => c.code === r.code)?.businessArea ?? '', code: r.code, io: r.io ?? '', pct: r.percent }));
   const initialLineMap: Record<string, string> = {};
   for (const l of claim.lines) if (l.chargingCode) initialLineMap[l.id] = l.chargingCode;
