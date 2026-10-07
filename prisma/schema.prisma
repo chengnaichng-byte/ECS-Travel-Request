@@ -23,6 +23,7 @@ model ModuleSettings {
   teLinkageMandatory     String  @default("CONDITIONAL") // YES | NO | CONDITIONAL
   approvalAmountBasis    String  @default("NET_NTU")     // GROSS | NET_NTU | MAJOR_COST | ALLOCATION
   groupTravelEnabled     Boolean @default(true)   // §13.14
+  groupMaxTravellers     Int     @default(10)     // §13.14 max travellers in one group booking (TMC group limit)
   groupSubItineraries    Boolean @default(true)   // §13.20 per-traveller sub-itineraries (D3)
   exceptionApproverRequired Boolean @default(true) // §26 insert an Exception Approver step for policy exceptions (else surface to DOA)
   roRequirement          String  @default("INDIVIDUAL_ONLY") // §51 RO decision point: ALWAYS | INDIVIDUAL_ONLY (drop for group) | NEVER
@@ -142,7 +143,11 @@ model TravelRequestTraveller {
   id            String  @id @default(cuid())
   requestId     String
   request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  employeeId    String
+  employeeId    String                    // employee id, or a synthetic "G-…" key for a guest member
+  travellerType String  @default("EMPLOYEE") // §8 EMPLOYEE | GUEST (non-employee member of a group)
+  guestName     String?                   // §8 guest identity (no ECS/HR profile)
+  guestEmail    String?
+  guestOrg      String?
   confirmed     Boolean @default(false)   // §13.13 inclusion confirmation
   confirmedAt   DateTime?
   sharePct      Float   @default(100)     // derived share of NTU-funded cost

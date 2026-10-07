@@ -9,6 +9,7 @@ import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAccommodation, addOda, addOther, deleteExpense } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { memberName } from '@/modules/pretrip/traveller';
 import { computeSummary, computeOda, fmtSgd } from '@/modules/pretrip/pricing';
 import { countries, cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
@@ -58,10 +59,14 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
     ['__ALL__', `All travellers (${req.travellers.length}) — one line each`],
-    ...req.travellers.map((t) => [t.employeeId, EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId] as [string, string]),
+    ...req.travellers.map((t) => [t.employeeId, memberName(t) + (t.travellerType === 'GUEST' ? ' (guest)' : '')] as [string, string]),
   ];
+  const memberLabel = (key: string | null) => {
+    const t = req.travellers.find((x) => x.employeeId === key);
+    return t ? memberName(t) + (t.travellerType === 'GUEST' ? ' · guest' : '') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
+  };
   const attribution = (e: { isShared: boolean; travellerId: string | null }) =>
-    e.isShared ? 'Shared (apportioned)' : (EcsIdentity.employee(e.travellerId ?? '')?.name ?? '—');
+    e.isShared ? 'Shared (apportioned)' : memberLabel(e.travellerId);
   // §13.14 a genuinely shared line (e.g. a shared taxi) is shown apportioned across the group —
   // one row per traveller at their share (shareMap, else an equal split). Accommodation is no
   // longer shared (each traveller books their own room), so this applies only to shared incidentals.
@@ -72,7 +77,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     const list = entries.length
       ? entries.map(([eid, pct]) => ({ eid, amount: e.sgdAmount * Number(pct) / 100 }))
       : req.travellers.map((t) => ({ eid: t.employeeId, amount: e.sgdAmount / (req.travellers.length || 1) }));
-    return list.map((x) => ({ name: EcsIdentity.employee(x.eid)?.name ?? x.eid, amount: x.amount }));
+    return list.map((x) => ({ name: memberLabel(x.eid), amount: x.amount }));
   };
   // §13.14 group estimates grouped by cost item (expense type) with a per-traveller breakdown
   // and a rolled-up subtotal, so allocation can be reasoned about per expense.

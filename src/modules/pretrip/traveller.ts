@@ -36,3 +36,22 @@ export function travellerEmail(req: TravellerRef): string | null {
   if (isGuestRequest(req)) return req.guestEmail?.trim() || null;
   return null;
 }
+
+/* ------------------------------------------------- §8/§13.14 group members (mixed) */
+// A group member is an employee OR a guest. For a guest member employeeId holds a synthetic
+// "G-…" key (so expenses keyed by employeeId still work); identity comes from the guest fields.
+export interface MemberRef {
+  employeeId: string;
+  travellerType?: string | null;
+  guestName?: string | null;
+  guestOrg?: string | null;
+}
+export function isGuestMember(t: MemberRef): boolean { return t.travellerType === 'GUEST' || t.employeeId.startsWith('G-'); }
+export function memberName(t: MemberRef): string {
+  if (isGuestMember(t)) return t.guestName?.trim() || 'Guest traveller';
+  return EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId;
+}
+export function memberDeptName(t: MemberRef): string {
+  if (isGuestMember(t)) return t.guestOrg?.trim() ? `Guest · ${t.guestOrg.trim()}` : 'Guest (non-employee)';
+  return EcsIdentity.department(EcsIdentity.employee(t.employeeId)?.departmentId ?? '')?.name ?? '';
+}

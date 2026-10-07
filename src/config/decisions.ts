@@ -12,6 +12,7 @@ export const moduleSettingsDefaults = {
   teLinkageMandatory: 'CONDITIONAL' as 'YES' | 'NO' | 'CONDITIONAL',
   approvalAmountBasis: 'NET_NTU' as 'GROSS' | 'NET_NTU' | 'MAJOR_COST' | 'ALLOCATION',
   groupTravelEnabled: true,         // §13.14
+  groupMaxTravellers: 10,           // §13.14 TMC group-booking size limit (incl. guests)
   exceptionApproverRequired: true,  // §26 insert an Exception Approver step for exceptions (else surface to DOA)
   roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
   teAutoGrantTolerancePct: 10,      // §51 TE claim DOA auto-grant tolerance (% over approved)
@@ -54,6 +55,8 @@ export const decisionCatalogue = [
     effect: 'Amount used for DOA tiering (§2.2).' },
   { key: 'groupTravelEnabled', label: 'Group travel requests enabled', kind: 'boolean',
     effect: 'Enables one-request-many-travellers group requests (§13.14).' },
+  { key: 'groupMaxTravellers', label: 'Group booking size limit', kind: 'number',
+    effect: 'Maximum travellers in a single group booking, including guest members — mirrors the TMC group-fare limit. Create is blocked above this count (§13.14).' },
   { key: 'selfBookingEnabled', label: 'Self-booked travel enabled', kind: 'boolean',
     effect: 'Allows Self-Booked method and Travel Request selection at claim (§13.17).' },
 ] as const;

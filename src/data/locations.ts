@@ -7,6 +7,7 @@ export interface Airport { code: string; name: string; cityCode: string; }
 export const countries: Country[] = [
   { code: 'SG', name: 'Singapore',      overseas: false },
   { code: 'JP', name: 'Japan',          overseas: true },
+  { code: 'KR', name: 'South Korea',    overseas: true },
   { code: 'GB', name: 'United Kingdom', overseas: true },
   { code: 'FR', name: 'France',         overseas: true },
   { code: 'EG', name: 'Egypt',          overseas: true },
@@ -16,6 +17,7 @@ export const cities: City[] = [
   { code: 'SIN', name: 'Singapore', countryCode: 'SG', timezone: 'UTC+8' },
   { code: 'TYO', name: 'Tokyo',     countryCode: 'JP', timezone: 'UTC+9' },
   { code: 'OSA', name: 'Osaka',     countryCode: 'JP', timezone: 'UTC+9' },
+  { code: 'SEL', name: 'Seoul',     countryCode: 'KR', timezone: 'UTC+9' },
   { code: 'LON', name: 'London',    countryCode: 'GB', timezone: 'UTC+0' },
   { code: 'PAR', name: 'Paris',     countryCode: 'FR', timezone: 'UTC+1' },
   { code: 'CAI', name: 'Cairo',     countryCode: 'EG', timezone: 'UTC+2' },
@@ -26,10 +28,11 @@ export const airports: Airport[] = [
   { code: 'HND', name: 'Tokyo Haneda',           cityCode: 'TYO' },
   { code: 'NRT', name: 'Tokyo Narita',           cityCode: 'TYO' },
   { code: 'KIX', name: 'Osaka Kansai',           cityCode: 'OSA' },
+  { code: 'ICN', name: 'Seoul Incheon',          cityCode: 'SEL' },
   { code: 'LHR', name: 'London Heathrow',        cityCode: 'LON' },
   { code: 'CDG', name: 'Paris Charles de Gaulle', cityCode: 'PAR' },
   { code: 'CAI', name: 'Cairo International',     cityCode: 'CAI' },
 ];
 
 /** Approx. non-stop flight hours from Singapore — drives travel-class duration bands (§13.19). */
-export const flightHoursFromSIN: Record<string, number> = { TYO: 7, OSA: 7, LON: 13, PAR: 13, CAI: 11, SIN: 0 };
+export const flightHoursFromSIN: Record<string, number> = { TYO: 7, OSA: 7, SEL: 6, LON: 13, PAR: 13, CAI: 11, SIN: 0 };

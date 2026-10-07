@@ -230,6 +230,10 @@ export async function seedDemoScenarios() {
   // S12 — group amendment: an approved group loses a traveller → reapproval (§13.16).
   await buildGroupS12();
 
+  // S17 — mixed group with an external guest speaker (§8): two staff + one guest to Seoul;
+  // guest flies Economy, charged to the host department, settled centrally (no guest claim).
+  await buildMixedGroupS17();
+
   // S14 — multi-leg trip (§13.20): SIN → Tokyo (5n) → Osaka (3n) → SIN, 1 personal day.
   await buildS14();
 
@@ -397,6 +401,75 @@ async function buildGroupDraft(desc: string, start: string, end: string): Promis
     const master = EcsCharging.code(code);
     await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: code, percent: pct, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false, isMain: code === 'CC-1000' } });
   }
+  return id;
+}
+
+/** S17 — mixed group with a guest (§8/§13.14): two NTU staff + one external guest speaker
+ *  to Seoul. The guest flies Economy, is charged to the host (requestor) department and is
+ *  settled centrally (no guest claim). Charging is derived from each member's home
+ *  department, with the guest's share rolled into the host cost centre. */
+async function buildMixedGroupS17(): Promise<string> {
+  const start = '2026-11-23', end = '2026-11-27';
+  const HOST_CC = EcsIdentity.employee('E-PA')?.defaultChargingCode ?? 'CC-1000'; // host (requestor) dept
+  const employeeIds = ['E-TRAV', 'E-TRAV3']; // SCH-CS faculty + RI-AI research
+  const guestId = 'G-demo-s17';
+  const guest = { employeeId: guestId, travellerType: 'GUEST', guestName: 'Prof Maria Santos', guestEmail: 'maria.santos@mit.edu', guestOrg: 'MIT', confirmed: true };
+  const members = [...employeeIds, guestId];
+  const sharePct = Math.round((100 / members.length) * 100) / 100;
+  const requestNumber = await nextRequestNumber(YEAR);
+  const req = await prisma.travelRequest.create({
+    data: {
+      requestNumber, requestorId: 'E-PA', travellerId: 'E-TRAV', isGroup: true,
+      entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+      purposeId: 'TP-TC-ACAD', description: 'Mixed group with guest speaker — Seoul symposium (S17)',
+      destCountry: 'KR', destCity: 'SEL', startDate: day(start), endDate: day(end),
+      travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+      travellers: { create: [
+        ...employeeIds.map((eid) => ({ employeeId: eid, isRequestor: false, confirmed: false, sharePct })),
+        { ...guest, isRequestor: false, sharePct },
+      ] },
+    },
+  });
+  const id = req.id;
+  await audit(id, 'E-PA', 'CREATE', `Group draft ${requestNumber} created for ${members.length} travellers (incl. 1 guest)`);
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: 'ICN', departDate: day(start), durationHours: 6, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: 'ICN', destCode: 'SIN', departDate: day(end), durationHours: 0, travelClassId: 'TC-ECO' } });
+  // §13.14 employees book at their OWN entitled class; §8 the guest defaults to Economy.
+  for (const eid of employeeIds) {
+    const ent = EcsTravelClassRegister.entitledForItinerary(eid, [{ durationHours: 6, destCode: 'SEL' }], day(start));
+    await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId: eid }, data: { entitledClassId: ent.classId, chosenClassId: ent.classId } });
+  }
+  await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId: guestId }, data: { entitledClassId: 'TC-ECO', chosenClassId: 'TC-ECO' } });
+
+  const settings = await getSettings();
+  for (const tid of members) {
+    const classId = employeeIds.includes(tid)
+      ? EcsTravelClassRegister.entitledForItinerary(tid, [{ durationHours: 6, destCode: 'SEL' }], day(start)).classId
+      : 'TC-ECO';
+    await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 820, sgdAmount: 820, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'ICN', proposedClassId: classId, fareCeiling: 820 } });
+    const oda = computeOda({ countryCode: 'KR', arrive: day(start), depart: day(end), personalDays: 0 });
+    const oe = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: oda.sgdAmount, sgdAmount: oda.sgdAmount, estimateBasis: 'RATE' } });
+    await prisma.oDAEstimate.create({ data: { expenseId: oe.id, country: 'KR', city: 'SEL', arrive: day(start), depart: day(end), eligibleDays: oda.eligibleDays, personalDays: 0, dailyRate: oda.dailyRate } });
+    const hcalc = computeAccommodation({ cityCode: 'SEL', nights: 4, personalNights: 0, quotedNightly: 240, basis: settings.hotelEstimateBasis });
+    const he = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: hcalc.sgdAmount, sgdAmount: hcalc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+    await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: 'SEL', nights: 4, personalNights: 0, quotedNightly: 240, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
+  }
+
+  // §17 charging derived from each member's home department; the guest's share settles on
+  // the host (requestor) department cost centre.
+  const byCode = new Map<string, number>();
+  for (const tid of members) {
+    const cc = employeeIds.includes(tid) ? (EcsIdentity.employee(tid)?.defaultChargingCode ?? HOST_CC) : HOST_CC;
+    byCode.set(cc, (byCode.get(cc) ?? 0) + sharePct);
+  }
+  const rows = [...byCode.entries()];
+  await prisma.travelRequest.update({ where: { id }, data: { chargingMode: 'CLAIM' } });
+  for (const [code, pct] of rows) {
+    const master = EcsCharging.code(code);
+    await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: code, percent: Math.round(pct * 10) / 10, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false, isMain: code === HOST_CC } });
+  }
+  await submit(id);
+  await approveAll(id);
   return id;
 }
 

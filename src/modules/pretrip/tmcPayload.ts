@@ -10,7 +10,7 @@ import { buildOutbound } from '@/integrations/tmc/adapter';
 import type { OutboundMeta, CanonicalOutbound } from '@/integrations/tmc/contract';
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShares, hasPersonalExtension } from './group';
-import { isGuestRequest, travellerName } from './traveller';
+import { isGuestRequest, travellerName, isGuestMember, memberName } from './traveller';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import type { FullRequest } from './queries';
 
@@ -84,7 +84,9 @@ export function assembleOutboundInstructions(
 
   const instructions = req.travellers.map((t, i) => {
     const legs = effectiveLegs(req, t.employeeId).filter((l) => l.transportMode === 'AIR');
-    const classId = t.chosenClassId ?? req.travelClassId;
+    // §8 guest members have no entitlement profile — Economy by default (AC7).
+    const guest = isGuestMember(t);
+    const classId = guest ? 'TC-ECO' : (t.chosenClassId ?? req.travelClassId);
     // Shared accommodation lines, each costed on this traveller's own nights; plus any
     // accommodation line attributed directly to them.
     const sharedAcc = req.expenses
@@ -100,8 +102,9 @@ export function assembleOutboundInstructions(
     const out: CanonicalOutbound = {
       authorisationNumber: req.authorisationNo ?? '',
       travellerRef: t.employeeId,
-      travellerName: EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId,
-      bookingFor: 'EMPLOYEE',
+      travellerName: memberName(t),
+      bookingFor: guest ? 'GUEST' : 'EMPLOYEE',
+      ...(guest ? { guest: { name: memberName(t), email: t.guestEmail, organisation: t.guestOrg } } : {}),
       instructionSeq: i + 1,
       instructionCount: count,
       bookingMethod: req.bookingMethod ?? 'TMC_ONLINE',
@@ -109,7 +112,7 @@ export function assembleOutboundInstructions(
         ...(on('airSegments') ? legs.map((l) => ({
           type: 'AIR' as const, origin: l.originCode, destination: l.destCode,
           departDate: l.departDate ? l.departDate.toISOString().slice(0, 10) : null,
-          approvedClass: on('airApprovedClass') ? EcsReference.travelClass(l.chosenClassId ?? classId ?? '')?.name : undefined,
+          approvedClass: on('airApprovedClass') ? EcsReference.travelClass((guest ? classId : (l.chosenClassId ?? classId)) ?? '')?.name : undefined,
         })) : []),
         ...(on('hotelSegments') ? acc.map((a) => ({ type: 'HOTEL' as const, city: a.city, nights: a.nights, cappedNightlySgd: a.cappedNightlySgd })) : []),
       ],
@@ -130,8 +133,8 @@ export function assembleOutboundInstructions(
     // §29 enrichment — charging/approvals shared across the group; traveller context + personal flag per traveller.
     if (on('charging') && charging.length) out.charging = charging;
     if (on('approvalMetadata') && approvals.length) out.approvals = approvals;
-    if (on('travellerCategory')) out.traveller = { category: EcsIdentity.employee(t.employeeId)?.travelPolicyGroup ?? 'STAFF', email: null };
-    if (on('personalIndicator')) out.personalTravel = hasPersonalExtension(req, t.employeeId);
+    if (on('travellerCategory')) out.traveller = { category: guest ? 'GUEST' : (EcsIdentity.employee(t.employeeId)?.travelPolicyGroup ?? 'STAFF'), email: guest ? t.guestEmail : null };
+    if (on('personalIndicator')) out.personalTravel = guest ? false : hasPersonalExtension(req, t.employeeId);
     return out;
   });
 

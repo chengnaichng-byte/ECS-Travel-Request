@@ -5,7 +5,7 @@
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { fmtSgd, type CostSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNightsAtCity } from '@/modules/pretrip/group';
-import { isGuestRequest, travellerName, travellerTitle, travellerEmail } from '@/modules/pretrip/traveller';
+import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import { bookingSummaryText } from '@/modules/pretrip/booking';
@@ -167,9 +167,9 @@ export function TravellerRoster({ req, letter, className }: { req: FullRequest; 
               return (
                 <tr key={t.id} className="hover:bg-[var(--ecs-panel-2)]">
                   <td className="td">{i + 1}</td>
-                  <td className="td font-medium">{EcsIdentity.employee(t.employeeId)?.name}{t.isRequestor && <span className="pill-navy ml-1">Coord.</span>}</td>
-                  <td className="td text-xs">{EcsIdentity.department(EcsIdentity.employee(t.employeeId)?.departmentId ?? '')?.name}</td>
-                  <td className="td text-xs">{EcsReference.travelClass(t.chosenClassId ?? t.entitledClassId ?? req.travelClassId ?? '')?.name ?? '—'}</td>
+                  <td className="td font-medium">{memberName(t)}{t.isRequestor && <span className="pill-navy ml-1">Coord.</span>}{isGuestMember(t) && <span className="pill-info ml-1">Guest</span>}</td>
+                  <td className="td text-xs">{memberDeptName(t)}</td>
+                  <td className="td text-xs">{isGuestMember(t) ? 'Economy' : (EcsReference.travelClass(t.chosenClassId ?? t.entitledClassId ?? req.travelClassId ?? '')?.name ?? '—')}</td>
                   <td className="td whitespace-nowrap text-xs">{fmtDate(start)} – {fmtDate(end)}{t.ownStartDate && <span className="text-[var(--ecs-muted)]"> (own)</span>}</td>
                   <td className="td text-right whitespace-nowrap">{fmtSgd(s?.totalSgd ?? 0)}</td>
                   <td className="td">{exceptionByTraveller.has(t.employeeId) ? <span className="pill-exc">Yes</span> : <span className="pill-info">No</span>}</td>

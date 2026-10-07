@@ -302,7 +302,11 @@ export async function saveTrip(id: string, fd: FormData) {
   if (isGroupReq) {
     const travellers = await prisma.travelRequestTraveller.findMany({ where: { requestId: id } });
     for (const t of travellers) {
-      const ent = EcsTravelClassRegister.entitledForItinerary(t.employeeId, legsForEntitlement, start ?? new Date());
+      // §8 guest members have no entitlement profile → Economy by default (AC7).
+      const guest = t.travellerType === 'GUEST' || t.employeeId.startsWith('G-');
+      const ent = guest
+        ? { classId: 'TC-ECO' }
+        : EcsTravelClassRegister.entitledForItinerary(t.employeeId, legsForEntitlement, start ?? new Date());
       await prisma.travelRequestTraveller.update({ where: { id: t.id }, data: { chosenClassId: ent.classId, entitledClassId: ent.classId } });
       // Keep any already-added airfare lines in sync with the (re-derived) entitlement so the
       // line class never drifts from the itinerary after it changes (§13.19).
@@ -1129,29 +1133,40 @@ export async function copyToNewRequest(id: string) {
 export async function createGroupDraft(fd: FormData) {
   const requestorId = await currentPersonaId();
   const travellerIds = (fd.getAll('travellerIds') as string[]).map((s) => s.trim()).filter(Boolean);
-  // §13.14 a group needs at least two travellers (consistent with removeGroupTraveller),
-  // and the requestor must be authorised for each (§13.13).
-  if (travellerIds.length < 2) return;
+  // §8 a group may also include guest members (non-employees), captured inline.
+  let guests: { name: string; email?: string; org?: string }[] = [];
+  try { guests = (JSON.parse(str(fd, 'guestsJson') || '[]') as typeof guests).filter((g) => g.name?.trim()); } catch { guests = []; }
+  const total = travellerIds.length + guests.length;
+  const settings = await getSettings();
+  // §13.14 a group needs ≥2 members; the requestor must be authorised for each employee (§13.13);
+  // and the group may not exceed the configured TMC group-booking limit.
+  if (total < 2) return;
+  if (total > settings.groupMaxTravellers) redirect(`/requests/new?error=${encodeURIComponent(`A group booking is limited to ${settings.groupMaxTravellers} travellers (TMC group limit). You selected ${total}.`)}`);
   if (!travellerIds.every((t) => canCreateFor(requestorId, t))) return;
-  const primary = travellerIds[0];
-  const primaryEmp = EcsIdentity.employee(primary);
+  const sharePct = Math.round((100 / total) * 100) / 100;
+  const guestRows = guests.map((g, i) => ({
+    employeeId: `G-${Date.now().toString(36)}${i}`, travellerType: 'GUEST',
+    guestName: g.name.trim(), guestEmail: g.email?.trim() || null, guestOrg: g.org?.trim() || null,
+    isRequestor: false, confirmed: true, sharePct, // §13.13 host confirms the guest offline
+  }));
+  // Routing anchors on an employee member when present; department falls back to the host's.
+  const primary = travellerIds[0] ?? requestorId;
+  const primaryDept = EcsIdentity.employee(travellerIds[0] ?? '')?.departmentId ?? EcsIdentity.employee(requestorId)?.departmentId;
   const requestNumber = await nextRequestNumber(yr());
   const req = await prisma.travelRequest.create({
     data: {
       requestNumber, requestorId, travellerId: primary, isGroup: true,
-      entityId: EcsIdentity.entity().id, departmentId: primaryEmp?.departmentId,
+      entityId: EcsIdentity.entity().id, departmentId: primaryDept,
       status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
       travellers: {
-        create: travellerIds.map((eid) => ({
-          employeeId: eid,
-          isRequestor: eid === requestorId,
-          confirmed: false,
-          sharePct: Math.round((100 / travellerIds.length) * 100) / 100,
-        })),
+        create: [
+          ...travellerIds.map((eid) => ({ employeeId: eid, travellerType: 'EMPLOYEE', isRequestor: eid === requestorId, confirmed: false, sharePct })),
+          ...guestRows,
+        ],
       },
     },
   });
-  await audit(req.id, 'CREATE', `Group draft ${requestNumber} created for ${travellerIds.length} travellers`, requestorId);
+  await audit(req.id, 'CREATE', `Group draft ${requestNumber} created for ${total} travellers${guests.length ? ` (incl. ${guests.length} guest${guests.length > 1 ? 's' : ''})` : ''}`, requestorId);
   redirect(`/requests/${req.id}/trip`);
 }
 
@@ -1162,6 +1177,9 @@ export async function addGroupTraveller(id: string, fd: FormData) {
   if (!req || (!isFreeEditState(req.status) && !isAmendableState(req.status))) return;
   const exists = await prisma.travelRequestTraveller.findFirst({ where: { requestId: id, employeeId } });
   if (exists) return;
+  // §13.14 a group booking may not exceed the configured TMC group-booking limit.
+  const settings = await getSettings();
+  if (req.travellers.length >= settings.groupMaxTravellers) return;
   await prisma.travelRequestTraveller.create({ data: { requestId: id, employeeId, confirmed: false } });
   await audit(id, 'AMEND', `Traveller ${EcsIdentity.employee(employeeId)?.name ?? employeeId} added to group`);
   // §13.14 adding a traveller after approval is a material amendment → reapproval.

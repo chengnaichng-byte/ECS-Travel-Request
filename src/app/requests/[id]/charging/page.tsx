@@ -13,6 +13,7 @@ import { canEditRequest } from '@/modules/pretrip/guards';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { memberName } from '@/modules/pretrip/traveller';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
@@ -35,7 +36,14 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
   const canEdit = canEditRequest(await currentPersonaId(), req);
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
 
-  const defaultAccount = EcsIdentity.employee(req.travellerId)?.defaultChargingCode ?? chargingCodes[0]?.code ?? '';
+  const defaultAccount = EcsIdentity.employee(req.travellerId)?.defaultChargingCode ?? EcsIdentity.employee(req.requestorId)?.defaultChargingCode ?? chargingCodes[0]?.code ?? '';
+  // §8 a guest member has no Workday department — their share is charged to the host's
+  // (requestor's) department cost object.
+  const hostChargingCode = EcsIdentity.employee(req.requestorId)?.defaultChargingCode ?? defaultAccount;
+  const memberKeyLabel = (key: string | null) => {
+    const t = req.travellers.find((x) => x.employeeId === key);
+    return t ? memberName(t) + (t.travellerType === 'GUEST' ? ' · guest' : '') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
+  };
   const accounts: AccountOpt[] = chargingCodes.map((c) => ({
     code: c.code, name: c.name, type: c.type, companyCode: c.companyCode, businessArea: c.businessArea,
     research: c.isResearch, crossCharge: !!c.crossCharge, closed: c.active === false,
@@ -58,7 +66,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
       shares = [{ eid: req.travellerId, pct: 100 }];
     }
     const byCode = new Map<string, number>();
-    for (const sh of shares) { const cc = EcsIdentity.employee(sh.eid)?.defaultChargingCode; if (cc) byCode.set(cc, (byCode.get(cc) ?? 0) + sh.pct); }
+    for (const sh of shares) { const cc = EcsIdentity.employee(sh.eid)?.defaultChargingCode ?? hostChargingCode; if (cc) byCode.set(cc, (byCode.get(cc) ?? 0) + sh.pct); }
     return [...byCode.entries()].map(([code, pct]) => ({ code, pct: Math.round(pct * 10) / 10 }));
   };
   const initialAllocsFor = (e: FullRequest['expenses'][number]): { code: string; pct: number; io: string }[] | undefined => {
@@ -71,7 +79,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
     typeName: EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category,
     net: Math.max(e.sgdAmount - e.sponsorSgd, 0),
     category: e.category,
-    travellerName: e.travellerId ? (EcsIdentity.employee(e.travellerId)?.name ?? e.travellerId) : undefined,
+    travellerName: e.travellerId ? memberKeyLabel(e.travellerId) : undefined,
     isShared: e.isShared,
     deptAllocs: deptAllocsFor(e),
     initialAllocs: initialAllocsFor(e),
@@ -104,7 +112,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
                 {req.expenses.map((e) => (
                   <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
                     <td className="td font-medium">{EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category}</td>
-                    {req.isGroup && <td className="td text-xs text-[var(--ecs-navy-2)] whitespace-nowrap">{e.isShared ? 'Shared — apportioned' : (EcsIdentity.employee(e.travellerId ?? '')?.name ?? '—')}</td>}
+                    {req.isGroup && <td className="td text-xs text-[var(--ecs-navy-2)] whitespace-nowrap">{e.isShared ? 'Shared — apportioned' : memberKeyLabel(e.travellerId)}</td>}
                     <td className="td text-xs text-[var(--ecs-muted)]">{detailOf(e)}</td>
                     <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}</td>
                     <td className="td text-right whitespace-nowrap">{e.sponsorSgd > 0 ? `− ${fmtSgd(e.sponsorSgd)}` : '—'}</td>

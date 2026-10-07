@@ -11,9 +11,10 @@ import { NewRequestForm } from '@/components/NewRequestForm';
 
 export const dynamic = 'force-dynamic';
 
-export default async function NewRequest() {
+export default async function NewRequest({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const persona = await currentPersona();
   const settings = await getSettings();
+  const { error } = await searchParams;
   const isRequestor = persona.roles.includes(ROLE.TravelRequestor);
   const delegators = EcsDelegation.canCreateTravelRequestFor(persona.id);
 
@@ -23,22 +24,23 @@ export default async function NewRequest() {
   if (isRequestor) employees.filter((e) => e.isTraveller && e.departmentId === persona.departmentId).forEach((e) => selectable.add(e.id));
   if (selectable.size === 0) employees.filter((e) => e.isTraveller).forEach((e) => selectable.add(e.id));
 
-  // Group mode may name travellers across the requestor's remit; offer all travellers.
-  const groupPool = employees.filter((e) => e.isTraveller);
-  const options = (isRequestor ? groupPool : employees.filter((e) => selectable.has(e.id))).map((e) => ({
-    id: e.id, name: e.name, title: e.title,
-    dept: EcsIdentity.department(e.departmentId)?.name ?? '',
-    delegated: delegators.includes(e.id),
-  }));
+  const toOpt = (e: (typeof employees)[number]) => ({ id: e.id, name: e.name, title: e.title, dept: EcsIdentity.department(e.departmentId)?.name ?? '', delegated: delegators.includes(e.id) });
+  // Individual creation respects the requestor's remit; a group booking may name any employee
+  // traveller (routing handles cross-department), so the group pool is the full traveller list.
+  const options = (isRequestor ? employees.filter((e) => e.isTraveller) : employees.filter((e) => selectable.has(e.id))).map(toOpt);
+  const groupOptions = employees.filter((e) => e.isTraveller).map(toOpt);
 
   return (
     <div className="max-w-2xl">
       <PageTitle id="TR-02" title="Create Travel Request"
         subtitle="Select the traveller (or travellers, for a group request). Traveller, entity, department, RO and Additional Approvers are derived from ECS/HR." />
+      {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
       <NewRequestForm
         persona={{ name: persona.name, title: persona.title }}
         isRequestor={isRequestor}
         options={options}
+        groupOptions={groupOptions}
+        groupMax={settings.groupMaxTravellers}
         groupEnabled={settings.groupTravelEnabled}
       />
     </div>
