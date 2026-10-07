@@ -179,6 +179,7 @@
   <a href="#tmc"><span class="n">12</span>TMC integration</a>
   <a href="#masters"><span class="n">13</span>Reference masters</a>
   <a href="#group-guest"><span class="n">14</span>Group &amp; guest bookings</a>
+  <a href="#enums"><span class="n">15</span>Enumerations</a>
 </nav>
 
 <main>
@@ -865,6 +866,66 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
       <li><b>Claim:</b> claims are keyed to the logged-in persona, so a guest — having no login — can never produce one; the host absorbs guest cost.</li>
     </ul>
     <div class="callout">A per-person upgrade or a guest who must claim their own cost is handled by <b>removing them from the group and raising a single request</b> (the DD-05 escape hatch), not by special-casing the group.</div>
+  </section>
+
+  <!-- 15 ENUMERATIONS -->
+  <section id="enums">
+    <h2><span class="num">15</span>Enumerations — allowed values</h2>
+    <p>SQLite has no native enums, so status / type fields are constrained strings. The allowed value sets below are the single source of truth — a field must never hold a value outside its set. <b>Defined value sets</b> live in <code>src/shared/enums.ts</code>; <b>inline string-enums</b> are documented in the schema. A companion <b>field-catalogue workbook</b> (<code>docs/ecs-pretrip-field-catalogue.xlsx</code>) carries the same sets per field.</p>
+
+    <h3>Defined value sets (enums.ts)</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Enum</th><th>Used by</th><th>Allowed values</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">REQUEST_STATUS</td><td><code>TravelRequest.status</code></td><td><code>Draft</code> <code>Submitted</code> <code>Pending RO Approval</code> <code>Pending Additional Approval</code> <code>Pending Exception Approval</code> <code>Pending DOA Approval</code> <code>Approved</code> <code>Amendment In Progress</code> <code>Sent Back</code> <code>Withdrawn</code> <code>Cancelled</code> <code>Expired</code> <code>Closed</code> · <code>Rejected</code> (legacy/compat, not a transition target — DD-12)</td></tr>
+        <tr><td class="fld">BOOKING_STATUS</td><td><code>TravelRequest.bookingStatus</code></td><td><code>Not Sent</code> <code>Sent to TMC</code> <code>Received by TMC</code> <code>Booking In Progress</code> <code>Traveller Action Required</code> <code>Partially Booked</code> <code>Booked</code> <code>Travel Completed</code> <code>Booking Failed</code> <code>Self-Booked</code> <code>Cancelled</code></td></tr>
+        <tr><td class="fld">POLICY_OUTCOME</td><td><code>PolicyCheck.outcome</code></td><td><code>PASS</code> <code>WARNING</code> <code>EXCEPTION</code> <code>HARD_STOP</code> <span class="pill p-navy">HARD_STOP blocks submission</span></td></tr>
+        <tr><td class="fld">APPROVER_ROLE</td><td><code>ApprovalStep.roleType</code> · <code>ClaimApprovalStep.roleType</code></td><td><code>RO</code> <code>ADDITIONAL_APPROVER</code> <code>DOA</code> <code>RESEARCH_DOA</code> <code>EXCEPTION</code> <code>FUNDING_OWNER</code> <code>VERIFIER</code> (claim stage only)</td></tr>
+        <tr><td class="fld">CLAIM_STATUS</td><td><code>TravelExpenseClaim.status</code></td><td><code>Draft</code> <code>Pending Verification</code> <code>Pending Exception Approval</code> <code>Pending RO Approval</code> <code>Pending DOA Approval</code> <code>Approved</code> <code>Sent Back</code></td></tr>
+        <tr><td class="fld">TE_TREATMENT</td><td><code>TEExpenseLine.treatment</code> · <code>IntegrationFieldSetting.teTreatment</code></td><td><code>LOCKED</code> <code>EDITABLE</code> <code>REFERENCE</code> <code>EXCLUDED</code></td></tr>
+        <tr><td class="fld">BOOKING_METHOD</td><td><code>TravelRequest.bookingMethod</code></td><td><code>TMC_ONLINE</code> <code>AGENT_ASSISTED</code> <code>OFFLINE</code> <code>HOST_ARRANGED</code> <code>SELF_BOOKED</code> <code>NO_BOOKING</code></td></tr>
+        <tr><td class="fld">BOOKING_ARRANGEMENT</td><td><code>TravelRequest.bookingArrangement</code></td><td><code>AUTO</code> <code>TMC-&lt;id&gt;</code> <code>SELF_BOOKED</code> <code>HOST_ARRANGED</code> <code>NO_BOOKING</code></td></tr>
+        <tr><td class="fld">EXPENSE_CATEGORY</td><td><code>EstimatedExpense.category</code> · <code>TEExpenseLine.category</code></td><td><code>AIRFARE</code> <code>ACCOMMODATION</code> <code>ODA</code> <code>CONFERENCE</code> <code>OTHER</code></td></tr>
+        <tr><td class="fld">ROLE</td><td><code>Employee.roles</code> (ECS persona master)</td><td><code>TRAVELLER</code> <code>TRAVEL_REQUESTOR</code> <code>RO</code> <code>DOA</code> <code>RESEARCH_DOA</code> <code>EXCEPTION_APPROVER</code> <code>TRAVEL_ADMIN</code> <code>SYSTEM_ADMIN</code> <code>FINANCE_VIEWER</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Inline string-enums (schema)</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Field</th><th>Allowed values</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">TravelRequest.tripType</td><td><code>ROUND_TRIP</code> <code>ONE_WAY</code> <code>MULTI_CITY</code></td></tr>
+        <tr><td class="fld">travellerType</td><td><code>EMPLOYEE</code> <code>GUEST</code> (non-employee, no ECS/HR profile — §8)</td></tr>
+        <tr><td class="fld">EstimatedExpense.estimateBasis</td><td><code>QUOTED</code> <code>CAP</code> <code>LOWER</code> <code>RATE</code></td></tr>
+        <tr><td class="fld">ChargingAllocation.chargingType</td><td><code>CC</code> <code>WBS</code></td></tr>
+        <tr><td class="fld">TravelRequest.chargingMode</td><td><code>REQUEST</code> <code>LINE</code></td></tr>
+        <tr><td class="fld">TravelExpenseClaim.chargingMode</td><td><code>MAIN</code> <code>CLAIM</code> <code>ITEM</code></td></tr>
+        <tr><td class="fld">ItineraryLeg.transportMode</td><td><code>AIR</code> <code>RAIL</code> <code>OTHER</code></td></tr>
+        <tr><td class="fld">BookingSegment.type</td><td><code>AIR</code> <code>HOTEL</code></td></tr>
+        <tr><td class="fld">TravelBooking.channel</td><td><code>TMC</code> <code>SELF_BOOKED</code></td></tr>
+        <tr><td class="fld">BookingDeviation.action</td><td><code>Reapproval</code> <code>LogOnly</code> <code>UpdateBooking</code></td></tr>
+        <tr><td class="fld">TEExpenseLine.receiptType</td><td><code>LOCAL_GST</code> <code>FOREIGN_NO_GST</code> <code>NO_RECEIPT</code></td></tr>
+        <tr><td class="fld">AccommodationEstimate.exceptionOutcome</td><td><code>PASS</code> <code>EXCEPTION</code></td></tr>
+        <tr><td class="fld">IntegrationMessage.direction / kind</td><td><code>OUTBOUND</code> <code>INBOUND</code> / <code>TMC_HANDOFF</code> <code>TMC_RESPONSE</code></td></tr>
+        <tr><td class="fld">AuditEvent.kind</td><td><code>CREATE</code> <code>SUBMIT</code> <code>APPROVE</code> <code>REJECT</code> <code>SENDBACK</code> <code>AMEND</code> <code>INTEGRATION</code> <code>TE_LINK</code> <code>STATUS</code> <code>COMMENT</code></td></tr>
+        <tr><td class="fld">Attachment.docType</td><td><code>Quotation</code> <code>Conference Invitation</code> <code>Approval Evidence</code> <code>Other</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Module Settings — config enums</h3>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Setting</th><th>Allowed values (default in bold)</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">expenseScope</td><td><code>MAJOR_ONLY</code> <code><b>ALL</b></code></td></tr>
+        <tr><td class="fld">hotelEstimateBasis</td><td><code>QUOTED</code> <code>CAP</code> <code><b>LOWER</b></code></td></tr>
+        <tr><td class="fld">airfareTreatment</td><td><code>DIRECT_SAP</code> <code><b>IN_TE</b></code> <code>REFERENCE</code></td></tr>
+        <tr><td class="fld">teLinkageMandatory</td><td><code>YES</code> <code>NO</code> <code><b>CONDITIONAL</b></code></td></tr>
+        <tr><td class="fld">approvalAmountBasis</td><td><code>GROSS</code> <code><b>NET_NTU</b></code> <code>MAJOR_COST</code> <code>ALLOCATION</code></td></tr>
+        <tr><td class="fld">roRequirement</td><td><code>ALWAYS</code> <code><b>INDIVIDUAL_ONLY</b></code> <code>NEVER</code></td></tr>
+        <tr><td class="fld">chargingSplitMode</td><td><code><b>PERCENT</b></code> <code>AMOUNT</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout">The approval- and booking-status <b>transition rules</b> (which value may follow which) are in <a href="#status" class="ref">§4</a>; this section lists the value <b>domains</b>. The boolean / numeric Module Settings are in <a href="#config-ref" class="ref">§11</a>.</div>
   </section>
 
   <footer>
