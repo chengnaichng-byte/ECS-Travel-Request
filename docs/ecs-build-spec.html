@@ -178,6 +178,7 @@
   <a href="#config-ref"><span class="n">11</span>Configuration ref.</a>
   <a href="#tmc"><span class="n">12</span>TMC integration</a>
   <a href="#masters"><span class="n">13</span>Reference masters</a>
+  <a href="#group-guest"><span class="n">14</span>Group &amp; guest bookings</a>
 </nav>
 
 <main>
@@ -327,6 +328,8 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     <div class="decision"><div class="d-id">DD-11 · The airport master is the TMC's booking source</div><div class="d-t">One IATA location master, shared.</div><p>From/To on every leg read the shared ECS Location master (IATA airports). Each leg's code is carried verbatim into the TMC booking instruction. In production this master is synced from the TMC/GDS airport feed.</p></div>
 
     <div class="decision"><div class="d-id">DD-12 · A Travel Request has no "Reject"</div><div class="d-t">Dissent = Send Back.</div><p>An approver who disagrees <b>sends the request back</b> (→ Sent Back → Draft) to be revised and resubmitted. There is no terminal reject on the request. (The TE claim keeps standard claim controls.)</p></div>
+
+    <div class="decision"><div class="d-id">DD-13 · A group may mix employees and guests; its size is capped at the TMC limit</div><div class="d-t">Guest (non-employee) members fly Economy, are host-settled, and never claim; a configurable limit caps the booking.</div><p>A group booking can include <b>guest members</b> (external speakers / collaborators with no ECS/HR profile) alongside employees. A guest has no entitlement profile so defaults to <b>Economy</b>, is <b>charged to the host (requestor) department</b>, and is <b>settled centrally</b> — guests have no login and <b>file no TE claim</b>. The total membership (employees + guests) may not exceed <code>groupMaxTravellers</code> (default <b>10</b>), mirroring the TMC group-fare limit; the limit is enforced on create and on add-traveller. Full logic in <a href="#group-guest" class="ref">§14</a>.</p><p class="why">Why: real group trips routinely carry an invited guest whose cost the host absorbs; the TMC caps a single group fare, so the cap must be a setting, not a constant.</p></div>
   </section>
 
   <!-- 3 DATA MODEL -->
@@ -775,6 +778,8 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
       <thead><tr><th>Setting</th><th>Values · default</th><th>Effect</th></tr></thead>
       <tbody>
         <tr><td class="fld">roRequirement</td><td>ALWAYS · <b>INDIVIDUAL_ONLY</b> · NEVER</td><td>RO decision point (DD-03)</td></tr>
+        <tr><td class="fld">groupTravelEnabled</td><td>bool · <b>true</b></td><td>Enables one-request-many-travellers group requests (DD-05)</td></tr>
+        <tr><td class="fld">groupMaxTravellers</td><td>int · <b>10</b></td><td>Group booking size limit incl. guests — TMC group-fare cap (DD-13)</td></tr>
         <tr><td class="fld">exceptionApproverRequired</td><td>bool · <b>true</b></td><td>Insert an Exception step, else surface to DOA</td></tr>
         <tr><td class="fld">sameRouteResearch</td><td>bool · <b>false</b></td><td>Treat research like non-research (no Research DOA line)</td></tr>
         <tr><td class="fld">approvalAmountBasis</td><td>GROSS · <b>NET_NTU</b> · MAJOR_COST · ALLOCATION</td><td>Which amount drives the band / DOA tier</td></tr>
@@ -818,6 +823,48 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
       <div class="card"><div class="tag">Rates</div><h4>FX &amp; expense types</h4><p>Entry-date FX (re-locked at submit); expense types with GL account &amp; GST code.</p></div>
       <div class="card"><div class="tag">Vendors</div><h4>TMC providers</h4><p>Provider + region + booking methods (channels); policy routing.</p></div>
     </div>
+  </section>
+
+  <!-- 14 GROUP & GUEST -->
+  <section id="group-guest">
+    <h2><span class="num">14</span>Group &amp; guest bookings</h2>
+    <p>Group travel (DD-05) lets one request carry many travellers on a shared itinerary, each at their own class and cost. A group may also include <b>guest members</b> — non-employees with no ECS/HR profile (DD-13). Membership is capped at <code>groupMaxTravellers</code> (default <b>10</b>), the TMC group-fare limit.</p>
+
+    <h3>Member model</h3>
+    <p>Each member is a <code>TravelRequestTraveller</code> row. A guest is distinguished by <code>travellerType = GUEST</code> and a synthetic <code>employeeId</code> (a <code>G-…</code> key, since there is no HR id); its identity is captured inline.</p>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Field</th><th>Employee member</th><th>Guest member</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">employeeId</td><td>ECS/HR id</td><td>synthetic <code>G-…</code> key</td></tr>
+        <tr><td class="fld">travellerType</td><td>EMPLOYEE</td><td><b>GUEST</b></td></tr>
+        <tr><td class="fld">guestName / guestEmail / guestOrg</td><td>—</td><td>captured on the create form</td></tr>
+        <tr><td class="fld">entitled / chosen class</td><td>derived per itinerary (DD-04)</td><td><b>Economy</b> (no entitlement profile)</td></tr>
+        <tr><td class="fld">charging</td><td>traveller's Workday department</td><td><b>host (requestor) department</b></td></tr>
+        <tr><td class="fld">confirmation</td><td>each confirms inclusion (§13.13)</td><td>host confirms offline (pre-confirmed)</td></tr>
+        <tr><td class="fld">TE claim</td><td>files own claim</td><td><b>none</b> — settled centrally, host-absorbed</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Creation &amp; size limit</h3>
+    <pre><span class="k">function</span> <span class="f">createGroupDraft</span>(employeeIds, guests, settings):   <span class="c"># DD-13</span>
+  total = employeeIds.length + guests.length
+  <span class="k">if</span> total &lt; 2:                         <span class="k">reject</span>  <span class="s">"a group needs ≥2 members"</span>
+  <span class="k">if</span> total &gt; settings.groupMaxTravellers: <span class="k">reject</span>  <span class="s">"over the TMC group limit"</span>
+  <span class="k">for</span> eid <b>in</b> employeeIds: <b>assert</b> <span class="f">canCreateFor</span>(requestor, eid)   <span class="c"># §13.13 delegation</span>
+  members = employeeIds.map(EMPLOYEE) + guests.map(g =&gt; GUEST(<span class="s">"G-"</span>+uid(), g))
+  share = 100 / total                   <span class="c"># equal share; roll-up drives routing</span>
+  create TravelRequest(isGroup, travellers = members)</pre>
+    <p>The create form offers the full traveller pool plus inline guest rows (name / email / organisation), shows a live <b>"N of max M"</b> counter, and blocks submit when over the limit or under two members. <b>Add-traveller</b> on an existing group re-checks the same cap.</p>
+
+    <h3>Downstream handling</h3>
+    <ul>
+      <li><b>Entitlement (§8):</b> a guest short-circuits to Economy; employees derive per itinerary. Each member's class is stamped on their own airfare line.</li>
+      <li><b>Charging (§9):</b> a guest's share maps to the host department's cost object; the per-department roll-up still derives the DOA from the highest-share department. Guest cost is never split onto the guest.</li>
+      <li><b>Review &amp; detail:</b> the roster shows each member with a <b>Guest</b> pill, their org (<i>Guest · MIT</i>), and Economy class.</li>
+      <li><b>TMC fan-out (§12):</b> a guest instruction carries <code>bookingFor = GUEST</code>, the guest identity block, and Economy class; employee instructions are unchanged.</li>
+      <li><b>Claim:</b> claims are keyed to the logged-in persona, so a guest — having no login — can never produce one; the host absorbs guest cost.</li>
+    </ul>
+    <div class="callout">A per-person upgrade or a guest who must claim their own cost is handled by <b>removing them from the group and raising a single request</b> (the DD-05 escape hatch), not by special-casing the group.</div>
   </section>
 
   <footer>
