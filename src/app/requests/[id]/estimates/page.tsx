@@ -9,7 +9,8 @@ import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAccommodation, addOda, addOther, deleteExpense } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
-import { memberName } from '@/modules/pretrip/traveller';
+import { memberName, isGuestRequest } from '@/modules/pretrip/traveller';
+import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { computeSummary, computeOda, fmtSgd } from '@/modules/pretrip/pricing';
 import { countries, cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
@@ -61,6 +62,16 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     ['__ALL__', `All travellers (${req.travellers.length}) — one line each`],
     ...req.travellers.map((t) => [t.employeeId, memberName(t) + (t.travellerType === 'GUEST' ? ' (guest)' : '')] as [string, string]),
   ];
+  // §8 ODA is not a guest entitlement — a pure guest request hides the ODA card, and a group's
+  // ODA traveller picker offers employee members only (guests are also filtered server-side).
+  const guestRequest = isGuestRequest(req);
+  const employeeMembers = req.travellers.filter((t) => !(t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')));
+  const odaTravellers: [string, string][] = [
+    ['__ALL__', `All travellers (${employeeMembers.length}) — one line each`],
+    ...employeeMembers.map((t) => [t.employeeId, memberName(t)] as [string, string]),
+  ];
+  // §4.5 hotel cap per city — the accommodation rate defaults to this (editable).
+  const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
   const memberLabel = (key: string | null) => {
     const t = req.travellers.find((x) => x.employeeId === key);
     return t ? memberName(t) + (t.travellerType === 'GUEST' ? ' · guest' : '') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
@@ -204,8 +215,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         <Card title="Add Accommodation (TR-07)">
           <form action={addAccommodation.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Select name="city" label="City" defaultValue={tripDefaults.destCity} opts={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} />
-              <Input name="quotedNightly" label="Quoted rate / night" type="number" />
+              <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={tripDefaults.destCity} />
               <Input name="nights" label="Nights" type="number" defaultValue={tripDefaults.nights} />
               <Input name="personalNights" label="Personal nights" type="number" defaultValue="0" />
               <Input name="checkIn" label="Check-in" type="date" defaultValue={tripDefaults.start} />
@@ -214,12 +224,17 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" /> Conference hotel</label>
             {isGroup && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
             {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
-            <p className="text-xs text-[var(--ecs-muted)]">Basis: {settings.hotelEstimateBasis}. Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
+            <p className="text-xs text-[var(--ecs-muted)]">Basis: {settings.hotelEstimateBasis}. The rate <b>defaults to the selected city&apos;s cap</b> and is editable. Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
             <button className="btn-secondary w-full">Add accommodation estimate</button>
           </form>
         </Card>
 
-        {/* ODA (TR-08) */}
+        {/* ODA (TR-08) — §8 not available to guests */}
+        {guestRequest ? (
+          <Card title="Add ODA (TR-08)">
+            <p className="text-sm text-[var(--ecs-muted)]">ODA (overseas daily allowance) does not apply to a guest — it is not a guest entitlement and is settled centrally (§8). Guest cost is airfare and accommodation only.</p>
+          </Card>
+        ) : (
         <Card title="Add ODA (TR-08)">
           <form action={addOda.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -228,7 +243,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               <Input name="arrive" label="Arrival" type="date" defaultValue={tripDefaults.start} />
               <Input name="depart" label="Departure" type="date" defaultValue={tripDefaults.end} />
               <Input name="personalDays" label="Personal days" type="number" defaultValue="0" />
-              {isGroup && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
+              {isGroup && <Select name="travellerId" label="Traveller (individual)" opts={odaTravellers} />}
             </div>
             {odaPreview && odaPreview.dailyRate > 0 && (
               <p className="text-xs text-[var(--ecs-navy-2)]">Auto-computed for this trip: <strong>{fmtSgd(odaPreview.sgdAmount)}</strong> ({odaPreview.eligibleDays} eligible days @ {fmtSgd(odaPreview.dailyRate)}/day over {tripDefaults.start} → {tripDefaults.end}). Adjust dates/personal days to recompute.</p>
@@ -237,6 +252,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             <button className="btn-secondary w-full">Add ODA estimate</button>
           </form>
         </Card>
+        )}
 
         {/* Incidental (only when expense scope = ALL) */}
         {allowIncidental && (
