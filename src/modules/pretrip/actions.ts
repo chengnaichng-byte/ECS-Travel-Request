@@ -14,6 +14,7 @@ import { computeSummary, computeAccommodation, computeOda } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor } from './route';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
+import { findBlockingDuplicates } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
@@ -666,6 +667,16 @@ export async function submitRequest(id: string, fd?: FormData) {
   if (!actionAllowed('submit', req.status)) { await audit(id, 'STATUS', `Submit blocked — request is ${req.status}, not in an editable state`); return; }
   const settings = await getSettings();
 
+  // §13.x duplicate guard — block if a LIVE request already covers the same traveller(s), the
+  // same destination and overlapping dates (prevents two live authorisations / TAs for one trip
+  // after a re-raise). The traveller must cancel or amend the original first.
+  const blocking = await findBlockingDuplicates(req);
+  if (blocking.length) {
+    const d = blocking[0];
+    await audit(id, 'STATUS', `Submission blocked — duplicate of ${d.requestNumber} (${d.status})`);
+    redirect(`/requests/${id}/review?error=${encodeURIComponent(`This trip duplicates an active request ${d.requestNumber} (${d.status}) — same traveller, ${d.destination}, overlapping dates ${d.dates}. Cancel or amend ${d.requestNumber} before resubmitting.`)}`);
+  }
+
   // §4.8 high-risk destination — the traveller must acknowledge the advisory before submission.
   const highRisk = isHighRisk(req);
   // §23 optional traveller-selected Additional Approver (any AD person, never the traveller).
@@ -1151,16 +1162,19 @@ export async function createGroupDraft(fd: FormData) {
   try { guests = (JSON.parse(str(fd, 'guestsJson') || '[]') as typeof guests).filter((g) => g.name?.trim()); } catch { guests = []; }
   const total = travellerIds.length + guests.length;
   const settings = await getSettings();
-  // §13.14 a group needs ≥2 members; the requestor must be authorised for each employee (§13.13);
-  // and the group may not exceed the configured TMC group-booking limit.
-  if (total < 2) return;
+  // §13.14 a group needs ≥2 members and may not exceed the configured TMC group-booking limit.
+  if (total < 2) redirect(`/requests/new?error=${encodeURIComponent('A group needs at least two members.')}`);
   // §8 mixing guests into a group may be disabled in configuration — then a group is
   // employees-only and guests must be raised on a separate guest request.
   if (!settings.groupGuestMixAllowed && guests.length > 0) {
     redirect(`/requests/new?error=${encodeURIComponent('Guests cannot be added to a group booking — raise a separate guest request. (Mixing employees and guests is disabled in configuration.)')}`);
   }
   if (total > settings.groupMaxTravellers) redirect(`/requests/new?error=${encodeURIComponent(`A group booking is limited to ${settings.groupMaxTravellers} travellers (TMC group limit). You selected ${total}.`)}`);
-  if (!travellerIds.every((t) => canCreateFor(requestorId, t))) return;
+  // §13.14 a group may name ANY employee traveller — cross-department routing and the per-member
+  // inclusion confirmation (§13.13) are the controls, so the individual per-member remit check is
+  // intentionally NOT applied here (it silently rejected cross-department members the UI offers).
+  const invalidMembers = travellerIds.filter((t) => !EcsIdentity.employee(t)?.isTraveller);
+  if (invalidMembers.length) redirect(`/requests/new?error=${encodeURIComponent('One or more selected members are not valid travellers.')}`);
   const sharePct = Math.round((100 / total) * 100) / 100;
   const guestRows = guests.map((g, i) => ({
     employeeId: `G-${Date.now().toString(36)}${i}`, travellerType: 'GUEST',

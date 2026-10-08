@@ -13,6 +13,7 @@ import { employees } from '@/data/employees';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { isHighRisk } from '@/modules/pretrip/risk';
+import { findDuplicateRequests } from '@/modules/pretrip/duplicates';
 import { bookingSummaryText, isTmcArrangement } from '@/modules/pretrip/booking';
 import { CostItems } from '@/components/ReviewSections';
 import { ReviewRoute } from '@/components/ReviewRoute';
@@ -38,7 +39,12 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
   const hardStops = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.HardStop);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
-  const canSubmit = hardStops.length === 0;
+  // §13.x duplicate / overlap warning — a true duplicate (same destination) hard-blocks submit;
+  // a date clash with a different destination is surfaced as a softer notice.
+  const duplicates = await findDuplicateRequests(req);
+  const dupBlocking = duplicates.filter((d) => d.sameDestination);
+  const dupClashes = duplicates.filter((d) => !d.sameDestination);
+  const canSubmit = hardStops.length === 0 && dupBlocking.length === 0;
   // §12 personal travel — present if a personal extension window or a personal leg exists.
   const hasPersonal = !!req.personalStart || req.legs.some((l) => l.isPersonal);
   const personalCost = req.expenses.filter((e) => e.accommodation).reduce((s, e) => s + (e.accommodation!.personalNights || 0) * e.accommodation!.budgetedNightly, 0);
@@ -81,6 +87,21 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
     <div>
       <Stepper id={id} active="review" />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
+      {dupBlocking.length > 0 && (
+        <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">
+          <b>Duplicate travel request.</b> An active request already covers this trip — submission is blocked until you cancel or amend it:
+          <ul className="list-disc pl-5 mt-1">
+            {dupBlocking.map((d) => (
+              <li key={d.requestNumber}><Link href={`/requests?find=${d.requestNumber}`} className="underline">{d.requestNumber}</Link> ({d.status}) — {d.destination}, {d.dates}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {dupClashes.length > 0 && (
+        <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">
+          <b>Overlapping dates.</b> This traveller has another active request with overlapping dates (different destination) — check this is not a double-booking: {dupClashes.map((d) => `${d.requestNumber} (${d.destination}, ${d.dates})`).join('; ')}.
+        </div>
+      )}
       <HighRiskAdvisory req={req} />
 
       <form action={submitRequest.bind(null, id)} className="space-y-5">
