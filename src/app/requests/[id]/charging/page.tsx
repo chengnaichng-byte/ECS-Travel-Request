@@ -51,15 +51,19 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
   const etOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gl: e.glAccount, gst: e.gstCode }));
   // §17 auto-by-department preset for a line: map each attributed traveller's share to their
   // home-department (Workday) default cost centre, aggregated by account.
+  // §8 guests carry no share of a shared line — exclude them from both an explicit shareMap
+  // and the equal-split fallback, so a shared incidental only charges employee departments.
+  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const sharers = req.travellers.filter((t) => !guestIds.has(t.employeeId));
   const deptAllocsFor = (e: FullRequest['expenses'][number]): { code: string; pct: number }[] => {
     let shares: { eid: string; pct: number }[] = [];
     if (e.isShared) {
       let sm: Record<string, number> = {};
       try { sm = e.shareMap ? JSON.parse(e.shareMap) : {}; } catch { sm = {}; }
-      const entries = Object.entries(sm);
+      const entries = Object.entries(sm).filter(([eid]) => !guestIds.has(eid));
       shares = entries.length
         ? entries.map(([eid, pct]) => ({ eid, pct: Number(pct) }))
-        : req.travellers.map((t) => ({ eid: t.employeeId, pct: 100 / (req.travellers.length || 1) }));
+        : sharers.map((t) => ({ eid: t.employeeId, pct: 100 / (sharers.length || 1) }));
     } else if (e.travellerId) {
       shares = [{ eid: e.travellerId, pct: 100 }];
     } else {

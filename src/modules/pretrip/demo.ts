@@ -447,9 +447,12 @@ async function buildMixedGroupS17(): Promise<string> {
       ? EcsTravelClassRegister.entitledForItinerary(tid, [{ durationHours: 6, destCode: 'SEL' }], day(start)).classId
       : 'TC-ECO';
     await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 820, sgdAmount: 820, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'ICN', proposedClassId: classId, fareCeiling: 820 } });
-    const oda = computeOda({ countryCode: 'KR', arrive: day(start), depart: day(end), personalDays: 0 });
-    const oe = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: oda.sgdAmount, sgdAmount: oda.sgdAmount, estimateBasis: 'RATE' } });
-    await prisma.oDAEstimate.create({ data: { expenseId: oe.id, country: 'KR', city: 'SEL', arrive: day(start), depart: day(end), eligibleDays: oda.eligibleDays, personalDays: 0, dailyRate: oda.dailyRate } });
+    // §8 guests get no ODA — a per-diem is not host direct-billable and guests file no claim.
+    if (employeeIds.includes(tid)) {
+      const oda = computeOda({ countryCode: 'KR', arrive: day(start), depart: day(end), personalDays: 0 });
+      const oe = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: oda.sgdAmount, sgdAmount: oda.sgdAmount, estimateBasis: 'RATE' } });
+      await prisma.oDAEstimate.create({ data: { expenseId: oe.id, country: 'KR', city: 'SEL', arrive: day(start), depart: day(end), eligibleDays: oda.eligibleDays, personalDays: 0, dailyRate: oda.dailyRate } });
+    }
     const hcalc = computeAccommodation({ cityCode: 'SEL', nights: 4, personalNights: 0, quotedNightly: 240, basis: settings.hotelEstimateBasis });
     const he = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: hcalc.sgdAmount, sgdAmount: hcalc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
     await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: 'SEL', nights: 4, personalNights: 0, quotedNightly: 240, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });

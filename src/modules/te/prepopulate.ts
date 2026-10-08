@@ -110,7 +110,9 @@ export function prepopulateClaim(
       if (e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation) {
         approvedSgd = e.accommodation.budgetedNightly * travellerNightsAtCity(req, claimantId, e.accommodation.city);
       } else {
-        approvedSgd = e.sgdAmount / (req.travellers.length || 1);
+        // §8 shared incidentals split across employee members only (guests carry no share).
+        const sharers = req.travellers.filter((t) => !(t.travellerType === 'GUEST' || t.employeeId.startsWith('G-'))).length || 1;
+        approvedSgd = e.sgdAmount / sharers;
       }
     }
     // booked amount from the TMC feed (null for self-booked §13.17, or when the

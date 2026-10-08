@@ -6,7 +6,45 @@
 // individual lines + date-aware accommodation + equal split of other shared lines.
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
+import { isGuestMember, memberName, memberDeptName } from './traveller';
 import type { FullRequest } from './queries';
+
+/** §8 Members who may carry a share of a SHARED line. Guests are excluded: a guest has no
+ *  TE claim and the guest settlement path (TMC direct-billing) covers only booked travel,
+ *  so a guest slice of a shared incidental would be unsettleable — it must never exist. */
+export function sharingMembers(req: { travellers: { employeeId: string; travellerType?: string | null }[] }) {
+  return req.travellers.filter((t) => !isGuestMember(t));
+}
+/** Set of member ids that are guests (for stripping guest keys out of a shareMap). */
+export function guestMemberIds(req: { travellers: { employeeId: string; travellerType?: string | null }[] }): Set<string> {
+  return new Set(req.travellers.filter((t) => isGuestMember(t)).map((t) => t.employeeId));
+}
+
+/** §8 Validation: a guest may carry no shared-incidental slice and no ODA. Returns a
+ *  human-readable reason per offending line. Empty = valid. Data-level safety net for the
+ *  exclusion logic (guests are stripped from shared splits, and ODA is blocked at authoring). */
+export function guestAttributionViolations(req: FullRequest): string[] {
+  const guests = guestMemberIds(req);
+  if (guests.size === 0) return [];
+  const guestName = (eid: string) => req.travellers.find((t) => t.employeeId === eid)?.guestName
+    ?? EcsIdentity.employee(eid)?.name ?? eid;
+  const out: string[] = [];
+  for (const e of req.expenses) {
+    const type = EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category;
+    // (a) a shared line whose shareMap names a guest
+    if (e.isShared && e.shareMap) {
+      let sm: Record<string, number> = {};
+      try { sm = JSON.parse(e.shareMap); } catch { sm = {}; }
+      const named = Object.keys(sm).filter((eid) => guests.has(eid));
+      if (named.length) out.push(`Shared ${type} attributes cost to a guest (${named.map(guestName).join(', ')}). A guest cannot carry a share of a shared incidental (§8).`);
+    }
+    // (b) an ODA line attributed to a guest
+    if (e.category === EXPENSE_CATEGORY.ODA && e.travellerId && guests.has(e.travellerId)) {
+      out.push(`ODA is attributed to a guest (${guestName(e.travellerId)}). A guest receives no overseas daily allowance (§8).`);
+    }
+  }
+  return out;
+}
 
 export interface TravellerShare {
   employeeId: string;
@@ -48,26 +86,29 @@ export function travellerAccommodationSgd(req: FullRequest, employeeId: string):
 
 export function computeTravellerShares(req: FullRequest): TravellerShare[] {
   const travellers = req.travellers;
-  const n = travellers.length || 1;
-  // Non-accommodation shared lines split equally; accommodation is date-aware below.
+  // §8 shared incidentals split across EMPLOYEE members only — guests never carry a shared
+  // slice (it would have no settlement path). Guests' total is their own attributed lines.
+  const n = sharingMembers(req).length || 1;
   const otherSharedTotal = req.expenses
     .filter((e) => e.isShared && e.category !== EXPENSE_CATEGORY.Accommodation)
     .reduce((s, e) => s + net(e), 0);
   const otherSharedPer = otherSharedTotal / n;
 
   const rows = travellers.map((t) => {
+    const guest = isGuestMember(t);
     const individualSgd = req.expenses
       .filter((e) => !e.isShared && e.travellerId === t.employeeId)
       .reduce((s, e) => s + net(e), 0);
     const accommodationSgd = travellerAccommodationSgd(req, t.employeeId);
-    const totalSgd = individualSgd + accommodationSgd + otherSharedPer;
+    const sharedPer = guest ? 0 : otherSharedPer; // guests carry no shared slice (§8)
+    const totalSgd = individualSgd + accommodationSgd + sharedPer;
     return {
       employeeId: t.employeeId,
-      name: EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId,
-      department: EcsIdentity.department(EcsIdentity.employee(t.employeeId)?.departmentId ?? '')?.name ?? '—',
+      name: memberName(t),
+      department: memberDeptName(t),
       confirmed: t.confirmed,
       individualSgd,
-      sharedSgd: accommodationSgd + otherSharedPer,
+      sharedSgd: accommodationSgd + sharedPer,
       totalSgd,
       pct: 0,
     };

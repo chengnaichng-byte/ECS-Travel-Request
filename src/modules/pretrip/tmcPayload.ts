@@ -11,6 +11,7 @@ import type { OutboundMeta, CanonicalOutbound } from '@/integrations/tmc/contrac
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShares, hasPersonalExtension } from './group';
 import { isGuestRequest, travellerName, isGuestMember, memberName } from './traveller';
+import { hostCostObject } from './settlement';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import type { FullRequest } from './queries';
 
@@ -52,7 +53,7 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception).map((c) => c.label);
   const g = guestBlock(req);
   const emp = EcsIdentity.employee(req.travellerId);
-  return buildOutbound({
+  const out = buildOutbound({
     authorisationNo: req.authorisationNo, travellerId: req.travellerId, travellerName: travellerName(req),
     bookingFor: g.bookingFor, guest: 'guest' in g ? g.guest : undefined,
     travellers: req.travellers, bookingMethod: req.bookingMethod, bookingDeadline: req.bookingDeadline,
@@ -64,6 +65,9 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
     travellerEmail: isGuestRequest(req) ? req.guestEmail : null,
     personalTravel: requestPersonal(req),
   }, enabled, meta);
+  // §8 a guest request is host-settled: the TMC direct-bills the host cost object.
+  if (isGuestRequest(req)) out.settlement = { mode: 'HOST_DIRECT_BILL', costObject: hostCostObject(req) };
+  return out;
 }
 
 /** §9.3 Build one booking instruction per group traveller (AC15). For an individual
@@ -104,7 +108,8 @@ export function assembleOutboundInstructions(
       travellerRef: t.employeeId,
       travellerName: memberName(t),
       bookingFor: guest ? 'GUEST' : 'EMPLOYEE',
-      ...(guest ? { guest: { name: memberName(t), email: t.guestEmail, organisation: t.guestOrg } } : {}),
+      ...(guest ? { guest: { name: memberName(t), email: t.guestEmail, organisation: t.guestOrg },
+        settlement: { mode: 'HOST_DIRECT_BILL' as const, costObject: hostCostObject(req) } } : {}),
       instructionSeq: i + 1,
       instructionCount: count,
       bookingMethod: req.bookingMethod ?? 'TMC_ONLINE',

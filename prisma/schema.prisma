@@ -24,6 +24,7 @@ model ModuleSettings {
   approvalAmountBasis    String  @default("NET_NTU")     // GROSS | NET_NTU | MAJOR_COST | ALLOCATION
   groupTravelEnabled     Boolean @default(true)   // §13.14
   groupMaxTravellers     Int     @default(10)     // §13.14 max travellers in one group booking (TMC group limit)
+  groupGuestMixAllowed   Boolean @default(true)   // §8 may a group booking mix employees and guests? (else guests use a separate request)
   groupSubItineraries    Boolean @default(true)   // §13.20 per-traveller sub-itineraries (D3)
   exceptionApproverRequired Boolean @default(true) // §26 insert an Exception Approver step for policy exceptions (else surface to DOA)
   roRequirement          String  @default("INDIVIDUAL_ONLY") // §51 RO decision point: ALWAYS | INDIVIDUAL_ONLY (drop for group) | NEVER

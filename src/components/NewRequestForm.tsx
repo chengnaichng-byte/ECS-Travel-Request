@@ -11,9 +11,9 @@ interface GuestRow { name: string; email: string; org: string }
 const MODE_LABEL = { individual: 'Individual request', group: 'Group request', guest: 'Guest / non-employee' } as const;
 type Mode = keyof typeof MODE_LABEL;
 
-export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled }: {
+export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, guestMixAllowed }: {
   persona: { name: string; title: string }; isRequestor: boolean;
-  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean;
+  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; guestMixAllowed: boolean;
 }) {
   const [mode, setMode] = useState<Mode>('individual');
   const defaultTraveller = options[0]?.id;
@@ -95,6 +95,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
         if (!type && !empId && !name && !email) return; // blank row
 
         const asGuest = () => {
+          if (!guestMixAllowed) { errs.push(`Row ${rowNo}: guest "${name || email}" skipped — mixing guests into a group is disabled.`); return; }
           if (!name) { errs.push(`Row ${rowNo}: guest needs a name.`); return; }
           if (!addGuests.some((g) => g.name.trim().toLowerCase() === name.toLowerCase())) { addGuests.push({ name, email, org }); nGuest++; }
         };
@@ -198,7 +199,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
       ) : (
         <form action={createGroupDraft}>
           {[...selected].map((id) => <input key={id} type="hidden" name="travellerIds" value={id} />)}
-          <input type="hidden" name="guestsJson" value={JSON.stringify(namedGuests.map((g) => ({ name: g.name.trim(), email: g.email.trim(), org: g.org.trim() })))} />
+          <input type="hidden" name="guestsJson" value={JSON.stringify(guestMixAllowed ? namedGuests.map((g) => ({ name: g.name.trim(), email: g.email.trim(), org: g.org.trim() })) : [])} />
           <div className="card">
             <div className="card-head flex items-center justify-between">
               <span>Group Travellers</span>
@@ -271,23 +272,29 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
               </div>
               <p className="text-xs text-[var(--ecs-muted)] mt-1">Type to search the directory, pick to add. {selected.size} employee{selected.size === 1 ? '' : 's'} selected.</p>
 
-              <div className="flex items-center justify-between mt-4 mb-1">
-                <label className="label mb-0">Guest members (non-employees, §8)</label>
-                <button type="button" className="btn-ghost text-xs" onClick={addGuest}>＋ Add guest</button>
-              </div>
-              {guests.length === 0 ? (
-                <p className="text-xs text-[var(--ecs-muted)]">Add external speakers or collaborators travelling with the group. A guest flies Economy by default, is charged to your (host) department, and is settled centrally — guests do not file their own claim.</p>
-              ) : (
-                <div className="space-y-2">
-                  {guests.map((g, i) => (
-                    <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
-                      <input className="field" placeholder="Guest name" value={g.name} onChange={(e) => setGuest(i, { name: e.target.value })} />
-                      <input className="field" placeholder="Email (optional)" value={g.email} onChange={(e) => setGuest(i, { email: e.target.value })} />
-                      <input className="field" placeholder="Organisation" value={g.org} onChange={(e) => setGuest(i, { org: e.target.value })} />
-                      <button type="button" className="btn-ghost text-xs" onClick={() => delGuest(i)}>✕</button>
+              {guestMixAllowed ? (
+                <>
+                  <div className="flex items-center justify-between mt-4 mb-1">
+                    <label className="label mb-0">Guest members (non-employees, §8)</label>
+                    <button type="button" className="btn-ghost text-xs" onClick={addGuest}>＋ Add guest</button>
+                  </div>
+                  {guests.length === 0 ? (
+                    <p className="text-xs text-[var(--ecs-muted)]">Add external speakers or collaborators travelling with the group. A guest flies Economy by default, is charged to your (host) department, and is settled centrally — guests do not file their own claim.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {guests.map((g, i) => (
+                        <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                          <input className="field" placeholder="Guest name" value={g.name} onChange={(e) => setGuest(i, { name: e.target.value })} />
+                          <input className="field" placeholder="Email (optional)" value={g.email} onChange={(e) => setGuest(i, { email: e.target.value })} />
+                          <input className="field" placeholder="Organisation" value={g.org} onChange={(e) => setGuest(i, { org: e.target.value })} />
+                          <button type="button" className="btn-ghost text-xs" onClick={() => delGuest(i)}>✕</button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-[var(--ecs-muted)] mt-4">Mixing guests into a group is disabled in configuration — this group is employees-only. Raise external guests on a separate <b>Guest / non-employee</b> request (§8).</p>
               )}
 
               <p className="text-xs text-[var(--ecs-muted)] mt-3">Approved once on the group total; the DOA is derived from the highest charging department. The requestor holds no cost share (§13.14). A group booking is limited to <strong>{groupMax}</strong> travellers (TMC group limit).</p>

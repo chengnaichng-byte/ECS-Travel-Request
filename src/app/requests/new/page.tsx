@@ -42,6 +42,7 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
         groupOptions={groupOptions}
         groupMax={settings.groupMaxTravellers}
         groupEnabled={settings.groupTravelEnabled}
+        guestMixAllowed={settings.groupGuestMixAllowed}
       />
     </div>
   );

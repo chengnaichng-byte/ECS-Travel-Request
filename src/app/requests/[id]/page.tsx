@@ -23,7 +23,7 @@ import { RequestActivity } from '@/components/RequestActivity';
 import { GroupTravellers } from '@/components/GroupTravellers';
 import {
   SummaryCard, TravellerCard, GroupSummaryCard, TravellerRoster, ItineraryLegsCard,
-  CostAllocationCard, PolicyExceptionsCard, CostItems,
+  CostAllocationCard, PolicyExceptionsCard, CostItems, GuestSettlementCard,
 } from '@/components/ReviewSections';
 import { withdrawRequest, reopenDraft, handoffToTmc, markSelfBooked } from '@/modules/pretrip/actions';
 import { createClaimFromRequest } from '@/modules/te/actions';
@@ -119,6 +119,9 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       <CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} letter={req.isGroup || isMulti ?'D' : 'C'} />
 
       <CostAllocationCard req={req} amount={summary.ntuFunded} letter={req.isGroup || isMulti ?'E' : 'D'} />
+
+      {/* §8 Guest settlement (host direct-billed) — renders only when the group has guests */}
+      {req.isGroup && <GuestSettlementCard req={req} letter="F" />}
 
       {/* Group management workbench (confirmations, per-traveller class & sub-itineraries) — collapsible */}
       {req.isGroup && (

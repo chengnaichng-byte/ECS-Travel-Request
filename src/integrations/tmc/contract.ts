@@ -29,6 +29,7 @@ export interface CanonicalOutbound {
   travellerName?: string;             // §8 resolved name (guest or employee)
   bookingFor?: 'EMPLOYEE' | 'GUEST';  // §8 guest / non-employee indicator (AC7)
   guest?: { name: string; email?: string | null; organisation?: string | null }; // §8 guest identity (no ECS profile)
+  settlement?: { mode: 'HOST_DIRECT_BILL'; costObject: string }; // §8 guest: TMC direct-bills the host cost object (no traveller reimbursement / claim)
   travellers?: string[];              // §13.14 group hand-off carries all travellers
   // §9.3 group fan-out (AC15): one approval emits one instruction PER traveller.
   instructionSeq?: number;

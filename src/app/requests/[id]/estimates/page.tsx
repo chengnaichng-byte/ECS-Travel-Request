@@ -70,13 +70,16 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // §13.14 a genuinely shared line (e.g. a shared taxi) is shown apportioned across the group —
   // one row per traveller at their share (shareMap, else an equal split). Accommodation is no
   // longer shared (each traveller books their own room), so this applies only to shared incidentals.
+  // §8 shared incidentals split across employee members only — guests carry no share.
+  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const sharers = req.travellers.filter((t) => !guestIds.has(t.employeeId));
   const apportion = (e: { sgdAmount: number; shareMap: string | null }) => {
     let sm: Record<string, number> = {};
     try { sm = e.shareMap ? JSON.parse(e.shareMap) : {}; } catch { sm = {}; }
-    const entries = Object.entries(sm);
+    const entries = Object.entries(sm).filter(([eid]) => !guestIds.has(eid));
     const list = entries.length
       ? entries.map(([eid, pct]) => ({ eid, amount: e.sgdAmount * Number(pct) / 100 }))
-      : req.travellers.map((t) => ({ eid: t.employeeId, amount: e.sgdAmount / (req.travellers.length || 1) }));
+      : sharers.map((t) => ({ eid: t.employeeId, amount: e.sgdAmount / (sharers.length || 1) }));
     return list.map((x) => ({ name: memberLabel(x.eid), amount: x.amount }));
   };
   // §13.14 group estimates grouped by cost item (expense type) with a per-traveller breakdown

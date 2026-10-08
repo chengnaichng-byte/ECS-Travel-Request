@@ -13,7 +13,7 @@ import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor } from './route';
-import { sharedLegs, travellerNightsAtCity, computeTravellerShares } from './group';
+import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
@@ -554,7 +554,12 @@ export async function addOda(id: string, fd: FormData) {
   if (!country || !arrive || !depart || depart < arrive) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('ODA needs a country and arrive/depart dates (depart on or after arrive).')}`);
   const calc = computeOda({ countryCode: country, arrive, depart, personalDays });
   const tids = await travellerFanout(id, fd);
-  for (const tid of tids) {
+  // §8 guests receive no ODA — a per-diem is not a guest entitlement and has no settlement
+  // path (no claim, not TMC-billed). Exclude guests from the fan-out and reject a guest pick.
+  const guestIds = new Set((await prisma.travelRequestTraveller.findMany({ where: { requestId: id } })).filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const odaTids = tids.filter((t) => !(t && guestIds.has(t)));
+  if (odaTids.length === 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('ODA does not apply to guests — select an employee traveller (§8).')}`);
+  for (const tid of odaTids) {
     const exp = await prisma.estimatedExpense.create({
       data: {
         requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA',
@@ -690,6 +695,14 @@ export async function submitRequest(id: string, fd?: FormData) {
   const submitDate = new Date();
   const relocked = await relockFx(req, submitDate);
   if (relocked > 0) await audit(id, 'AMEND', `FX locked at submission — ${relocked} foreign-currency line(s) re-converted at the ${submitDate.toISOString().slice(0, 7)} rate (§13.4)`);
+
+  // §8 a guest must carry no shared-incidental slice and no ODA — block submission if any
+  // line attributes such cost to a guest (data-level safety net for the exclusion logic).
+  const guestErrs = guestAttributionViolations(req);
+  if (guestErrs.length) {
+    await audit(id, 'STATUS', `Submission blocked — ${guestErrs[0]}`);
+    redirect(`/requests/${id}/review?error=${encodeURIComponent(guestErrs[0])}`);
+  }
 
   // Re-run policy (on the locked amounts); block on hard stop (AC06).
   const { hardStop, exception } = await persistPolicy(id);
@@ -1141,6 +1154,11 @@ export async function createGroupDraft(fd: FormData) {
   // §13.14 a group needs ≥2 members; the requestor must be authorised for each employee (§13.13);
   // and the group may not exceed the configured TMC group-booking limit.
   if (total < 2) return;
+  // §8 mixing guests into a group may be disabled in configuration — then a group is
+  // employees-only and guests must be raised on a separate guest request.
+  if (!settings.groupGuestMixAllowed && guests.length > 0) {
+    redirect(`/requests/new?error=${encodeURIComponent('Guests cannot be added to a group booking — raise a separate guest request. (Mixing employees and guests is disabled in configuration.)')}`);
+  }
   if (total > settings.groupMaxTravellers) redirect(`/requests/new?error=${encodeURIComponent(`A group booking is limited to ${settings.groupMaxTravellers} travellers (TMC group limit). You selected ${total}.`)}`);
   if (!travellerIds.every((t) => canCreateFor(requestorId, t))) return;
   const sharePct = Math.round((100 / total) * 100) / 100;

@@ -5,6 +5,7 @@
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { fmtSgd, type CostSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNightsAtCity } from '@/modules/pretrip/group';
+import { guestSettlements } from '@/modules/pretrip/settlement';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
@@ -188,6 +189,50 @@ export function TravellerRoster({ req, letter, className }: { req: FullRequest; 
           </tfoot>
         </table>
       </div>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------ Guest settlement (host direct-billed) */
+export function GuestSettlementCard({ req, letter, className }: { req: FullRequest; letter?: string; className?: string }) {
+  const rows = guestSettlements(req);
+  if (rows.length === 0) return null;
+  const totalEst = rows.reduce((s, r) => s + r.estimatedSgd, 0);
+  const totalBilled = rows.reduce((s, r) => s + (r.billedSgd ?? 0), 0);
+  const anyBilled = rows.some((r) => r.billedSgd != null);
+  return (
+    <Card title={heading(letter, `Guest Settlement — host direct-billed (${rows.length})`)} className={className}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr>
+            <th className="th">Guest</th><th className="th">Organisation</th><th className="th">Cost object (host)</th>
+            <th className="th text-right">Estimate (SGD)</th><th className="th text-right">Direct-billed (SGD)</th><th className="th">Settlement</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.employeeId} className="hover:bg-[var(--ecs-panel-2)]">
+                <td className="td font-medium">{r.name} <span className="pill-info ml-1">Guest</span></td>
+                <td className="td text-xs">{r.org ?? '—'}</td>
+                <td className="td text-xs whitespace-nowrap">{r.costObject} · {r.costObjectName}</td>
+                <td className="td text-right whitespace-nowrap">{fmtSgd(r.estimatedSgd)}</td>
+                <td className="td text-right whitespace-nowrap">{r.billedSgd != null ? fmtSgd(r.billedSgd) : '—'}</td>
+                <td className="td text-xs">{r.source === 'TMC_DIRECT_BILL' ? <span className="pill-pass">{r.status}</span> : <span className="pill-warn">{r.status}</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-semibold">
+              <td className="td" colSpan={3}>Total guest cost (host-settled)</td>
+              <td className="td text-right">{fmtSgd(totalEst)}</td>
+              <td className="td text-right">{anyBilled ? fmtSgd(totalBilled) : '—'}</td>
+              <td className="td"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p className="text-xs text-[var(--ecs-muted)] mt-2">
+        Guests have no ECS login and file <b>no TE claim</b> (§8). Their airfare and accommodation are <b>direct-billed by the TMC to the host department</b> cost object above; the actual is read from the guest&apos;s own booking in the group fan-out (§9.3). Guests carry <b>no share of any shared line</b> and no ODA is settled through this flow.
+      </p>
     </Card>
   );
 }
