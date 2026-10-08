@@ -24,6 +24,8 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const [guests, setGuests] = useState<GuestRow[]>([]);
   const [importNote, setImportNote] = useState<string>('');
   const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [query, setQuery] = useState('');          // directory type-ahead search
+  const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const setGuest = (i: number, p: Partial<GuestRow>) => setGuests((g) => g.map((r, j) => j === i ? { ...r, ...p } : r));
@@ -33,6 +35,15 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const total = selected.size + namedGuests.length;
   const over = total > groupMax;
   const tooFew = total < 2;
+
+  // Directory type-ahead (scales to a large AD — no full list rendered).
+  const optById = new Map(groupOptions.map((o) => [o.id, o] as const));
+  const q = query.trim().toLowerCase();
+  const matchesAll = groupOptions.filter((o) => !selected.has(o.id)
+    && (!q || [o.name, o.dept, o.title, o.id, o.email ?? ''].some((v) => v.toLowerCase().includes(q))));
+  const matches = matchesAll.slice(0, 8);
+  const moreCount = matchesAll.length - matches.length;
+  const addEmployee = (id: string) => { setSelected((s) => new Set(s).add(id)); setQuery(''); };
 
   // Resolve an employee by id, email or name (case-insensitive) against the directory.
   const resolveEmp = (key: string): Opt | undefined => {
@@ -220,14 +231,45 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
               </div>
 
               <label className="label">Employee travellers (each confirms inclusion — §13.13)</label>
-              <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                {groupOptions.map((e) => (
-                  <label key={e.id} className="flex items-center gap-2.5 px-3 py-2 rounded border border-[var(--ecs-border)] hover:bg-[var(--ecs-panel-2)] cursor-pointer">
-                    <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} className="w-4 h-4" />
-                    <span className="text-sm">{e.name} <span className="text-[var(--ecs-muted)]">— {e.title} ({e.dept})</span></span>
-                  </label>
-                ))}
+              {selected.size > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {[...selected].map((id) => {
+                    const o = optById.get(id);
+                    return (
+                      <span key={id} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] text-sm">
+                        <span>{o?.name ?? id}</span>
+                        {o && <span className="text-xs text-[var(--ecs-muted)]">{o.dept}</span>}
+                        <button type="button" onClick={() => toggle(id)} aria-label={`Remove ${o?.name ?? id}`}
+                          className="text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] leading-none px-0.5">✕</button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="relative">
+                <input type="text" className="field" placeholder="Search the directory by name, department or ID…"
+                  value={query} onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 150)} />
+                {focused && (
+                  <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-[var(--ecs-border)] rounded-md shadow-lg max-h-64 overflow-y-auto">
+                    {matches.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-[var(--ecs-muted)]">{q ? 'No matching employees.' : 'All directory employees are already selected.'}</div>
+                    ) : (
+                      <>
+                        {matches.map((o) => (
+                          <button key={o.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => addEmployee(o.id)}
+                            className="w-full text-left px-3 py-2 hover:bg-[var(--ecs-panel-2)] border-b border-[var(--ecs-border)] last:border-0">
+                            <span className="text-sm">{o.name}</span>
+                            <span className="text-xs text-[var(--ecs-muted)]"> — {o.title} ({o.dept})</span>
+                          </button>
+                        ))}
+                        {moreCount > 0 && <div className="px-3 py-1.5 text-xs text-[var(--ecs-muted)] bg-[var(--ecs-panel-2)]">+{moreCount} more — refine your search</div>}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
+              <p className="text-xs text-[var(--ecs-muted)] mt-1">Type to search the directory, pick to add. {selected.size} employee{selected.size === 1 ? '' : 's'} selected.</p>
 
               <div className="flex items-center justify-between mt-4 mb-1">
                 <label className="label mb-0">Guest members (non-employees, §8)</label>
