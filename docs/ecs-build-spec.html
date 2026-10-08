@@ -1024,19 +1024,19 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
       <p><b>Today:</b> a <code>TravelBooking</code> holds one PNR/ticket; the group fan-out creates one booking (one PNR) <i>per traveller</i>, but a single traveller's multi-city trip is modelled as one booking → one PNR. The TE claim reconciles to that single booking's actuals.</p>
       <p><b>To decide:</b> (a) allow <b>many bookings (PNRs) per request</b>, each with its own ticket/segments; (b) <b>map each PNR to its legs</b> so a cost line reconciles to the right ticket; (c) run the booked-vs-approved deviation check <b>per PNR or on the aggregate</b>; (d) how the claim displays and totals multiple PNRs. <b>Lean:</b> one booking record per PNR under the request, PNR↔leg mapping, deviation on the aggregate airfare, claim aggregates across PNRs.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-05</div><div class="d-t">Emergency / <b>retrospective booking ratification</b> lane <span class="pill p-warn">P2 · decide early</span></div>
+    <div class="decision open"><div class="d-id">OD-02</div><div class="d-t">Emergency / <b>retrospective booking ratification</b> lane <span class="pill p-warn">P2 · decide early</span></div>
       <p><b>Question:</b> When urgency leaves no time for a pre-trip approval cycle, should there be a lane where the TMC books offline and the request is <b>ratified after the fact</b> within policy, rather than bending amend/re-raise to the clock?</p>
       <p><b>Today:</b> every booking requires an approved TA first; there is no retrospective path. <b>Lean:</b> add a bounded emergency lane (offline booking → retrospective ratification within tolerance, else full re-approval).</p></div>
 
-    <div class="decision open"><div class="d-id">OD-06</div><div class="d-t">Out-of-policy / over-ceiling <b>at booking</b>: rebook vs re-approve <span class="pill p-warn">P2 · decide early</span></div>
+    <div class="decision open"><div class="d-id">OD-03</div><div class="d-t">Out-of-policy / over-ceiling <b>at booking</b>: rebook vs re-approve <span class="pill p-warn">P2 · decide early</span></div>
       <p><b>Question:</b> When the only available fare is out of policy or over the approved ceiling, should the request <b>return to the traveller to rebook within policy</b>, or route <b>straight to re-approval of the higher amount</b>? (The real decision hiding inside "can the OBT send it back".)</p>
       <p><b>Today:</b> a material fare deviation raises <code>BookingDeviation(action=Reapproval)</code>. <b>Lean:</b> small/explained overages → re-approve; large/avoidable → return to rebook; make the split a tolerance/policy setting.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-07</div><div class="d-t">Guest <b>honorarium / per-diem</b> — in scope or separate? <span class="pill p-navy">P3 · can defer</span></div>
+    <div class="decision open"><div class="d-id">OD-04</div><div class="d-t">Guest <b>honorarium / per-diem</b> — in scope or separate? <span class="pill p-navy">P3 · can defer</span></div>
       <p><b>Question:</b> A guest gets no ODA here (DD-16). If a guest is nonetheless due a per-diem or honorarium, is that <b>out of scope</b> for Pre-Trip (handled as a separate direct payment / AP), or should the module capture it as a distinct, non-claim line?</p>
       <p><b>Today:</b> guest cost is airfare + accommodation only (host direct-billed). <b>Lean:</b> keep honorarium out of Pre-Trip; if needed, capture as a separate host-settled line, never as ODA or a claim.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-09</div><div class="d-t">Finalise the <b>OBT inbound event mapping</b> (Cytric / Trip.Biz) <span class="pill p-crit">P1 · at integration</span></div>
+    <div class="decision open"><div class="d-id">OD-05</div><div class="d-t">Finalise the <b>OBT inbound event mapping</b> (Cytric / Trip.Biz) <span class="pill p-crit">P1 · at integration</span></div>
       <p><b>Question:</b> The normalized inbound status set (§12) must be mapped to each OBT's real callbacks. Trip.Biz publishes <code>paid / issued / cancelled / refunded / changed</code>; Cytric's exact events are partner-gated. Which events map to <b>Booked</b>, <b>Failed (not-issued)</b>, <b>Traveller Action Required</b>, etc., and is failure <b>pushed or inferred</b> per vendor?</p>
       <p><b>Today:</b> ECS normalizes to its own booking-status lifecycle; "failed" is inferred from not-issued within the window. <b>Lean:</b> finalise the per-vendor event map at integration onboarding; keep the normalized set as the contract.</p></div>
   </section>
