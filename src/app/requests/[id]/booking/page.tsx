@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus } from '@/modules/pretrip/actions';
+import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, amendAfterFailedBooking, cancelRequest } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
@@ -29,6 +29,13 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   const canPostSap = settings.airfareTreatment === 'DIRECT_SAP' && req.bookingStatus === BOOKING_STATUS.Booked && !sapPost;
   // §30/§39 TMC lifecycle — can receive a response while in flight; can advance the status.
   const inFlight = req.bookingStatus === BOOKING_STATUS.SentToTMC || TMC_INFLIGHT_STATUSES.includes(req.bookingStatus);
+  // §13.3 booking window — the fare/seat may not survive an approval round-trip, so a failed
+  // booking shows whether the deadline / TA validity has passed (drives re-send vs amend/cancel).
+  const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
+  const windowRef = req.bookingDeadline ?? req.authorisationExpiry ?? null;
+  const windowLabel = req.bookingDeadline ? 'booking deadline' : 'TA valid until';
+  const daysLeft = windowRef ? Math.ceil((windowRef.getTime() - Date.now()) / 86400000) : null;
+  const windowClosed = !!windowRef && windowRef.getTime() < Date.now();
   // Multi-TMC: the single provider this request routes to (resolved), and the one that booked.
   const routing = resolveTmcProvider(req);
   const sentProviderId = (() => { try { return outbound ? JSON.parse(outbound.payload).meta?.tmc ?? null : null; } catch { return null; } })();
@@ -86,7 +93,21 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
           </form>
         )}
         {req.bookingStatus === BOOKING_STATUS.Failed && (
-          <form action={resendToTmc.bind(null, id)}><button className="btn-primary">Re-send to TMC</button></form>
+          <div className="card p-4 w-full border-amber-200 bg-amber-50">
+            <div className="font-semibold text-amber-900 mb-1">Booking failed — recovery (§6.4)</div>
+            <p className="text-sm text-amber-900 mb-2">
+              The TMC/OBT could not fulfil this itinerary (ticket not issued).{' '}
+              {windowRef && (windowClosed
+                ? <>The <b>booking window has closed</b> ({windowLabel} {fmtDate(windowRef)}) — a re-send is unlikely to succeed; <b>amend</b> or <b>cancel &amp; re-raise</b>.</>
+                : <>Booking window: <b>{daysLeft} day{daysLeft === 1 ? '' : 's'}</b> left ({windowLabel} {fmtDate(windowRef)}).</>)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <form action={resendToTmc.bind(null, id)}><button className="btn-secondary">Re-send to TMC (retry as-is)</button></form>
+              <form action={amendAfterFailedBooking.bind(null, id)}><button className="btn-secondary">Amend itinerary &amp; re-route</button></form>
+              <form action={cancelRequest.bind(null, id)}><button className="btn-danger">Cancel &amp; raise a new request</button></form>
+            </div>
+            <p className="text-xs text-amber-800 mt-2">For an urgent trip the TMC will usually contact the traveller directly; once a replacement is booked, cancel this request so no two authorisations stay live — the duplicate check blocks a re-raise until this one is cancelled or amended.</p>
+          </div>
         )}
         {canPostSap && (
           <form action={postAirfareToSap.bind(null, id)}><button className="btn-secondary">Post airfare to ERP (SAP)</button></form>

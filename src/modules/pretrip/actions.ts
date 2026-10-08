@@ -1043,6 +1043,17 @@ export async function resendToTmc(id: string) {
   await handoffToTmc(id);
 }
 
+/** §6.4 recovery after a failed booking — reopen the approved request for amendment and
+ *  restart the approval route (the "update the TR and re-route" path), then land the traveller
+ *  on the trip step to adjust the itinerary. The alternative recovery is cancel-and-re-raise. */
+export async function amendAfterFailedBooking(id: string) {
+  if (!(await requireEdit(id))) return;
+  const req = await loadRequest(id);
+  if (!req || req.bookingStatus !== BOOKING_STATUS.Failed) return;
+  await applyMaterialAmendment(id, 'booking failed — itinerary reopened for amendment and re-approval');
+  redirect(`/requests/${id}/trip`);
+}
+
 /* ---------------------------------------- §4.13 visa letter notification */
 /** Daily visa-letter batch: notify the org-unit-mapped immigration office for every
  *  approved request that flagged a visa letter and has not yet been notified. Idempotent
