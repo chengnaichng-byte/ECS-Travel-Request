@@ -86,16 +86,21 @@ export function TripPlanner({
   const move = (i: number, dir: -1 | 1) => setLegs((ls) => { const j = i + dir; if (j < 0 || j >= ls.length) return ls; const c = [...ls]; [c[i], c[j]] = [c[j], c[i]]; return c; });
   const pick = (t: TripType) => { setType(t); setLegs((ls) => reshape(t, ls)); };
 
-  // Prefill leg departures from the official dates — only when a leg's date is still empty, so
-  // the traveller's own entries are never overwritten. Outbound ← official start; the final
-  // round-trip leg ← official end.
+  // Keep the preset legs tracking the official dates — a leg follows an official-date change
+  // when it was empty OR still equal to the PREVIOUS official date, so a mirrored Outbound/Return
+  // moves with the change while a date the traveller set deliberately is never overwritten.
+  // Outbound ← official start; the final round-trip leg ← official end.
   const setStart = (v: string) => {
+    const prev = start;
     setStartRaw(v);
-    if (v) setLegs((ls) => ls.map((l, i) => (i === 0 && !l.departDate) ? { ...l, departDate: v, arriveDate: l.arriveDate || v } : l));
+    if (v) setLegs((ls) => ls.map((l, i) => (i === 0 && (!l.departDate || l.departDate === prev))
+      ? { ...l, departDate: v, arriveDate: (!l.arriveDate || l.arriveDate === prev) ? v : l.arriveDate } : l));
   };
   const setEnd = (v: string) => {
+    const prev = end;
     setEndRaw(v);
-    if (v) setLegs((ls) => ls.map((l, i) => (type === 'ROUND_TRIP' && i === ls.length - 1 && i > 0 && !l.departDate) ? { ...l, departDate: v, arriveDate: l.arriveDate || v } : l));
+    if (v) setLegs((ls) => ls.map((l, i) => (type === 'ROUND_TRIP' && i === ls.length - 1 && i > 0 && (!l.departDate || l.departDate === prev))
+      ? { ...l, departDate: v, arriveDate: (!l.arriveDate || l.arriveDate === prev) ? v : l.arriveDate } : l));
   };
 
   // Live cross-field validation (mirrored server-side in saveTrip as the authority).

@@ -327,6 +327,24 @@ export async function saveTrip(id: string, fd: FormData) {
     nights: l.nights || 0,
     isPersonal: !!l.isPersonal,
   }));
+  // Backstop: for a ROUND_TRIP/ONE_WAY preset, keep the mirrored legs tracking the official
+  // dates even when the client did not sync (e.g. an official-date change during an amendment) —
+  // a leg that was empty or still on the OLD official date follows; a deliberate date is kept.
+  if (tripType === 'ROUND_TRIP' || tripType === 'ONE_WAY') {
+    const sameDay = (a: Date | null, b: Date | null) => !!a && !!b && a.getTime() === b.getTime();
+    const oldStart = req0?.startDate ?? null, oldEnd = req0?.endDate ?? null;
+    if (newLegs[0] && start && (!newLegs[0].departDate || sameDay(newLegs[0].departDate, oldStart))) {
+      if (!newLegs[0].arriveDate || sameDay(newLegs[0].arriveDate, oldStart)) newLegs[0].arriveDate = start;
+      newLegs[0].departDate = start;
+    }
+    if (tripType === 'ROUND_TRIP' && newLegs.length >= 2 && end) {
+      const ret = newLegs[newLegs.length - 1];
+      if (!ret.departDate || sameDay(ret.departDate, oldEnd)) {
+        if (!ret.arriveDate || sameDay(ret.arriveDate, oldEnd)) ret.arriveDate = end;
+        ret.departDate = end;
+      }
+    }
+  }
   let seq = 1;
   for (const l of newLegs) {
     const ent = EcsTravelClassRegister.entitledForDuration(req0?.travellerId ?? 'E-TRAV', l.durationHours ?? hours, start ?? new Date());
