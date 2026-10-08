@@ -331,6 +331,10 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     <div class="decision"><div class="d-id">DD-12 · A Travel Request has no "Reject"</div><div class="d-t">Dissent = Send Back.</div><p>An approver who disagrees <b>sends the request back</b> (→ Sent Back → Draft) to be revised and resubmitted. There is no terminal reject on the request. (The TE claim keeps standard claim controls.)</p></div>
 
     <div class="decision"><div class="d-id">DD-13 · A group may mix employees and guests; its size is capped at the TMC limit</div><div class="d-t">Guest (non-employee) members fly Economy, are host-settled, and never claim; a configurable limit caps the booking.</div><p>A group booking can include <b>guest members</b> (external speakers / collaborators with no ECS/HR profile) alongside employees. A guest has no entitlement profile so defaults to <b>Economy</b>, is <b>charged to the host (requestor) department</b>, and is <b>settled centrally by TMC direct-billing</b> — guests have no login and <b>file no TE claim</b>. A guest carries <b>no share of any shared incidental</b> and receives <b>no ODA</b> (neither is host direct-billable — both are blocked and validated). Mixing is <b>configurable</b> (<code>groupGuestMixAllowed</code>, default on); when off, a group is employees-only and guests use a separate request. The total membership may not exceed <code>groupMaxTravellers</code> (default <b>10</b>). Full logic in <a href="#group-guest" class="ref">§14</a>.</p><p class="why">Why: real group trips routinely carry an invited guest whose cost the host absorbs; but a guest has only one settlement path (direct-bill), so any cost it can't carry there — shared incidentals, ODA — must never be attributed to it.</p></div>
+
+    <div class="decision"><div class="d-id">DD-14 · One live authorisation per trip — a duplicate is blocked, not silently doubled</div><div class="d-t">A traveller can't be on two trips at once; a re-raise must cancel/amend the original first.</div><p>A request may not be submitted when a <b>live</b> request (Submitted · Pending* · Approved · Amendment In Progress) already <b>shares a traveller</b> and <b>overlaps the official dates</b>. Same destination = a <b>true duplicate → hard block</b> (submit disabled; the traveller cancels or amends the original first); a different destination with overlapping dates = a <b>date clash → warning</b> (possible double-booking). Groups match per shared employee; guests are excluded (a guest may legitimately appear on more than one host's trip).</p><p class="why">Why: after a failed booking a traveller tends to re-raise; without this guard two live Travel Authorisations can exist for one trip (double-booking, double-spend, orphaned TA). The guard makes "cancel/amend before re-raise" enforceable.</p></div>
+
+    <div class="decision"><div class="d-id">DD-15 · A failed booking recovers by amend-and-reroute or cancel-and-reraise; the OBT reports status, it does not reject</div><div class="d-t">The OBT/TMC is a fulfilment channel, not an approver — "failed" is inferred from not-issued within the booking window.</div><p>The OBT (e.g. Cytric, Trip.Biz) returns booking <b>status</b> (confirmed / issued / changed / cancelled / refunded), not an approval verdict. A booking that does not issue within the window is <b>Booking Failed</b>. Recovery offers, gated by the booking window (deadline / TA validity): <b>re-send</b> (retry as-is), <b>amend &amp; re-route</b> (reopen to Amendment In Progress, re-derive the route — the single-TA path), or <b>cancel &amp; re-raise</b> (the original goes terminal, freeing the overlap for a fresh request under DD-14). A material booking deviation (fare over tolerance) likewise routes to re-approval — it is never the OBT "sending the request back".</p><p class="why">Why: the fare/seat may not survive an approval round-trip, so recovery must consider the window; and authority stays with the human approver, never the booking tool.</p></div>
   </section>
 
   <!-- 3 DATA MODEL -->
@@ -653,6 +657,8 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
       <li>All <b>hard stops</b> resolved (AC06).</li>
       <li>A <b>DOA is selected</b> when candidates exist (DD-02).</li>
       <li>High-risk destination acknowledgement checked when applicable (§4.8).</li>
+      <li><b>No duplicate live request (DD-14):</b> submission is blocked when another live request (Submitted · Pending* · Approved · Amendment In Progress) shares a traveller, overlaps the official dates and has the <b>same destination</b>. A date overlap with a <b>different</b> destination is surfaced as a warning (possible double-booking), not a block.</li>
+      <li><b>No guest-attributed shared/ODA cost (§8):</b> a shared line whose shareMap names a guest, or an ODA line attributed to a guest, is a hard block.</li>
       <li>Status transition is in the allowed set (§4); self-approval prevented (an approver who is a traveller is skipped/escalated).</li>
     </ul>
 
@@ -817,8 +823,22 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
       <li><b>Air segments</b> — origin / destination (IATA, verbatim), depart date, approved class. <b>Hotel segments</b> — city, nights, capped nightly.</li>
       <li>Approved cost ceiling; approved exceptions; charging (primary bears the airfare posting); approval metadata.</li>
       <li><b>Group fan-out (§9.3):</b> one approval → <b>one instruction per traveller</b>, each carrying that traveller's own class, nights and cost share.</li>
+      <li><b>Guest (§8):</b> a guest instruction carries <code>bookingFor = GUEST</code>, the guest identity, Economy class, and <code>settlement = HOST_DIRECT_BILL</code> with the host cost object.</li>
     </ul>
     <div class="callout"><b>Booking arrangement</b> decides the channel: AUTO routes to a TMC by policy/destination; a provider id targets a specific TMC; Self-booked / Host-arranged / No booking skip the hand-off. The resolved TMC is shown read-only on the trip form and the review/detail pages.</div>
+
+    <h4>Inbound outcomes &amp; failed-booking recovery (DD-15)</h4>
+    <p>The OBT/TMC (e.g. <b>Cytric</b>, <b>Trip.Biz</b>) is a <b>fulfilment channel, not an approver</b>: it returns booking <b>status</b> — confirmed / issued / changed / cancelled / refunded — never an approval verdict. ECS normalises these into its own booking-status lifecycle (§4); "failed" is <b>inferred</b> from <b>not-issued within the booking window</b>, not assumed to be a single push event. A material booking deviation (fare over tolerance) raises a <code>BookingDeviation(action=Reapproval)</code> — again a deviation loop, not the OBT "sending the request back".</p>
+    <p>On <b>Booking Failed</b> the booking page shows a recovery panel, gated by the <b>booking window</b> (booking deadline / TA validity — a closed window means a re-send is unlikely to help):</p>
+    <div class="tbl-box narrow"><table>
+      <thead><tr><th>Recovery</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">Re-send to TMC</td><td>retry the same instruction (fare/seat may have returned)</td></tr>
+        <tr><td class="fld">Amend &amp; re-route</td><td>reopen to <b>Amendment In Progress</b>, re-derive the approval route, edit the itinerary — keeps a <b>single TA lineage</b></td></tr>
+        <tr><td class="fld">Cancel &amp; re-raise</td><td>the original goes terminal (Cancelled); a fresh request is then allowed under the duplicate guard (DD-14)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout">For an urgent trip the TMC typically books offline and contacts the traveller directly; once a replacement is booked, the original is cancelled so <b>no two authorisations stay live</b> — the duplicate guard (DD-14) blocks a re-raise until the original is cancelled or amended.</div>
   </section>
 
   <!-- 13 MASTERS -->
