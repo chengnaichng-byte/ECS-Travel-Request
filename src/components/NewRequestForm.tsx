@@ -1,10 +1,12 @@
 'use client';
 // TR-02 create form — Individual / Group / Guest (§13.14, §8). A group may mix employee
 // members and guest (non-employee) members, up to the configured TMC group-booking limit.
-import { useState } from 'react';
+// Group members may be added by ticking the directory, adding guest rows, or bulk-uploading
+// an Excel/CSV member list (§13.13 — a coordinator building a large party).
+import { useState, useRef } from 'react';
 import { createDraft, createGroupDraft, createGuestDraft } from '@/modules/pretrip/actions';
 
-interface Opt { id: string; name: string; title: string; dept: string; delegated: boolean }
+interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean }
 interface GuestRow { name: string; email: string; org: string }
 const MODE_LABEL = { individual: 'Individual request', group: 'Group request', guest: 'Guest / non-employee' } as const;
 type Mode = keyof typeof MODE_LABEL;
@@ -20,6 +22,9 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   // Group state (employee selection + guest members)
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [guests, setGuests] = useState<GuestRow[]>([]);
+  const [importNote, setImportNote] = useState<string>('');
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const setGuest = (i: number, p: Partial<GuestRow>) => setGuests((g) => g.map((r, j) => j === i ? { ...r, ...p } : r));
   const addGuest = () => setGuests((g) => [...g, { name: '', email: '', org: '' }]);
@@ -28,6 +33,103 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const total = selected.size + namedGuests.length;
   const over = total > groupMax;
   const tooFew = total < 2;
+
+  // Resolve an employee by id, email or name (case-insensitive) against the directory.
+  const resolveEmp = (key: string): Opt | undefined => {
+    const k = key.trim().toLowerCase();
+    if (!k) return undefined;
+    return groupOptions.find((o) => o.id.toLowerCase() === k)
+      ?? groupOptions.find((o) => (o.email ?? '').toLowerCase() === k)
+      ?? groupOptions.find((o) => o.name.toLowerCase() === k);
+  };
+
+  // Bulk-import group members from an uploaded Excel/CSV file. Columns (case-insensitive):
+  // Type · Employee ID · Name · Email · Organisation. Employee rows resolve against the ECS
+  // directory; guest rows are captured verbatim. Merges into the current selection.
+  const onExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await importMembers(file);
+    if (fileRef.current) fileRef.current.value = ''; // allow re-selecting the same file
+  };
+
+  const importMembers = async (file: File) => {
+    setImportNote(''); setImportErrors([]);
+    try {
+      const XLSX = await import('xlsx');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+
+      const pick = (row: Record<string, string>, ...keys: string[]) => {
+        for (const k of keys) { const v = row[k]; if (v != null && String(v).trim()) return String(v).trim(); }
+        return '';
+      };
+      const addEmp = new Set<string>(selected);
+      const addGuests: GuestRow[] = [...guests];
+      const errs: string[] = [];
+      let nEmp = 0, nGuest = 0;
+
+      rows.forEach((raw, i) => {
+        // normalise header keys to lowercase
+        const row: Record<string, string> = {};
+        for (const [k, v] of Object.entries(raw)) row[k.trim().toLowerCase()] = v == null ? '' : String(v);
+        const type = pick(row, 'type', 'member type').toLowerCase();
+        const empId = pick(row, 'employee id', 'employeeid', 'staff id', 'id');
+        const name = pick(row, 'name', 'traveller', 'guest name', 'full name');
+        const email = pick(row, 'email', 'guest email', 'e-mail');
+        const org = pick(row, 'organisation', 'organization', 'org', 'home organisation', 'affiliation');
+        const rowNo = i + 2; // header is row 1
+
+        if (!type && !empId && !name && !email) return; // blank row
+
+        const asGuest = () => {
+          if (!name) { errs.push(`Row ${rowNo}: guest needs a name.`); return; }
+          if (!addGuests.some((g) => g.name.trim().toLowerCase() === name.toLowerCase())) { addGuests.push({ name, email, org }); nGuest++; }
+        };
+
+        if (type.startsWith('guest')) { asGuest(); return; }
+        if (type.startsWith('emp') || empId) {
+          const emp = resolveEmp(empId || name || email);
+          if (emp) { if (!addEmp.has(emp.id)) { addEmp.add(emp.id); nEmp++; } }
+          else errs.push(`Row ${rowNo}: no employee matches "${empId || name || email}".`);
+          return;
+        }
+        // Untyped row: match an employee by name/email, else treat as a guest.
+        const emp = resolveEmp(name || email);
+        if (emp) { if (!addEmp.has(emp.id)) { addEmp.add(emp.id); nEmp++; } }
+        else asGuest();
+      });
+
+      setSelected(addEmp);
+      setGuests(addGuests);
+      setImportErrors(errs);
+      const parts: string[] = [];
+      if (nEmp) parts.push(`${nEmp} employee${nEmp > 1 ? 's' : ''}`);
+      if (nGuest) parts.push(`${nGuest} guest${nGuest > 1 ? 's' : ''}`);
+      setImportNote(parts.length ? `Imported ${parts.join(' and ')} from ${file.name}.` : `No new members found in ${file.name}.`);
+    } catch (err) {
+      setImportErrors([`Could not read the file — ${(err as Error).message}. Expected .xlsx, .xls or .csv.`]);
+    }
+  };
+
+  const downloadTemplate = async () => {
+    const XLSX = await import('xlsx');
+    const header = ['Type', 'Employee ID', 'Name', 'Email', 'Organisation'];
+    const sample = [
+      { Type: 'Employee', 'Employee ID': groupOptions[0]?.id ?? 'E-TRAV', Name: groupOptions[0]?.name ?? '', Email: '', Organisation: '' },
+      { Type: 'Guest', 'Employee ID': '', Name: 'Prof Maria Santos', Email: 'maria.santos@mit.edu', Organisation: 'MIT' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sample, { header });
+    ws['!cols'] = [{ wch: 10 }, { wch: 14 }, { wch: 26 }, { wch: 26 }, { wch: 22 }];
+    const dir = groupOptions.map((o) => ({ 'Employee ID': o.id, Name: o.name, Department: o.dept, Email: o.email ?? '' }));
+    const ws2 = XLSX.utils.json_to_sheet(dir);
+    ws2['!cols'] = [{ wch: 14 }, { wch: 26 }, { wch: 40 }, { wch: 28 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Members');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Employee directory');
+    XLSX.writeFile(wb, 'group-members-template.xlsx');
+  };
 
   return (
     <div>
@@ -94,6 +196,28 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
             <div className="p-4">
               <label className="label">Requestor (you)</label>
               <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] mb-4">{persona.name} — {persona.title}{isRequestor && <span className="pill-navy ml-1">Travel Requestor</span>}</div>
+
+              {/* Bulk import */}
+              <div className="rounded border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 mb-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <div className="text-sm font-medium">Bulk-add members from Excel</div>
+                    <div className="text-xs text-[var(--ecs-muted)]">Columns: <code>Type</code>, <code>Employee ID</code>, <code>Name</code>, <code>Email</code>, <code>Organisation</code>. Employees resolve from the ECS directory; everything else is treated as a guest.</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>⬆ Upload Excel / CSV</button>
+                    <button type="button" className="btn-ghost text-xs" onClick={downloadTemplate}>Download template</button>
+                  </div>
+                </div>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onExcel} />
+                {importNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{importNote}</p>}
+                {importErrors.length > 0 && (
+                  <details className="mt-1" open>
+                    <summary className="text-xs text-[var(--ecs-red)] cursor-pointer">{importErrors.length} row{importErrors.length > 1 ? 's' : ''} skipped</summary>
+                    <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{importErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>
+                  </details>
+                )}
+              </div>
 
               <label className="label">Employee travellers (each confirms inclusion — §13.13)</label>
               <div className="space-y-1.5 max-h-60 overflow-y-auto">

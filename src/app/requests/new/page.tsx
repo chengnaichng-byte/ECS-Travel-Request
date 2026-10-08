@@ -24,7 +24,7 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
   if (isRequestor) employees.filter((e) => e.isTraveller && e.departmentId === persona.departmentId).forEach((e) => selectable.add(e.id));
   if (selectable.size === 0) employees.filter((e) => e.isTraveller).forEach((e) => selectable.add(e.id));
 
-  const toOpt = (e: (typeof employees)[number]) => ({ id: e.id, name: e.name, title: e.title, dept: EcsIdentity.department(e.departmentId)?.name ?? '', delegated: delegators.includes(e.id) });
+  const toOpt = (e: (typeof employees)[number]) => ({ id: e.id, name: e.name, title: e.title, dept: EcsIdentity.department(e.departmentId)?.name ?? '', email: e.email ?? '', delegated: delegators.includes(e.id) });
   // Individual creation respects the requestor's remit; a group booking may name any employee
   // traveller (routing handles cross-department), so the group pool is the full traveller list.
   const options = (isRequestor ? employees.filter((e) => e.isTraveller) : employees.filter((e) => selectable.has(e.id))).map(toOpt);
