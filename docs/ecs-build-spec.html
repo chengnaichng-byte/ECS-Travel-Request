@@ -1012,41 +1012,47 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
   <section id="open">
     <h2><span class="num">16</span>Open design decisions</h2>
     <p class="lead">Decisions still to be made — <b>not yet built</b>. Each states the question, the current behaviour, and a lean; the lean is a starting point for discussion, not a commitment. Numbered <code>OD-nn</code> so they can be promoted to a <code>DD</code> once settled.</p>
+    <div class="legend">
+      <span class="pill p-crit">P1 · decide before build</span>
+      <span class="pill p-warn">P2 · decide early</span>
+      <span class="pill p-navy">P3 · can defer</span>
+    </div>
+    <p style="font-size:.84rem;color:var(--muted);margin-top:.2rem"><b>P1</b> is architectural or a release blocker (shapes the data model or integration contract); <b>P2</b> shapes the design but has a workable default today; <b>P3</b> is a refinement or edge case that can follow.</p>
 
-    <div class="decision open"><div class="d-id">OD-01</div><div class="d-t">Should a TE claim (and its booking) support <b>multiple PNRs</b>? <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-01</div><div class="d-t">Should a TE claim (and its booking) support <b>multiple PNRs</b>? <span class="pill p-crit">P1 · decide before build</span></div>
       <p><b>Question:</b> A single trip can carry more than one PNR — a multi-city itinerary split across carriers (e.g. SIN→LON on PNR&nbsp;A, LON→PAR→SIN on PNR&nbsp;B), a separate hotel PNR, or a re-issue after a change. Should one request/claim reconcile <b>N</b> PNRs?</p>
       <p><b>Today:</b> a <code>TravelBooking</code> holds one PNR/ticket; the group fan-out creates one booking (one PNR) <i>per traveller</i>, but a single traveller's multi-city trip is modelled as one booking → one PNR. The TE claim reconciles to that single booking's actuals.</p>
       <p><b>To decide:</b> (a) allow <b>many bookings (PNRs) per request</b>, each with its own ticket/segments; (b) <b>map each PNR to its legs</b> so a cost line reconciles to the right ticket; (c) run the booked-vs-approved deviation check <b>per PNR or on the aggregate</b>; (d) how the claim displays and totals multiple PNRs. <b>Lean:</b> one booking record per PNR under the request, PNR↔leg mapping, deviation on the aggregate airfare, claim aggregates across PNRs.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-02</div><div class="d-t">Guest cost object: <b>explicit capture</b> vs host-department default <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-02</div><div class="d-t">Guest cost object: <b>explicit capture</b> vs host-department default <span class="pill p-warn">P2 · decide early</span></div>
       <p><b>Question:</b> A guest's trip is often funded by a specific grant/WBS, not the coordinator's department. Should the guest cost object be <b>captured explicitly</b> at creation (correct-by-default), or left to default to the host department and edited on the charging step (correct-by-edit)?</p>
       <p><b>Today:</b> a guest defaults to the host (requestor) department cost centre; it is editable per line (ITEM allocation) but nothing prompts for it. <b>Lean:</b> capture the guest's funding cost object up front, defaulting the host department only as a fallback.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-03</div><div class="d-t">Guest-bearing department DOA sign-off <b>below the cross-BA threshold</b> <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-03</div><div class="d-t">Guest-bearing department DOA sign-off <b>below the cross-BA threshold</b> <span class="pill p-navy">P3 · can defer</span></div>
       <p><b>Question:</b> Guest cost rides the host department; the DOA is the highest-share department and cross-BA concurrence is <b>threshold-gated</b>, so a small guest amount on a non-primary department may get no explicit owner sign-off. Should the department actually bearing the guest cost <b>always</b> be in the route?</p>
       <p><b>Today:</b> concurrence applies only above <code>crossBaThresholdSgd</code>. <b>Lean:</b> guarantee the guest-bearing department's DOA (or funding owner) concurs whenever guest cost lands there, regardless of threshold — or accept the threshold if the owner is comfortable.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-04</div><div class="d-t">Cancel-and-re-raise: <b>supersede link</b> + auto-cancel of the original <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-04</div><div class="d-t">Cancel-and-re-raise: <b>supersede link</b> + auto-cancel of the original <span class="pill p-warn">P2 · decide early</span></div>
       <p><b>Question:</b> On the cancel-and-re-raise recovery (DD-15), should the replacement be <b>linked</b> to the original (supersedes / superseded-by) and the original <b>auto-cancelled or blocked</b> once the replacement is approved, so the two are never both live?</p>
       <p><b>Today:</b> the duplicate guard (DD-14) blocks a re-raise until the original is cancelled/amended, but cancellation is manual and the two requests are not linked. <b>Lean:</b> add a supersede link and auto-cancel the original on replacement approval.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-05</div><div class="d-t">Emergency / <b>retrospective booking ratification</b> lane <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-05</div><div class="d-t">Emergency / <b>retrospective booking ratification</b> lane <span class="pill p-warn">P2 · decide early</span></div>
       <p><b>Question:</b> When urgency leaves no time for a pre-trip approval cycle, should there be a lane where the TMC books offline and the request is <b>ratified after the fact</b> within policy, rather than bending amend/re-raise to the clock?</p>
       <p><b>Today:</b> every booking requires an approved TA first; there is no retrospective path. <b>Lean:</b> add a bounded emergency lane (offline booking → retrospective ratification within tolerance, else full re-approval).</p></div>
 
-    <div class="decision open"><div class="d-id">OD-06</div><div class="d-t">Out-of-policy / over-ceiling <b>at booking</b>: rebook vs re-approve <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-06</div><div class="d-t">Out-of-policy / over-ceiling <b>at booking</b>: rebook vs re-approve <span class="pill p-warn">P2 · decide early</span></div>
       <p><b>Question:</b> When the only available fare is out of policy or over the approved ceiling, should the request <b>return to the traveller to rebook within policy</b>, or route <b>straight to re-approval of the higher amount</b>? (The real decision hiding inside "can the OBT send it back".)</p>
       <p><b>Today:</b> a material fare deviation raises <code>BookingDeviation(action=Reapproval)</code>. <b>Lean:</b> small/explained overages → re-approve; large/avoidable → return to rebook; make the split a tolerance/policy setting.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-07</div><div class="d-t">Guest <b>honorarium / per-diem</b> — in scope or separate? <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-07</div><div class="d-t">Guest <b>honorarium / per-diem</b> — in scope or separate? <span class="pill p-navy">P3 · can defer</span></div>
       <p><b>Question:</b> A guest gets no ODA here (DD-16). If a guest is nonetheless due a per-diem or honorarium, is that <b>out of scope</b> for Pre-Trip (handled as a separate direct payment / AP), or should the module capture it as a distinct, non-claim line?</p>
       <p><b>Today:</b> guest cost is airfare + accommodation only (host direct-billed). <b>Lean:</b> keep honorarium out of Pre-Trip; if needed, capture as a separate host-settled line, never as ODA or a claim.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-08</div><div class="d-t">Booking-window signal: <b>fare-hold window</b> vs booking deadline <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-08</div><div class="d-t">Booking-window signal: <b>fare-hold window</b> vs booking deadline <span class="pill p-navy">P3 · can defer</span></div>
       <p><b>Question:</b> The recovery panel gates on the booking deadline / TA validity, but the real constraint is often the <b>fare/seat hold window</b> (minutes–hours, OBT-specific). Should ECS track a fare-hold window per booking?</p>
       <p><b>Today:</b> the window uses <code>bookingDeadline</code> / <code>authorisationExpiry</code> only. <b>Lean:</b> surface a fare-hold window when the OBT provides one; otherwise keep the deadline as the proxy.</p></div>
 
-    <div class="decision open"><div class="d-id">OD-09</div><div class="d-t">Finalise the <b>OBT inbound event mapping</b> (Cytric / Trip.Biz) <span class="pill p-warn">OPEN</span></div>
+    <div class="decision open"><div class="d-id">OD-09</div><div class="d-t">Finalise the <b>OBT inbound event mapping</b> (Cytric / Trip.Biz) <span class="pill p-crit">P1 · at integration</span></div>
       <p><b>Question:</b> The normalized inbound status set (§12) must be mapped to each OBT's real callbacks. Trip.Biz publishes <code>paid / issued / cancelled / refunded / changed</code>; Cytric's exact events are partner-gated. Which events map to <b>Booked</b>, <b>Failed (not-issued)</b>, <b>Traveller Action Required</b>, etc., and is failure <b>pushed or inferred</b> per vendor?</p>
       <p><b>Today:</b> ECS normalizes to its own booking-status lifecycle; "failed" is inferred from not-issued within the window. <b>Lean:</b> finalise the per-vendor event map at integration onboarding; keep the normalized set as the contract.</p></div>
   </section>
