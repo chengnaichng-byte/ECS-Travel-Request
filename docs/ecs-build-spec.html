@@ -209,7 +209,7 @@
 
     <h3>Capabilities</h3>
     <div class="cards">
-      <div class="card"><h4>Request capture</h4><p>Individual, <b>group</b> (coordinator-raised, multi-traveller) and <b>guest</b> (non-employee) requests.</p></div>
+      <div class="card"><h4>Request capture</h4><p>Individual, <b>group</b> (coordinator-raised, multi-traveller, with <b>Excel/CSV bulk upload</b>) and <b>guest</b> (non-employee) requests.</p></div>
       <div class="card"><h4>Itinerary &amp; trip types</h4><p>Round-trip / one-way / multi-city (multi-country), always-on leg builder, personal segments.</p></div>
       <div class="card"><h4>Entitlement derivation</h4><p>Travel class derived from the itinerary (longest-duration leg), per traveller for groups.</p></div>
       <div class="card"><h4>Cost estimation</h4><p>Airfare, accommodation (cap-checked), ODA (rate × eligible days), incidentals; FX conversion; sponsorship.</p></div>
@@ -856,6 +856,34 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
   share = 100 / total                   <span class="c"># equal share; roll-up drives routing</span>
   create TravelRequest(isGroup, travellers = members)</pre>
     <p>The create form offers the full traveller pool plus inline guest rows (name / email / organisation), shows a live <b>"N of max M"</b> counter, and blocks submit when over the limit or under two members. <b>Add-traveller</b> on an existing group re-checks the same cap.</p>
+
+    <h3>Bulk member import (Excel / CSV)</h3>
+    <p>For a large party, the coordinator can upload a member list instead of ticking each traveller. The file is parsed <b>client-side</b> (SheetJS) and merged into the current selection — it is a convenience over the same selection state, not a separate submission path. Accepted: <code>.xlsx</code> · <code>.xls</code> · <code>.csv</code>. Columns are matched case-insensitively.</p>
+    <div class="tbl-box narrow"><table>
+      <thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">Type</td><td><code>Employee</code> | <code>Guest</code> — optional; blank rows auto-classify (see below)</td></tr>
+        <tr><td class="fld">Employee ID</td><td>ECS id for an employee member (e.g. <code>E-TRAV3</code>)</td></tr>
+        <tr><td class="fld">Name</td><td>Employee name (alternative to id) or guest name</td></tr>
+        <tr><td class="fld">Email</td><td>Guest email, or an employee email used to match</td></tr>
+        <tr><td class="fld">Organisation</td><td>Guest's home organisation</td></tr>
+      </tbody>
+    </table></div>
+    <pre><span class="k">for</span> row <b>in</b> sheet:                                   <span class="c"># per uploaded row</span>
+  <span class="k">if</span> type == <span class="s">"guest"</span>:                           addGuest(name, email, org)
+  <span class="k">elif</span> type == <span class="s">"employee"</span> <b>or</b> employeeId:         <span class="c"># employee intent</span>
+     emp = <span class="f">resolve</span>(employeeId <b>or</b> name <b>or</b> email)   <span class="c"># by id → email → name</span>
+     emp ? selectEmployee(emp) : <b>skip</b>(<span class="s">"no match: "</span>+key)
+  <span class="k">else</span>:                                          <span class="c"># untyped row</span>
+     emp = <span class="f">resolve</span>(name <b>or</b> email)
+     emp ? selectEmployee(emp) : addGuest(name, email, org)</pre>
+    <ul>
+      <li><b>Resolution:</b> employees match the ECS directory by id, then email, then name; an unmatched employee row is reported as a <b>skipped row with its reason</b> (nothing invented).</li>
+      <li><b>Merge &amp; dedup:</b> imported members merge into the current selection — employees deduped by id, guests by name — and the running total still honours <code>groupMaxTravellers</code> via the live counter.</li>
+      <li><b>Editable after import:</b> every imported member lands as a normal checkbox / guest row the coordinator can adjust or remove; upload and manual entry mix freely.</li>
+      <li><b>Template:</b> a "Download template" action emits a prefilled workbook — a <i>Members</i> sheet (one employee + one guest example) and an <i>Employee directory</i> reference sheet of valid ids.</li>
+    </ul>
+    <div class="callout">The upload never bypasses governance: it only fills the <b>same</b> selection the manual UI does, so the size limit, delegation check (§13.13) and per-member guest/Economy rules all still apply at submit. No server round-trip is needed to parse the file.</div>
 
     <h3>Downstream handling</h3>
     <ul>
