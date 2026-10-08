@@ -312,7 +312,7 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
 
     <div class="decision"><div class="d-id">DD-03 · RO is a configurable decision point</div><div class="d-t">Reporting Officer step = ALWAYS · INDIVIDUAL_ONLY · NEVER.</div><p>Default <code>INDIVIDUAL_ONLY</code>: present for an individual request, dropped for a group (the group coordinator raises it). Resolved as the traveller's Reporting Officer; skipped if the RO is a traveller on the request (self-approval guard).</p></div>
 
-    <div class="decision"><div class="d-id">DD-04 · Travel class = derived entitlement, not a form input</div><div class="d-t">No class picker on the trip form.</div><p>Class is derived from the itinerary: each flown leg's duration gives its entitled class and the <b>highest wins</b> — so the <b>longest-duration leg</b> drives the class (critical for multi-city). It is shown read-only in the cost items, review and detail pages.</p><p class="why">Why: removes manual error and upgrade abuse; entitlement is deterministic from the register + itinerary.</p></div>
+    <div class="decision"><div class="d-id">DD-04 · Travel class = derived entitlement, stored; an individual may override with justification</div><div class="d-t">Entitlement is derived &amp; stored; no picker on the trip form; an individual upgrade needs justification and raises an exception.</div><p>Class is derived from the itinerary — each flown leg's duration gives its entitled class and the <b>highest wins</b> (the <b>longest-duration leg</b> drives it, critical for multi-city). The derived entitlement is <b>persisted</b> (<code>entitledClassId</code> + <code>classBasis</code> on the request, per traveller for a group, and per leg). There is <b>no class picker on the trip form</b>; an <b>individual</b> request may select a <b>higher</b> class on the Add-Airfare estimate (<code>travelClassId</code>). A chosen class above entitlement: (1) <b>requires a justification</b> — a missing one is a <b>hard stop</b> that blocks submission (<code>CLASS_JUSTIFY</code>); and (2) raises a <b>"Travel class above entitlement" exception</b> (<code>CLASS</code>) that routes to the <b>Exception Approver when <code>exceptionApproverRequired</code> is on</b>, else is surfaced to the DOA. A <b>group</b> books each traveller at their own entitlement (no coordinator upgrade — DD-05).</p><p class="why">Why: entitlement is deterministic from the register + itinerary, but a genuine upgrade is allowed with an auditable justification and the right approver — never silently.</p></div>
 
     <div class="decision"><div class="d-id">DD-05 · Group travel is per-traveller for class &amp; cost; shared for itinerary</div><div class="d-t">One shared itinerary &amp; dates; each traveller at their own entitlement.</div><p>Group members share the itinerary and dates (no per-traveller deviation). But <b>travel class is per traveller</b> (each at their own entitled class — the coordinator cannot justify an upgrade on another's behalf), and <b>all costs are per traveller</b>: airfare, ODA <b>and accommodation</b>. An upgrade for one person is handled by removing them from the group and raising a single request.</p></div>
 
@@ -330,7 +330,7 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
 
     <div class="decision"><div class="d-id">DD-12 · A Travel Request has no "Reject"</div><div class="d-t">Dissent = Send Back.</div><p>An approver who disagrees <b>sends the request back</b> (→ Sent Back → Draft) to be revised and resubmitted. There is no terminal reject on the request. (The TE claim keeps standard claim controls.)</p></div>
 
-    <div class="decision"><div class="d-id">DD-13 · A group may mix employees and guests; its size is capped at the TMC limit</div><div class="d-t">Guest (non-employee) members fly Economy, are host-settled, and never claim; a configurable limit caps the booking.</div><p>A group booking can include <b>guest members</b> (external speakers / collaborators with no ECS/HR profile) alongside employees. A guest has no entitlement profile so defaults to <b>Economy</b>, is <b>charged to the host (requestor) department</b>, and is <b>settled centrally</b> — guests have no login and <b>file no TE claim</b>. The total membership (employees + guests) may not exceed <code>groupMaxTravellers</code> (default <b>10</b>), mirroring the TMC group-fare limit; the limit is enforced on create and on add-traveller. Full logic in <a href="#group-guest" class="ref">§14</a>.</p><p class="why">Why: real group trips routinely carry an invited guest whose cost the host absorbs; the TMC caps a single group fare, so the cap must be a setting, not a constant.</p></div>
+    <div class="decision"><div class="d-id">DD-13 · A group may mix employees and guests; its size is capped at the TMC limit</div><div class="d-t">Guest (non-employee) members fly Economy, are host-settled, and never claim; a configurable limit caps the booking.</div><p>A group booking can include <b>guest members</b> (external speakers / collaborators with no ECS/HR profile) alongside employees. A guest has no entitlement profile so defaults to <b>Economy</b>, is <b>charged to the host (requestor) department</b>, and is <b>settled centrally by TMC direct-billing</b> — guests have no login and <b>file no TE claim</b>. A guest carries <b>no share of any shared incidental</b> and receives <b>no ODA</b> (neither is host direct-billable — both are blocked and validated). Mixing is <b>configurable</b> (<code>groupGuestMixAllowed</code>, default on); when off, a group is employees-only and guests use a separate request. The total membership may not exceed <code>groupMaxTravellers</code> (default <b>10</b>). Full logic in <a href="#group-guest" class="ref">§14</a>.</p><p class="why">Why: real group trips routinely carry an invited guest whose cost the host absorbs; but a guest has only one settlement path (direct-bill), so any cost it can't carry there — shared incidentals, ODA — must never be attributed to it.</p></div>
   </section>
 
   <!-- 3 DATA MODEL -->
@@ -721,10 +721,18 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
              <span class="k">for</span> leg <b>in</b> legs <b>if not</b> leg.isPersonal ]
   <span class="k">return</span> <b>highest-rank</b>(perLeg)                 <span class="c"># longest-duration leg drives the class</span></pre>
     <ul>
-      <li><b>Individual:</b> request-level <code>travelClassId</code> = <code>entitledForItinerary(traveller, legs)</code>.</li>
-      <li><b>Group (DD-05):</b> compute per traveller and store on each <code>TravelRequestTraveller.chosenClassId / entitledClassId</code>. Each airfare line is stamped with that traveller's class; lines re-sync if the itinerary changes.</li>
+      <li><b>Individual:</b> the derived entitlement is <b>stored</b> (<code>entitledClassId</code> + <code>classBasis</code>); the chosen class (<code>travelClassId</code>) defaults to it but may be <b>overridden to a higher class</b> on the Add-Airfare estimate.</li>
+      <li><b>Group (DD-05):</b> compute per traveller and store on each <code>TravelRequestTraveller.chosenClassId / entitledClassId</code>. Each airfare line is stamped with that traveller's class; lines re-sync if the itinerary changes. No coordinator upgrade.</li>
       <li>Leg duration is derived server-side from the destination city's flight-hours — not trusted from the form.</li>
     </ul>
+    <h4>Upgrade control (chosen &gt; entitled)</h4>
+    <pre><span class="k">if</span> rank(chosen) &gt; rank(entitled):                 <span class="c"># per traveller</span>
+  raise EXCEPTION <span class="s">"Travel class above entitlement"</span>   <span class="c"># code CLASS</span>
+  <span class="k">if</span> <b>not</b> justification:
+     raise HARD_STOP <span class="s">"Class upgrade justification required"</span>  <span class="c"># code CLASS_JUSTIFY — blocks submit</span>
+<span class="c"># the CLASS exception then routes to the Exception Approver when exceptionApproverRequired,</span>
+<span class="c"># otherwise it is surfaced to the DOA (§7 routing, DD-01).</span></pre>
+    <div class="callout">So an individual <b>may</b> fly above entitlement, but only with a stored <b>justification</b> (absent = hard stop) and the <b>right approver</b> — the Exception Approver or the DOA per <code>exceptionApproverRequired</code>. Nothing is silent; the derived entitlement is always retained for comparison.</div>
   </section>
 
   <!-- 9 CHARGING -->
@@ -781,6 +789,7 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
         <tr><td class="fld">roRequirement</td><td>ALWAYS · <b>INDIVIDUAL_ONLY</b> · NEVER</td><td>RO decision point (DD-03)</td></tr>
         <tr><td class="fld">groupTravelEnabled</td><td>bool · <b>true</b></td><td>Enables one-request-many-travellers group requests (DD-05)</td></tr>
         <tr><td class="fld">groupMaxTravellers</td><td>int · <b>10</b></td><td>Group booking size limit incl. guests — TMC group-fare cap (DD-13)</td></tr>
+        <tr><td class="fld">groupGuestMixAllowed</td><td>bool · <b>true</b></td><td>May a group mix employees and guests? Off = employees-only; guests use a separate request (§8, DD-13)</td></tr>
         <tr><td class="fld">exceptionApproverRequired</td><td>bool · <b>true</b></td><td>Insert an Exception step, else surface to DOA</td></tr>
         <tr><td class="fld">sameRouteResearch</td><td>bool · <b>false</b></td><td>Treat research like non-research (no Research DOA line)</td></tr>
         <tr><td class="fld">approvalAmountBasis</td><td>GROSS · <b>NET_NTU</b> · MAJOR_COST · ALLOCATION</td><td>Which amount drives the band / DOA tier</td></tr>
@@ -840,9 +849,11 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
         <tr><td class="fld">travellerType</td><td>EMPLOYEE</td><td><b>GUEST</b></td></tr>
         <tr><td class="fld">guestName / guestEmail / guestOrg</td><td>—</td><td>captured on the create form</td></tr>
         <tr><td class="fld">entitled / chosen class</td><td>derived per itinerary (DD-04)</td><td><b>Economy</b> (no entitlement profile)</td></tr>
+        <tr><td class="fld">ODA</td><td>per-diem by destination</td><td><b>none</b> — not a guest entitlement (blocked)</td></tr>
+        <tr><td class="fld">shared incidental</td><td>carries an equal share</td><td><b>none</b> — never attributed a shared slice</td></tr>
         <tr><td class="fld">charging</td><td>traveller's Workday department</td><td><b>host (requestor) department</b></td></tr>
+        <tr><td class="fld">settlement</td><td>own TE claim (reimbursed)</td><td><b>TMC direct-billed to host</b> (no claim)</td></tr>
         <tr><td class="fld">confirmation</td><td>each confirms inclusion (§13.13)</td><td>host confirms offline (pre-confirmed)</td></tr>
-        <tr><td class="fld">TE claim</td><td>files own claim</td><td><b>none</b> — settled centrally, host-absorbed</td></tr>
       </tbody>
     </table></div>
 
@@ -850,6 +861,7 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     <pre><span class="k">function</span> <span class="f">createGroupDraft</span>(employeeIds, guests, settings):   <span class="c"># DD-13</span>
   total = employeeIds.length + guests.length
   <span class="k">if</span> total &lt; 2:                         <span class="k">reject</span>  <span class="s">"a group needs ≥2 members"</span>
+  <span class="k">if</span> guests <b>and not</b> settings.groupGuestMixAllowed: <span class="k">reject</span>  <span class="s">"mixing disabled — use a guest request"</span>
   <span class="k">if</span> total &gt; settings.groupMaxTravellers: <span class="k">reject</span>  <span class="s">"over the TMC group limit"</span>
   <span class="k">for</span> eid <b>in</b> employeeIds: <b>assert</b> <span class="f">canCreateFor</span>(requestor, eid)   <span class="c"># §13.13 delegation</span>
   members = employeeIds.map(EMPLOYEE) + guests.map(g =&gt; GUEST(<span class="s">"G-"</span>+uid(), g))
@@ -885,15 +897,30 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     </ul>
     <div class="callout">The upload never bypasses governance: it only fills the <b>same</b> selection the manual UI does, so the size limit, delegation check (§13.13) and per-member guest/Economy rules all still apply at submit. No server round-trip is needed to parse the file.</div>
 
+    <p><b>Configurable mixing (<code>groupGuestMixAllowed</code>, default on).</b> When off, a group is employees-only: <code>createGroupDraft</code> rejects any guest, the create form replaces the guest section with a pointer to the standalone guest request, and the Excel import skips guest rows with a reason.</p>
+
     <h3>Downstream handling</h3>
     <ul>
       <li><b>Entitlement (§8):</b> a guest short-circuits to Economy; employees derive per itinerary. Each member's class is stamped on their own airfare line.</li>
-      <li><b>Charging (§9):</b> a guest's share maps to the host department's cost object; the per-department roll-up still derives the DOA from the highest-share department. Guest cost is never split onto the guest.</li>
+      <li><b>Charging (§9):</b> a guest's cost maps to the host department's cost object; the per-department roll-up still derives the DOA from the highest-share department. Guest cost is never split onto the guest.</li>
+      <li><b>No shared slice, no ODA:</b> shared incidentals split across <b>employee members only</b>, and ODA is <b>blocked for guests at authoring</b>. Both are <b>validated at submit</b> — a shared line that names a guest, or a guest ODA line, is a hard block. (A guest's only settlement path is direct-billing, which covers neither.)</li>
       <li><b>Review &amp; detail:</b> the roster shows each member with a <b>Guest</b> pill, their org (<i>Guest · MIT</i>), and Economy class.</li>
-      <li><b>TMC fan-out (§12):</b> a guest instruction carries <code>bookingFor = GUEST</code>, the guest identity block, and Economy class; employee instructions are unchanged.</li>
+      <li><b>TMC fan-out (§12):</b> a guest instruction carries <code>bookingFor = GUEST</code>, the guest identity block, Economy class, and <code>settlement = HOST_DIRECT_BILL</code> with the host cost object.</li>
       <li><b>Claim:</b> claims are keyed to the logged-in persona, so a guest — having no login — can never produce one; the host absorbs guest cost.</li>
     </ul>
-    <div class="callout">A per-person upgrade or a guest who must claim their own cost is handled by <b>removing them from the group and raising a single request</b> (the DD-05 escape hatch), not by special-casing the group.</div>
+
+    <h3>Guest settlement — host direct-billed</h3>
+    <p>Because a guest files no claim, their cost is <b>not</b> reconciled through the claim pipeline. It is host-settled: the TMC <b>direct-bills the host department cost object</b>, and the actual is read from the guest's own booking in the group fan-out. The group detail page carries a <b>Guest Settlement</b> card:</p>
+    <div class="tbl-box narrow"><table>
+      <thead><tr><th>Column</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td class="fld">Cost object (host)</td><td>host (requestor) department default, or an explicitly-charged guest line (§9 edit)</td></tr>
+        <tr><td class="fld">Estimate (SGD)</td><td>the guest's own <b>airfare + accommodation</b> only (the direct-billable categories)</td></tr>
+        <tr><td class="fld">Direct-billed (SGD)</td><td>the guest's booking actual (fare + taxes + fees + hotel), once booked</td></tr>
+        <tr><td class="fld">Settlement</td><td><code>Pending TMC booking</code> → <code>Direct-billed to host</code> after the fan-out confirms</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout">A per-person upgrade, or a guest who must claim their own cost, is handled by <b>removing them from the group and raising a single request</b> (the DD-05 escape hatch), not by special-casing the group.</div>
   </section>
 
   <!-- 15 ENUMERATIONS -->
