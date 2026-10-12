@@ -359,6 +359,8 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     <div class="decision"><div class="d-id">DD-23 · Emergency / retrospective pre-trip</div><div class="d-t">For genuine emergencies, book first on authorised approval, then raise the TR for retrospective approval.</div><p>An explicit <b>emergency path</b>: booking may proceed <b>before</b> the normal TR workflow completes, on authorised approval; the traveller/requestor then <b>creates/completes the Travel Request and obtains retrospective approval</b>. It is a bounded, audited scenario — <b>not</b> a general bypass of the workflow.</p><p class="why">Why: real emergencies can't wait for a full pre-trip cycle; a controlled retrospective lane keeps governance without blocking the trip. (Resolves the former OD-02.)</p></div>
 
     <div class="decision"><div class="d-id">DD-24 · Approvals live in the ECS dashboard; the approver sees a one-page summary</div><div class="d-t">Tabs in the existing ECS approval dashboard, not a separate portal; policy exceptions emphasised.</div><p>Travel-request approvals are surfaced as <b>tabs (Travel Requests / Expense Claims)</b> in the <b>existing ECS approval dashboard</b>, not a standalone portal. The approval page is a <b>one-page at-a-glance summary</b> — purpose, dates, cost, charging and policy exceptions visible without extensive scrolling — with <b>policy exceptions given stronger visual emphasis</b>.</p><p class="why">Why: approvers already live in the ECS dashboard; a single consistent surface and a scannable summary speed decisions and reduce missed exceptions.</p></div>
+
+    <div class="decision"><div class="d-id">DD-25 · A guest may be upgraded above Economy only with justification and Provost approval</div><div class="d-t">Guest travel class is Economy by default but editable; a higher class needs a justification and the host school's Provost approves.</div><p>A guest defaults to <b>Economy</b> (no entitlement profile), but the class is <b>editable</b>: choosing a higher class <b>requires a justification</b> (hard-stop if missing) and raises a <b>guest-upgrade exception</b> that routes to the <b>Provost of the host school</b> — not the generic Exception Approver. The <b>per-school Provost list is a maintainable reference master</b>, surfaced for selection when a guest upgrade is requested; the approved class and the exception then flow to the TMC. (Refines the guest-Economy default of DD-16 / §14.)</p><p class="why">Why: an invited guest (e.g. a senior speaker) may warrant a premium cabin, but authorising that spend sits above the host department — with the Provost — so the upgrade is governed, not silent.</p></div>
   </section>
 
   <!-- 3 DATA MODEL -->
@@ -935,6 +937,7 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
       <div class="card"><div class="tag">Authority</div><h4>DOA lines &amp; workflow bands</h4><p>Per-department DOA line (+ research line); amount bands → DOA tier index + label.</p></div>
       <div class="card"><div class="tag">Finance</div><h4>Charging accounts</h4><p>CC/WBS with company code, business area, department, research flag, funding owner, active/closed.</p></div>
       <div class="card"><div class="tag">Policy</div><h4>Caps &amp; ODA rates</h4><p>Per-city hotel caps; per-country ODA daily rates; travel-class register (policy group, min hours, entitled class, effective dates).</p></div>
+      <div class="card"><div class="tag">Authority</div><h4>Provost list (per school)</h4><p>Maintainable list of each school's Provost(s); surfaced for selection when a <b>guest travel-class upgrade</b> needs Provost approval (DD-25).</p></div>
       <div class="card"><div class="tag">Location</div><h4>Countries · cities · airports</h4><p>IATA airport master (shared with the TMC); city → country; flight-hours from base.</p></div>
       <div class="card"><div class="tag">Rates</div><h4>FX &amp; expense types</h4><p>Entry-date FX (re-locked at submit); expense types with GL account &amp; GST code.</p></div>
       <div class="card"><div class="tag">Vendors</div><h4>TMC providers</h4><p>Provider + region + booking methods (channels); policy routing.</p></div>
@@ -954,7 +957,7 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
         <tr><td class="fld">employeeId</td><td>ECS/HR id</td><td>synthetic <code>G-…</code> key</td></tr>
         <tr><td class="fld">travellerType</td><td>EMPLOYEE</td><td><b>GUEST</b></td></tr>
         <tr><td class="fld">guestName / guestEmail / guestOrg</td><td>—</td><td>captured on the create form</td></tr>
-        <tr><td class="fld">entitled / chosen class</td><td>derived per itinerary (DD-04)</td><td><b>Economy</b> (no entitlement profile)</td></tr>
+        <tr><td class="fld">entitled / chosen class</td><td>derived per itinerary (DD-04)</td><td><b>Economy</b> default; upgradeable with justification + <b>Provost approval</b> (DD-25)</td></tr>
         <tr><td class="fld">ODA</td><td>per-diem by destination</td><td><b>none</b> — not a guest entitlement (blocked)</td></tr>
         <tr><td class="fld">shared incidental</td><td>carries an equal share</td><td><b>none</b> — never attributed a shared slice</td></tr>
         <tr><td class="fld">charging</td><td>traveller's Workday department</td><td><b>host (requestor) department</b></td></tr>
@@ -1119,6 +1122,10 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     <div class="decision open"><div class="d-id">O-5</div><div class="d-t">Upgrade-cost allocation percentages <span class="pill p-warn">P2 · Finance to set</span></div>
       <p><b>Question:</b> The base-vs-upgrade split (DD-20) is agreed as a capability; the <b>proxy percentages per upgrade scenario</b> are not — Finance must determine them.</p>
       <p><b>Today:</b> the split rule is configurable; percentages are a placeholder. <b>Lean:</b> Finance sets standard %s; configure per scenario.</p></div>
+
+    <div class="decision open"><div class="d-id">O-6</div><div class="d-t">Provost list — source &amp; governance for the guest-upgrade approver <span class="pill p-navy">P3 · confirm</span></div>
+      <p><b>Question:</b> For the guest-upgrade approval (DD-25), where does the <b>per-school Provost list</b> come from — the ECS org/authority master, or a separately maintained list — and who maintains it?</p>
+      <p><b>Today:</b> modelled as a maintainable reference list. <b>Lean:</b> source from the ECS authority master if it already holds the Provost role; otherwise a small maintained list under Setup &amp; Maintenance.</p></div>
   </section>
 
   <!-- 17 STATUS & CHANGE CONTROL -->
