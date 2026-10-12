@@ -53,6 +53,27 @@ export function claimHasNewException(claim: ClaimLike, req: FullRequest, opts: C
   return beyondTolerance || missingReceipt;
 }
 
+/** §51 / DD-08 The DOA authority a cost object answers to = its department AND whether it is a
+ *  research line (research routes to the research DOA / funding owner). Two charging accounts
+ *  share a DOA only when both match. */
+export interface ChargingDoaContext {
+  dept: string;          // DOA-owning department (the claim's effective charging, falling back to the TR)
+  research: boolean;     // routes to the research DOA line
+  changed: boolean;      // the claim's charging DOA differs from the approved Travel Request's
+  code: string | null;   // the claim's main charging code, when set
+}
+
+/** Resolve the claim's effective charging-DOA context and whether it moved off the approved
+ *  request's DOA (a changed department OR a change to/from a research line). */
+export function claimChargingContext(claim: ClaimLike, req: FullRequest, opts: Pick<ClaimWfOpts, 'sameRouteResearch'>): ChargingDoaContext {
+  const trDept = highestChargingDept(req);
+  const trResearch = isResearchRequest(req) && !opts.sameRouteResearch;
+  const code = claim.chargingMainCode ? EcsCharging.code(claim.chargingMainCode) : null;
+  const dept = code?.departmentId ?? trDept;
+  const research = (code ? code.isResearch : isResearchRequest(req)) && !opts.sameRouteResearch;
+  return { dept, research, changed: dept !== trDept || research !== trResearch, code: claim.chargingMainCode ?? null };
+}
+
 /** §51 Whether the claim's DOA approval is auto-granted from the approved Travel Request. */
 export function doaAutoGrant(claim: ClaimLike, req: FullRequest, opts: ClaimWfOpts): { auto: boolean; reason: string } {
   if (req.status !== REQUEST_STATUS.Approved && req.status !== REQUEST_STATUS.Closed) return { auto: false, reason: 'Travel Request is not approved' };
@@ -62,10 +83,13 @@ export function doaAutoGrant(claim: ClaimLike, req: FullRequest, opts: ClaimWfOp
   if (!withinTol) return { auto: false, reason: `claim exceeds the approved amount beyond the ${opts.teAutoGrantTolerancePct}% / SGD ${opts.teAutoGrantToleranceAbsSgd} tolerance` };
   if (claimHasNewExpenseType(claim, req)) return { auto: false, reason: 'claim adds an expense type not on the approved request' };
   if (claimHasNewException(claim, req, opts)) return { auto: false, reason: 'claim introduces a new policy exception' };
-  // Same charging DOA as the approved request (claim's main charging account → its department).
-  const trDept = highestChargingDept(req);
-  const claimDept = claim.chargingMainCode ? (EcsCharging.code(claim.chargingMainCode)?.departmentId ?? trDept) : trDept;
-  if (claimDept !== trDept) return { auto: false, reason: 'claim changes the charging department / DOA' };
+  // DD-08 A changed charging account routes to the NEW account's DOA — never auto-granted off
+  // the Travel Request's DOA. Compared at DOA-authority granularity (department + research line).
+  const charging = claimChargingContext(claim, req, opts);
+  if (charging.changed) {
+    const name = charging.code ? (EcsCharging.code(charging.code)?.name ?? charging.code) : 'the new account';
+    return { auto: false, reason: `charging changed to ${name} — routes to that account's DOA` };
+  }
   return { auto: true, reason: `within the approved estimate (${req.authorisationNo})` };
 }
 
@@ -91,20 +115,25 @@ export function buildClaimRoute(claim: ClaimLike, req: FullRequest, opts: ClaimW
     if (ro && ro.id !== claim.claimantId) steps.push({ seq: seq++, roleType: APPROVER_ROLE.RO, approverId: ro.id, note: 'Reporting Officer' });
   }
 
-  // DOA — always required; resolved from the highest-charging department + amount band.
-  // Auto-granted from the approved Travel Request when the claim is within tolerance.
+  // DOA — always required; resolved from the claim's EFFECTIVE charging department + amount band.
+  // DD-08: when the claimant changed the charging account, the DOA follows the NEW account (its
+  // department + research line), not the Travel Request's. Auto-granted off the TR only when the
+  // charging DOA is unchanged and the claim is within tolerance.
+  const charging = claimChargingContext(claim, req, opts);
   const band = EcsWorkflow.bandForAmount(claimTotal(claim));
-  const dept = EcsIdentity.department(highestChargingDept(req));
-  const research = isResearchRequest(req) && !opts.sameRouteResearch;
-  const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
+  const dept = EcsIdentity.department(charging.dept);
+  const line = charging.research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
   const doaId = line[Math.min(band.doaTierIndex, line.length - 1)] ?? null;
   const ag = doaAutoGrant(claim, req, opts);
+  const chargeNote = charging.changed
+    ? `Charging changed to ${charging.code ? (EcsCharging.code(charging.code)?.name ?? charging.code) : charging.dept} — routed to ${dept?.name ?? charging.dept}${charging.research ? ' research' : ''} DOA · ${band.label}`
+    : band.label;
   steps.push({
     seq: seq++,
-    roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA,
+    roleType: charging.research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA,
     approverId: doaId,
     autoGranted: ag.auto,
-    note: ag.auto ? `Auto-granted from ${req.authorisationNo} — ${ag.reason}` : band.label,
+    note: ag.auto ? `Auto-granted from ${req.authorisationNo} — ${ag.reason}` : chargeNote,
   });
 
   return steps;

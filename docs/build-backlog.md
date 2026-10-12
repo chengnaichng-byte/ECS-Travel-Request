@@ -83,8 +83,11 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
 
 ## P3 — refinements
 
-### E11 · Claim auto-DOA on charging change — **DD-08 (update)**
-- **Impact:** WF — **Effort: S** — a changed charging account routes to the **new account's DOA**; auto-grant otherwise (threshold per O-1).
+### E11 · Claim auto-DOA on charging change — **DD-08 (update)** — ✅ BUILT
+- **Impact:** WF — **Effort: S** — **Dep:** none (tolerance figures already configurable; O-1 only tunes the numbers)
+- **Status:** built & verified — when the claimant moves the claim's main charging off the approved request's DOA, the claim is **no longer auto-granted** and its **DOA step routes to the new account's department DOA** (resolved at DOA-authority granularity = **department + research line**, so a same-department move to a research WBS re-routes to the research DOA too). A **pre-submit notice** on the claim warns of the re-route; an unchanged, in-tolerance claim still shows the green auto-grant notice and auto-grants as before.
+- **Build:** `claimChargingContext(claim, req, opts)` resolves `{dept, research, changed, code}`; `doaAutoGrant` denies on `changed`; `buildClaimRoute` resolves the DOA approver/line from that context (not the TR's). Verified: a claim moved from CC-1000 (SCH-CS) → CC-2000 (RI-AI) routed to **Prof Farah Aziz (E-RDOA, RI-AI DOA)**, all steps Pending, instead of auto-granting off SCH-CS.
+- **Acceptance:** a changed charging account routes to that account's DOA; an unchanged claim within tolerance auto-grants. ✅
 
 ### E12 · Multi-TMC confirmations — **D-03**
 - **Impact:** CFG — **Effort: S** — confirm a **default/main TMC** setting and selectable-where-permitted *(mostly built).* 
@@ -103,4 +106,4 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/ E11** (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).

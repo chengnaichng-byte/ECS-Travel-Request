@@ -10,6 +10,7 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
 import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging } from '@/modules/te/actions';
+import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
@@ -52,6 +53,21 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const totalExpenses = claim.lines.reduce((s, l) => s + l.actualSgd, 0);
   const totalReimbursable = Math.max(totalExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
 
+  // DD-08 / E11 — if the claimant moved the charging off the approved request's DOA, the claim
+  // will route to the NEW account's DOA on submit (no auto-grant). Surface that before submit.
+  const claimLike: ClaimLike = {
+    claimantId: claim.claimantId, lessCorpCard: claim.lessCorpCard, lessPersonal: claim.lessPersonal,
+    chargingMainCode: claim.chargingMainCode,
+    lines: claim.lines.map((l) => ({ expenseTypeId: l.expenseTypeId, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType })),
+  };
+  const chargeCtx = claimChargingContext(claimLike, req, { sameRouteResearch: settings.sameRouteResearch });
+  const newDoaDeptName = EcsIdentity.department(chargeCtx.dept)?.name ?? chargeCtx.dept;
+  const wouldAutoGrant = doaAutoGrant(claimLike, req, {
+    exceptionApproverRequired: settings.exceptionApproverRequired, roRequirement: settings.roRequirement,
+    sameRouteResearch: settings.sameRouteResearch, teAutoGrantTolerancePct: settings.teAutoGrantTolerancePct,
+    teAutoGrantToleranceAbsSgd: settings.teAutoGrantToleranceAbsSgd,
+  }).auto;
+
   // Charging — reconstruct the editor state from the claim snapshot.
   const cj: { rows: { code: string; percent: number; amount: number; io: string; isMain: boolean }[]; lineMap: Record<string, string> } =
     claim.chargingJson ? JSON.parse(claim.chargingJson) : { rows: [], lineMap: {} };
@@ -81,6 +97,18 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
       <p className="text-xs text-[var(--ecs-muted)] -mt-2">Pre-populated from {req.requestNumber} / {req.authorisationNo ?? '—'}. {prep.note}</p>
+
+      {/* DD-08 / E11 — charging moved off the approved request's DOA: re-route notice (Draft only) */}
+      {canEdit && chargeCtx.changed && (
+        <div className="card p-3 text-sm bg-amber-50 border-amber-200 text-amber-900">
+          <strong>Charging changed — DOA re-routes.</strong> The main charging account has moved off the approved request&apos;s DOA. On submit this claim will <strong>not</strong> be auto-granted; it routes to <strong>{newDoaDeptName}{chargeCtx.research ? ' (research)' : ''}</strong>&apos;s DOA to approve the changed account (§13.8 / DD-08).
+        </div>
+      )}
+      {canEdit && !chargeCtx.changed && wouldAutoGrant && (
+        <div className="card p-3 text-sm bg-emerald-50 border-emerald-200 text-emerald-900">
+          On submit, DOA approval will be <strong>auto-granted</strong> from {req.authorisationNo} — the claim is within tolerance, with the same charging DOA and no new exception or expense type (§51).
+        </div>
+      )}
 
       {/* §51 Claim approval workflow */}
       {claim.approvalSteps.length > 0 && (
