@@ -183,6 +183,7 @@
   <a href="#group-guest"><span class="n">14</span>Group &amp; guest bookings</a>
   <a href="#enums"><span class="n">15</span>Enumerations</a>
   <a href="#open"><span class="n">16</span>Open decisions</a>
+  <a href="#status-change"><span class="n">17</span>Status &amp; change control</a>
 </nav>
 
 <main>
@@ -1098,6 +1099,13 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     <div class="decision open"><div class="d-id">OD-05</div><div class="d-t">Finalise the <b>OBT inbound event mapping</b> (Cytric / Trip.Biz) <span class="pill p-crit">P1 · at integration</span></div>
       <p><b>Question:</b> The normalized inbound status set (§12) must be mapped to each OBT's real callbacks. Trip.Biz publishes <code>paid / issued / cancelled / refunded / changed</code>; Cytric's exact events are partner-gated. Which events map to <b>Booked</b>, <b>Failed (not-issued)</b>, <b>Traveller Action Required</b>, etc., and is failure <b>pushed or inferred</b> per vendor?</p>
       <p><b>Today:</b> ECS normalizes to its own booking-status lifecycle; "failed" is inferred from not-issued within the window. <b>Lean:</b> finalise the per-vendor event map at integration onboarding; keep the normalized set as the contract.</p></div>
+  </section>
+
+  <!-- 17 STATUS & CHANGE CONTROL -->
+  <section id="status-change">
+    <h2><span class="num">17</span>Status &amp; change control</h2>
+    <div class="callout"><b>Status — prototype-validated, build-ready baseline.</b> This specification describes the <b>intended</b> design. The <b>final design may change subject to a formal discovery / detailed-design phase</b> with the implementation vendor — in particular: confirming the live integration contracts (TMC/OBT, HR/Workday, DOA, finance), non-functional targets and volumes, and the <a href="#open" class="ref">§16 open decisions</a>. Material changes are tracked by version and the document re-issued. Section references (§) map to the Build Pack; where this document and the Build Pack differ, the Build Pack governs until this document is re-issued.</div>
+    <p style="font-size:.85rem;color:var(--muted)">The reference prototype demonstrates the behaviour, data and logic herein; the implementation platform (OutSystems) and the prototype stack (Next.js/Prisma) are separate concerns, and platform-specific decisions are made during detailed design.</p>
   </section>
 
   <footer>
