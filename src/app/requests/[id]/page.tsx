@@ -26,6 +26,7 @@ import {
   CostAllocationCard, PolicyExceptionsCard, CostItems, GuestSettlementCard,
 } from '@/components/ReviewSections';
 import { withdrawRequest, reopenDraft, handoffToTmc, markSelfBooked } from '@/modules/pretrip/actions';
+import { hasGuestMembers } from '@/modules/pretrip/settlement';
 import { createClaimFromRequest } from '@/modules/te/actions';
 
 export const dynamic = 'force-dynamic';
@@ -120,8 +121,9 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
       <CostAllocationCard req={req} amount={summary.ntuFunded} letter={req.isGroup || isMulti ?'E' : 'D'} />
 
-      {/* §8 Guest settlement (host direct-billed) — renders only when the group has guests */}
-      {req.isGroup && <GuestSettlementCard req={req} letter="F" />}
+      {/* §8 Guest settlement (host direct-billed) — the standalone Guest request (DD-13), or a
+          legacy group with guests. The card self-hides when there is no guest cost to settle. */}
+      {hasGuestMembers(req) && <GuestSettlementCard req={req} letter={req.isGroup ? 'F' : 'E'} />}
 
       {/* Group management workbench (confirmations, per-traveller class & sub-itineraries) — collapsible */}
       {req.isGroup && (

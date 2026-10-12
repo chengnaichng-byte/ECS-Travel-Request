@@ -13,7 +13,7 @@ export const moduleSettingsDefaults = {
   approvalAmountBasis: 'NET_NTU' as 'GROSS' | 'NET_NTU' | 'MAJOR_COST' | 'ALLOCATION',
   groupTravelEnabled: true,         // §13.14
   groupMaxTravellers: 10,           // §13.14 TMC group-booking size limit (incl. guests)
-  groupGuestMixAllowed: true,       // §8 allow a group to mix employees and guests
+  groupGuestMixAllowed: false,      // §8/DD-13 CFO review — groups are employees-only; guests use a separate request
   exceptionApproverRequired: true,  // §26 insert an Exception Approver step for exceptions (else surface to DOA)
   roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
   teAutoGrantTolerancePct: 10,      // §51 TE claim DOA auto-grant tolerance (% over approved)
@@ -59,7 +59,7 @@ export const decisionCatalogue = [
   { key: 'groupMaxTravellers', label: 'Group booking size limit', kind: 'number',
     effect: 'Maximum travellers in a single group booking, including guest members — mirrors the TMC group-fare limit. Create is blocked above this count (§13.14).' },
   { key: 'groupGuestMixAllowed', label: 'Allow mixing guests in a group', kind: 'boolean',
-    effect: 'When on (default), a group booking may mix employees and guest (non-employee) members. When off, a group is employees-only and guests must be raised on a separate guest request (§8).' },
+    effect: 'Per the CFO review a group is employees-only by default (off): guests are raised on a separate Guest request. Turn on only to allow mixing employees and guests in one group (§8, DD-13).' },
   { key: 'selfBookingEnabled', label: 'Self-booked travel enabled', kind: 'boolean',
     effect: 'Allows Self-Booked method and Travel Request selection at claim (§13.17).' },
 ] as const;

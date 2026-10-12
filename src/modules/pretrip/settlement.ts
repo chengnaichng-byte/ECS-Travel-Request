@@ -5,8 +5,11 @@
 // the amount, cost object and source (direct-billed actual vs pending estimate).
 import { EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
-import { isGuestMember, memberName } from './traveller';
+import { isGuestMember, memberName, isGuestRequest, travellerName } from './traveller';
 import type { FullRequest } from './queries';
+
+const hotelOf = (segs: { type: string; amount?: number | null }[] | undefined) =>
+  (segs ?? []).filter((s) => s.type === 'HOTEL').reduce((h, s) => h + (s.amount ?? 0), 0);
 
 // Only TMC-booked categories are host direct-billable for a guest (airfare + accommodation).
 // ODA / incidentals are not settled through this flow (no claim, not TMC-billed).
@@ -32,6 +35,29 @@ export function hostCostObject(req: FullRequest): string {
 
 export function guestSettlements(req: FullRequest): GuestSettlementRow[] {
   const host = hostCostObject(req);
+  // §8 / DD-13 Standalone Guest request — one guest held at request level (no member rows).
+  // Groups are employees-only, so this is now the primary guest-settlement case.
+  if (isGuestRequest(req) && !req.isGroup) {
+    const estimatedSgd = req.expenses
+      .filter((e) => !e.isShared && DIRECT_BILLABLE.includes(e.category))
+      .reduce((s, e) => s + Math.max(e.sgdAmount - e.sponsorSgd, 0), 0);
+    // Actual aggregated across the guest's booking(s) — a trip may hold multiple PNRs (DD-17).
+    const billedSgd = req.bookings.length
+      ? Math.round(req.bookings.reduce((s, b) => s + (b.fare ?? 0) + (b.taxes ?? 0) + (b.fees ?? 0) + hotelOf(b.segments), 0) * 100) / 100
+      : null;
+    const costObject = req.expenses.find((e) => e.chargingCode)?.chargingCode || host;
+    return [{
+      employeeId: req.travellerId,
+      name: travellerName(req),
+      org: req.guestOrg ?? null,
+      costObject,
+      costObjectName: EcsCharging.code(costObject)?.name ?? costObject,
+      estimatedSgd,
+      billedSgd,
+      source: billedSgd != null ? 'TMC_DIRECT_BILL' : 'ESTIMATE',
+      status: billedSgd != null ? 'Direct-billed to host' : 'Pending TMC booking',
+    }];
+  }
   return req.travellers.filter(isGuestMember).map((t) => {
     // Approved estimate = the guest's own attributed (never shared) airfare + accommodation.
     const estimatedSgd = req.expenses
@@ -60,6 +86,8 @@ export function guestSettlements(req: FullRequest): GuestSettlementRow[] {
   });
 }
 
+/** True when the request carries any guest cost to settle — a standalone Guest request, or
+ *  (legacy, when mixing is enabled) a group with guest members. */
 export function hasGuestMembers(req: FullRequest): boolean {
-  return req.travellers.some(isGuestMember);
+  return (isGuestRequest(req) && !req.isGroup) || req.travellers.some(isGuestMember);
 }

@@ -24,13 +24,14 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
 
 ## P2 — shapes design (build after/with E2)
 
-### E1 · Group = employees-only — **DD-13** *(quick win, do early)*
+### E1 · Group = employees-only — **DD-13** — ✅ BUILT
 - **Impact:** CFG · UI · (settlement) — **Effort: S–M** — **Dep:** none
+- **Status:** built & verified — `groupGuestMixAllowed` defaults **OFF**; the group create form replaces the guest section with an *"employees-only — raise a separate Guest request"* note (and bulk-upload rejects guest rows); the **guest settlement / host direct-bill card now renders on the standalone Guest request** (aggregating billed across PNRs), not only on a group. Guest rules (Economy default, no ODA, no shared line, host direct-bill) confirmed on the Guest request.
 - **Stories**
-  - Default `groupGuestMixAllowed = OFF`; create form hides the guest section for groups (already supported).
-  - **Move guest settlement / host direct-bill view to the standalone Guest request** (today it renders for groups).
-  - Confirm guest rules (Economy default, no ODA/shared, host direct-bill) apply on the **Guest request**.
-- **Acceptance:** a group can only hold employees; a guest is raised on the Guest request and shows the settlement line.
+  - Default `groupGuestMixAllowed = OFF`; create form hides the guest section for groups. ✅
+  - **Move guest settlement / host direct-bill view to the standalone Guest request** (was group-only). ✅
+  - Confirm guest rules (Economy default, no ODA/shared, host direct-bill) apply on the **Guest request**. ✅
+- **Acceptance:** a group can only hold employees; a guest is raised on the Guest request and shows the settlement line. ✅
 
 ### E10 · Guest class upgrade + Provost approval — **DD-25**  *(new this round)*
 - **Impact:** CFG (reference) · UI · WF · INT — **Effort: M** — **Dep:** O-6 (Provost source)
@@ -95,4 +96,4 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. **E2** (multi-PNR, P1 foundational) → 2. **E1** (group flip, quick win) → 3. **E6 / E7 / E11** (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. **E6 / E7 / E11** (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
