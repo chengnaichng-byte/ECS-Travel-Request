@@ -832,6 +832,65 @@ Create ─▶ <b>Trip</b> (purpose, booking, dates, itinerary)
     </ul>
     <div class="callout"><b>Booking arrangement</b> decides the channel: AUTO routes to a TMC by policy/destination; a provider id targets a specific TMC; Self-booked / Host-arranged / No booking skip the hand-off. The resolved TMC is shown read-only on the trip form and the review/detail pages.</div>
 
+    <h3>Integration Contract — field flags &amp; message guards</h3>
+    <p>The contract is a <b>declarative registry</b> (<code>src/config/integrationContracts.ts</code>, version <code>ecs-pretrip-contract/1.0</code> — stamped into every message's provenance header) governing the two integration boundaries: <b>Send&nbsp;to&nbsp;TMC</b> (the outbound booking instruction) and <b>Sync&nbsp;to&nbsp;TE</b> (the claim pre-population). Both <code>buildOutbound</code> and <code>prepopulateClaim</code> <b>read</b> it, so a toggle actually changes the payload — it is not a diagram. Defaults live in config (mapping to OutSystems site properties / exposed REST); admin overrides persist in <code>IntegrationFieldSetting</code> / <code>IntegrationGuardSetting</code> and merge at read time.</p>
+
+    <h4>Send to TMC — outbound field flags</h4>
+    <p><b>Core</b> = always carried (not editable); <b>Toggle</b> = admin may include/exclude (all default <b>on</b>). Charging / cost objects are carried so airfare can post directly to ERP (§36); the CC/WBS itself is never used to <i>book</i>, only to post.</p>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Group</th><th>Field</th><th>Source</th><th>Flag</th></tr></thead>
+      <tbody>
+        <tr><td>Booking header</td><td>Travel Authorisation number</td><td><code>req.authorisationNo</code></td><td><span class="pill p-navy">core</span></td></tr>
+        <tr><td>Booking header</td><td>Traveller reference</td><td><code>req.travellerId</code></td><td><span class="pill p-navy">core</span></td></tr>
+        <tr><td>Booking header</td><td>Booking method / channel</td><td><code>req.bookingMethod</code></td><td><span class="pill p-navy">core</span></td></tr>
+        <tr><td>Booking header</td><td>All group travellers</td><td><code>req.travellers[]</code></td><td>toggle · on</td></tr>
+        <tr><td>Booking header</td><td>Booking deadline</td><td><code>req.bookingDeadline</code></td><td>toggle · on</td></tr>
+        <tr><td>Booking header</td><td>Approved cost ceiling (SGD)</td><td>Σ airfare + accommodation</td><td>toggle · on</td></tr>
+        <tr><td>Booking header</td><td>Approved policy exceptions</td><td>policyChecks(Exception)</td><td>toggle · on</td></tr>
+        <tr><td>Booking header</td><td>Travel purpose · Event dates · Approval validity</td><td>purpose / event dates / TA expiry</td><td>toggle · on</td></tr>
+        <tr><td>Itinerary</td><td>Air segments (origin / dest / date)</td><td>shared <code>legs[]</code></td><td>toggle · on</td></tr>
+        <tr><td>Itinerary</td><td>Approved cabin class (ceiling)</td><td><code>leg.travelClassId</code> → name</td><td>toggle · on</td></tr>
+        <tr><td>Accommodation</td><td>Hotel segments (city / nights / cap)</td><td><code>accommodation[]</code></td><td>toggle · on</td></tr>
+        <tr><td>Charging &amp; context</td><td>Charging / cost objects (CC·WBS·BA)</td><td><code>req.allocations[]</code></td><td>toggle · on</td></tr>
+        <tr><td>Charging &amp; context</td><td>Approval metadata (approvers + timestamps)</td><td>approvalSteps(Approved)</td><td>toggle · on</td></tr>
+        <tr><td>Charging &amp; context</td><td>Traveller category &amp; contact (or GUEST)</td><td>employee.policyGroup / guest</td><td>toggle · on</td></tr>
+        <tr><td>Charging &amp; context</td><td>Personal-travel indicator</td><td>personalStart / personal legs</td><td>toggle · on</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Sync to TE — claim pre-population treatment</h4>
+    <p>Each field/line is <b>LOCKED</b> (copied, read-only) · <b>EDITABLE</b> (pre-filled, editable) · <b>REFERENCE</b> (shown for comparison) · <b>EXCLUDED</b> (not carried). Charging is LOCKED into the claim but <b>never sent to the TMC</b> (the opposite boundary).</p>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Group</th><th>Field / line</th><th>Default treatment</th></tr></thead>
+      <tbody>
+        <tr><td>Claim header</td><td>Traveller · Entity · Department · TR number · TA number · Purpose · Description · Main destination</td><td><code>LOCKED</code></td></tr>
+        <tr><td>Claim header</td><td>Official travel dates</td><td><code>EDITABLE</code> (trim to actual)</td></tr>
+        <tr><td>Claim header</td><td>Travel class (approved)</td><td><code>REFERENCE</code></td></tr>
+        <tr><td>Claim header</td><td>Charging &amp; cost allocation</td><td><code>LOCKED</code> — never to TMC</td></tr>
+        <tr><td>Claim header</td><td>Booking reference (PNR / ticket)</td><td><code>REFERENCE</code> (§35, from the TMC feed)</td></tr>
+        <tr><td>Claim lines</td><td>Airfare</td><td><code>REFERENCE</code> — overridden by the Airfare-treatment setting (§13.8)</td></tr>
+        <tr><td>Claim lines</td><td>Accommodation · ODA · Conference · Other</td><td><code>EDITABLE</code></td></tr>
+        <tr><td>Claim actuals</td><td>Booked amounts (fare / taxes / fees, TMC feed)</td><td><code>REFERENCE</code> — set <code>EXCLUDED</code> for self-booked</td></tr>
+      </tbody>
+    </table></div>
+
+    <h4>Parameter filters (message guards)</h4>
+    <p>Message-level gating: <b>all</b> of a flow's guards must hold before a message is sent/accepted. Each is a predicate (param · operator · value); an admin can enable/disable it and, where the operator is not mere presence, change the value. Enforced in <code>handoffToTmc</code> (OUTBOUND), <code>receiveBooking</code> (INBOUND) and claim creation (TE_SYNC).</p>
+    <div class="tbl-box"><table>
+      <thead><tr><th>Flow</th><th>Guard</th><th>Test</th></tr></thead>
+      <tbody>
+        <tr><td><b>OUTBOUND</b> (send to TMC)</td><td>Request is approved</td><td><code>status = Approved</code></td></tr>
+        <tr><td>OUTBOUND</td><td>Not already handed off / booked</td><td><code>bookingStatus = Not Sent</code></td></tr>
+        <tr><td>OUTBOUND</td><td>Booking method is TMC-served</td><td><code>bookingMethod ∈ {TMC_ONLINE, AGENT_ASSISTED, OFFLINE, HOST_ARRANGED}</code> (self-booked / no-booking never sent)</td></tr>
+        <tr><td>OUTBOUND</td><td>Travel Authorisation issued</td><td><code>authorisationNo is set</code></td></tr>
+        <tr><td><b>INBOUND</b> (accept TMC response)</td><td>A booking instruction is in flight</td><td><code>bookingStatus ∈ {Sent to TMC, Received by TMC, Booking In Progress, Traveller Action Required, Partially Booked}</code></td></tr>
+        <tr><td>INBOUND</td><td>Travel Authorisation issued</td><td><code>authorisationNo is set</code></td></tr>
+        <tr><td><b>TE_SYNC</b> (pre-populate claim)</td><td>Request is claimable</td><td><code>status ∈ {Approved, Closed}</code></td></tr>
+        <tr><td>TE_SYNC</td><td>Travel Authorisation issued</td><td><code>authorisationNo is set</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout">A blocked message is <b>audited with the failing guard</b> (e.g. a hand-off attempted before approval, or a claim before a TA), so the admin sees exactly why a message did not flow. The contract version travels in the provenance header for payload-to-contract correlation (§13.9).</div>
+
     <h4>Inbound outcomes &amp; failed-booking recovery (DD-15)</h4>
     <p>The OBT/TMC (e.g. <b>Cytric</b>, <b>Trip.Biz</b>) is a <b>fulfilment channel, not an approver</b>: it returns booking <b>status</b> — confirmed / issued / changed / cancelled / refunded — never an approval verdict. ECS normalises these into its own booking-status lifecycle (§4); "failed" is <b>inferred</b> from <b>not-issued within the booking window</b>, not assumed to be a single push event. A material booking deviation (fare over tolerance) raises a <code>BookingDeviation(action=Reapproval)</code> — again a deviation loop, not the OBT "sending the request back".</p>
     <p>On <b>Booking Failed</b> the booking page shows a recovery panel, gated by the <b>booking window</b> (booking deadline / TA validity — a closed window means a re-send is unlikely to help):</p>
