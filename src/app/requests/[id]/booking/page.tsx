@@ -142,14 +142,18 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
       )}
 
       <div className="grid md:grid-cols-2 gap-5">
-        <Card title={`Booking Summary (TR-14)${bookings.length > 1 ? ` — ${bookings.length} travellers` : ''}`}>
+        <Card title={`Booking Summary (TR-14)${bookings.length > 1 ? ` — ${bookings.length} PNRs` : ''}`}>
           {bookings.length === 0 ? <Empty>No booking yet. Send the approved request to the TMC, or mark it self-booked.</Empty> : (
             <div className="space-y-4">
-              {bookings.map((booking) => (
+              {bookings.map((booking) => {
+                const air = (booking.segments ?? []).filter((s) => s.type === 'AIR').sort((a, b) => (a.departDate?.getTime() ?? 0) - (b.departDate?.getTime() ?? 0));
+                const route = air.length ? [air[0].originCode, ...air.map((s) => s.destCode)].filter(Boolean).join(' → ') : '';
+                return (
                 <dl key={booking.id} className="grid grid-cols-2 gap-3 pb-3 border-b border-[var(--ecs-border)] last:border-0 last:pb-0">
                   {req.isGroup && booking.travellerId && (
                     <div className="col-span-2 text-sm font-semibold text-[var(--ecs-navy)]">{EcsIdentity.employee(booking.travellerId)?.name ?? booking.travellerId}</div>
                   )}
+                  {route && <div className="col-span-2 text-xs text-[var(--ecs-muted)]">Covers: {route}</div>}
                   <KV label="Channel">{booking.channel}</KV>
                   <KV label="Status">{booking.status}</KV>
                   <KV label="PNR">{booking.pnr ?? '—'}</KV>
@@ -158,7 +162,8 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
                   <KV label="Taxes & fees">{booking.taxes != null ? fmtSgd((booking.taxes ?? 0) + (booking.fees ?? 0)) : '—'}</KV>
                   <KV label="Hotel rate">{booking.hotelRate != null ? fmtSgd(booking.hotelRate) : '—'}</KV>
                 </dl>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>

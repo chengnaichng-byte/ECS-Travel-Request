@@ -9,8 +9,9 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
 
 ## P1 — foundational
 
-### E2 · Multiple PNRs per Travel Request/Claim — **DD-17**
+### E2 · Multiple PNRs per Travel Request/Claim — **DD-17** — ✅ BUILT
 - **Impact:** DATA · INT · UI · WF — **Effort: L** — **Dep:** none (do first)
+- **Status:** built & verified — a multi-city inbound splits into **N PNRs** (air by journey, hotel on PNR A), the booking page lists each PNR with its leg coverage, and the claim **aggregates** booked airfare across PNRs under one TR → one claim. *(Minor: accommodation booked is spread evenly across accommodation lines — refine to per-city later.)*
 - **Stories**
   - Booking model becomes **1 request → N bookings (one per PNR)**; keep 1 request → 1 claim.
   - **PNR ↔ leg mapping** so a cost line reconciles to the right ticket.

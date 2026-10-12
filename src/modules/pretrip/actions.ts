@@ -952,14 +952,33 @@ export async function receiveBooking(id: string, fd: FormData) {
   const isFanout = outbound.mode === 'GROUP_FANOUT' && Array.isArray(outbound.instructions);
   const instructions: Array<Record<string, unknown>> = isFanout ? outbound.instructions : [outbound];
 
-  const inbounds = instructions.map((inst, i) => {
+  // §13.x A traveller's trip may be ticketed as MULTIPLE PNRs (DD-17) — a multi-city itinerary
+  // is commonly split by the TMC across PNRs for competitive fares. Each instruction therefore
+  // expands to one-or-more PNRs (each its own booking row), keeping 1 request → 1 claim.
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const multiCity = req.tripType === 'MULTI_CITY';
+  const inbounds = instructions.flatMap((inst, i) => {
     const sim = adapter.simulateInbound(inst as never, { overFarePct });
-    // Make each traveller's PNR/ticket unique within the fan-out.
-    if (isFanout) {
-      sim.pnr = `${sim.pnr}-${i + 1}`;
-      sim.ticketNumbers = sim.ticketNumbers.map((tk) => `${tk}-${i + 1}`);
+    const travellerId = (inst as { travellerRef?: string }).travellerRef ?? null;
+    const suffix = isFanout ? `-${i + 1}` : '';
+    const air = sim.segments.filter((s) => s.type === 'AIR');
+    const hotel = sim.segments.filter((s) => s.type === 'HOTEL');
+    // Split a genuine multi-city itinerary into two PNRs (air split by journey; hotel on PNR A).
+    if (multiCity && air.length >= 3) {
+      const mid = Math.ceil(air.length / 2);
+      const sh = mid / air.length;
+      const mk = (tag: string, segs: typeof sim.segments, f: number, t: number, e: number) => ({ travellerId, inbound: {
+        ...sim, pnr: `${sim.pnr}${suffix}-${tag}`, ticketNumbers: sim.ticketNumbers.map((tk: string) => `${tk}${suffix}-${tag}`),
+        segments: segs, fareSgd: f, taxesSgd: t, feesSgd: e,
+      } });
+      return [
+        mk('A', [...air.slice(0, mid), ...hotel], r2(sim.fareSgd * sh), r2(sim.taxesSgd * sh), r2(sim.feesSgd * sh)),
+        mk('B', air.slice(mid), r2(sim.fareSgd * (1 - sh)), r2(sim.taxesSgd * (1 - sh)), r2(sim.feesSgd * (1 - sh))),
+      ];
     }
-    return { travellerId: (inst as { travellerRef?: string }).travellerRef ?? null, inbound: sim };
+    sim.pnr = `${sim.pnr}${suffix}`;
+    sim.ticketNumbers = sim.ticketNumbers.map((tk: string) => `${tk}${suffix}`);
+    return [{ travellerId, inbound: sim }];
   });
 
   // §6.4 booking-deviation check (AC10) — on the aggregate booked airfare.
@@ -970,8 +989,9 @@ export async function receiveBooking(id: string, fd: FormData) {
   const deviation = approvedAir > 0 && bookedAir > allowed;
 
   const inboundMeta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: outbound.meta?.messageId ?? null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: providerId };
-  const responsePayload = isFanout
-    ? { meta: inboundMeta, mode: 'GROUP_FANOUT', authorisationNumber: req.authorisationNo ?? '', bookings: inbounds.map((b) => b.inbound) }
+  // §13.x list form whenever there is more than one booking (a group fan-out, or multiple PNRs).
+  const responsePayload = (isFanout || inbounds.length > 1)
+    ? { meta: inboundMeta, mode: isFanout ? 'GROUP_FANOUT' : 'MULTI_PNR', authorisationNumber: req.authorisationNo ?? '', bookings: inbounds.map((b) => b.inbound) }
     : { ...inbounds[0].inbound, meta: inboundMeta };
 
   // Atomic: response + bookings + segments + deviation + status succeed or fail together.
@@ -994,7 +1014,9 @@ export async function receiveBooking(id: string, fd: FormData) {
   });
   await audit(id, 'INTEGRATION', isFanout
     ? `Inbound fan-out received — ${inbounds.length} booking(s) confirmed`
-    : `Inbound booking received — PNR ${inbounds[0].inbound.pnr}`);
+    : inbounds.length > 1
+      ? `Inbound received — ${inbounds.length} PNRs (${inbounds.map((b) => b.inbound.pnr).join(', ')})`
+      : `Inbound booking received — PNR ${inbounds[0].inbound.pnr}`);
   revalidatePath(`/requests/${id}/booking`);
 }
 

@@ -50,10 +50,15 @@ export function prepopulateClaim(
   const travelClass = EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—';
   const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
 
-  // §35 the confirmed TMC booking reference for this claimant (their own booking in a
-  // group fan-out, else the request's single booking).
-  const myBooking = req.bookings.find((b) => b.travellerId === claimantId) ?? req.bookings[0];
-  const bookingRef = myBooking?.pnr ? `${myBooking.pnr}${myBooking.ticketNo ? ` · ${myBooking.ticketNo}` : ''}` : '—';
+  // §35/DD-17 the confirmed TMC bookings for this claimant — a trip may hold MULTIPLE PNRs
+  // (multi-city). Aggregate across them: the reference lists every PNR, booked amounts sum.
+  const myBookings = req.bookings.filter((b) => b.travellerId === claimantId);
+  const claimBookings = myBookings.length ? myBookings : req.bookings;
+  const bookingRef = claimBookings.length
+    ? claimBookings.map((b) => `${b.pnr ?? '—'}${b.ticketNo ? ` · ${b.ticketNo}` : ''}`).join('  ·  ')
+    : '—';
+  const bookedAirTotal = claimBookings.reduce((s, b) => s + (b.fare ?? 0) + (b.taxes ?? 0) + (b.fees ?? 0), 0);
+  const bookedHotelTotal = claimBookings.reduce((s, b) => s + (b.segments ?? []).filter((x) => x.type === 'HOTEL').reduce((h, x) => h + (x.amount ?? 0), 0), 0);
 
   // §13.20 a group traveller may travel on their own dates (leg override).
   const myRow = req.travellers.find((t) => t.employeeId === claimantId);
@@ -90,8 +95,12 @@ export function prepopulateClaim(
     ? req.expenses.filter((e) => !e.travellerId || e.travellerId === claimantId || e.isShared)
     : req.expenses;
 
-  const booking = req.bookings[0];
-  const selfBooked = booking?.channel === 'SELF_BOOKED' || req.bookingStatus === BOOKING_STATUS.SelfBooked;
+  const selfBooked = req.bookings[0]?.channel === 'SELF_BOOKED' || req.bookingStatus === BOOKING_STATUS.SelfBooked;
+  const hasBooking = claimBookings.length > 0;
+  // Spread the aggregated booked totals across this claimant's lines of each category, so the
+  // claim's booked column sums to the actuals regardless of how many PNRs or lines there are.
+  const airfareLineCount = myExpenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).length || 1;
+  const accomLineCount = myExpenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation).length || 1;
 
   const rawLines: PrepopLine[] = myExpenses.map((e) => {
     const type = EcsReference.expenseType(e.expenseTypeId);
@@ -119,9 +128,9 @@ export function prepopulateClaim(
     // admin excludes booked amounts from the contract).
     const bookedIncluded = contract?.bookedAmounts !== false;
     let bookedSgd: number | null = null;
-    if (bookedIncluded && !selfBooked && booking) {
-      if (e.category === EXPENSE_CATEGORY.Airfare) bookedSgd = (booking.fare ?? 0) + (booking.taxes ?? 0) + (booking.fees ?? 0);
-      else if (e.category === EXPENSE_CATEGORY.Accommodation) bookedSgd = booking.segments.filter((s) => s.type === 'HOTEL').reduce((s2, s) => s2 + (s.amount ?? 0), 0);
+    if (bookedIncluded && !selfBooked && hasBooking) {
+      if (e.category === EXPENSE_CATEGORY.Airfare) bookedSgd = Math.round((bookedAirTotal / airfareLineCount) * 100) / 100;
+      else if (e.category === EXPENSE_CATEGORY.Accommodation) bookedSgd = Math.round((bookedHotelTotal / accomLineCount) * 100) / 100;
     }
     return {
       category: e.category,
