@@ -854,31 +854,83 @@ export async function reopenDraft(id: string) {
   redirect(`/requests/${id}/trip`);
 }
 
-/** Cancel an approved/expired request (or one in amendment). Skips pending steps and
- * marks any live booking cancelled (§13.1). */
+// §34 A TMC booking is "live" (handed off / in flight / ticketed) when it must be cancelled
+// through the TMC rather than locally. A FAILED booking never ticketed, so it has nothing live
+// to cancel at the TMC (it is cancelled locally, like a not-yet-sent request).
+const TMC_LIVE_BOOKING_STATUSES: string[] = [BOOKING_STATUS.SentToTMC, BOOKING_STATUS.Booked, ...TMC_INFLIGHT_STATUSES];
+
+/** §34 Cancel an approved/expired request (or one in amendment), with the two-way booking
+ *  lifecycle (DD-22):
+ *   • before hand-off / no live booking (Not Sent, Self-Booked, Failed) → cancel LOCALLY,
+ *     booking straight to Cancelled, no TMC message and no fee;
+ *   • after transmitted / booked → send a TMC cancellation REQUEST and hold the booking at
+ *     "Cancellation Requested"; the actual fee/refund is settled when the TMC confirms
+ *     (receiveCancellation). The request's authorisation is voided immediately either way,
+ *     so the duplicate guard no longer blocks a re-raise. */
 export async function cancelRequest(id: string, fd?: FormData) {
   const req = await loadRequest(id);
   if (!req) return;
   if (!actionAllowed('cancel', req.status)) { await audit(id, 'STATUS', `Cancel blocked — request is ${req.status}`); return; }
   const reason = fd ? str(fd, 'reason') : '';
+  // Void the authorisation now (frees a re-raise past the duplicate guard) and skip pending steps.
   await prisma.travelRequest.update({ where: { id }, data: { status: REQUEST_STATUS.Cancelled } });
   await prisma.approvalStep.updateMany({ where: { requestId: id, status: 'Pending' }, data: { status: 'Skipped' } });
-  // §34 cancelling a request with a live TMC booking triggers a TMC cancellation — capture
-  // the cancel reference and any cancellation fee the TMC/airline charges (mock).
-  const liveBooking = [BOOKING_STATUS.SentToTMC, BOOKING_STATUS.Booked, BOOKING_STATUS.Failed, ...TMC_INFLIGHT_STATUSES].includes(req.bookingStatus as never);
+
+  const liveBooking = TMC_LIVE_BOOKING_STATUSES.includes(req.bookingStatus);
   if (liveBooking) {
+    // Two-way: send the cancellation REQUEST to the TMC; the fee/refund is unknown until the
+    // TMC confirms, so the booking waits at "Cancellation Requested" (not yet Cancelled).
     const booking = req.bookings.find((b) => b.channel === 'TMC');
-    const wasBooked = req.bookingStatus === BOOKING_STATUS.Booked;
-    const cancellationFeeSgd = wasBooked ? 75 : 0; // mock airline/TMC cancellation fee once ticketed
     const cancelRef = `CXL-${booking?.pnr ?? req.authorisationNo?.replace(/\D/g, '').slice(-4) ?? '0000'}`;
-    await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_CANCEL', payload: JSON.stringify({ documentType: 'BOOKING_CANCEL', authorisationNumber: req.authorisationNo, cancelRef, cancellationFeeSgd, pnr: booking?.pnr ?? null, reason: reason || 'Request cancelled', cancelledAt: new Date().toISOString() }, null, 2) } });
+    const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: req.bookingStatus, contractVersion: CONTRACT_VERSION };
+    await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_CANCEL', payload: JSON.stringify({ meta, documentType: 'BOOKING_CANCEL_REQUEST', authorisationNumber: req.authorisationNo, cancelRef, pnr: booking?.pnr ?? null, wasTicketed: !!booking?.ticketNo, reason: reason || 'Request cancelled', requestedAt: meta.sentAt }, null, 2) } });
+    await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.CancellationRequested } });
+    await audit(id, 'INTEGRATION', `TMC cancellation requested — ${cancelRef}${booking?.pnr ? ` (PNR ${booking.pnr})` : ''}; awaiting confirmation`);
+  } else {
+    // No live TMC booking (Not Sent before hand-off, Self-Booked, or Failed): nothing to cancel
+    // at the TMC — close the booking locally with no cancellation message and no fee.
     await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Cancelled } });
-    await audit(id, 'INTEGRATION', `TMC booking cancelled — ${cancelRef}${cancellationFeeSgd ? `, cancellation fee SGD ${cancellationFeeSgd}` : ' (no fee)'}`);
+    if (req.bookingStatus !== BOOKING_STATUS.NotSent) await audit(id, 'INTEGRATION', `Booking cancelled locally — no live TMC booking (${req.bookingStatus})`);
   }
   await audit(id, 'STATUS', `Request cancelled${reason ? `: ${reason}` : ''}`);
   revalidatePath(`/requests/${id}`);
+  revalidatePath(`/requests/${id}/booking`);
   revalidatePath('/dashboard');
   redirect(`/requests/${id}`);
+}
+
+/** §34 Inbound: the TMC confirms a cancellation it was asked to make (two-way close-out,
+ *  DD-22). Settles the actual airline/TMC cancellation fee and any refund, then marks the
+ *  booking Cancelled. Only valid while a cancellation is in flight. */
+export async function receiveCancellation(id: string, fd?: FormData) {
+  const req = await loadRequest(id);
+  if (!req) return;
+  if (req.bookingStatus !== BOOKING_STATUS.CancellationRequested) {
+    await audit(id, 'INTEGRATION', `Cancellation confirmation ignored — booking is ${req.bookingStatus}, no cancellation in flight`);
+    revalidatePath(`/requests/${id}/booking`);
+    return;
+  }
+  const booking = req.bookings.find((b) => b.channel === 'TMC');
+  const ticketed = !!booking?.ticketNo;
+  // Mock airline/TMC settlement: a ticketed fare incurs a cancellation penalty and refunds the
+  // balance; an un-ticketed in-flight booking is voided at no cost.
+  const booked = (booking?.fare ?? 0) + (booking?.taxes ?? 0) + (booking?.fees ?? 0);
+  const feeSgd = ticketed ? 75 : 0;
+  const refundSgd = ticketed ? Math.max(Math.round((booked - feeSgd) * 100) / 100, 0) : 0;
+  const cancelOut = req.messages.find((m) => m.kind === 'TMC_CANCEL');
+  const cancelRef = (() => { try { return cancelOut ? JSON.parse(cancelOut.payload).cancelRef : null; } catch { return null; } })()
+    ?? `CXL-${booking?.pnr ?? req.authorisationNo?.replace(/\D/g, '').slice(-4) ?? '0000'}`;
+  const correlationId = (() => { try { return cancelOut ? JSON.parse(cancelOut.payload).meta?.messageId ?? null : null; } catch { return null; } })();
+  const meta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId, sourceStatus: req.status, contractVersion: CONTRACT_VERSION };
+  await prisma.$transaction(async (tx) => {
+    await tx.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_CANCEL_CONFIRM', payload: JSON.stringify({ meta, documentType: 'BOOKING_CANCEL_CONFIRMATION', authorisationNumber: req.authorisationNo, cancelRef, pnr: booking?.pnr ?? null, ticketVoided: ticketed, cancellationFeeSgd: feeSgd, refundSgd, confirmedAt: meta.receivedAt }, null, 2) } });
+    await tx.travelBooking.updateMany({ where: { requestId: id, channel: 'TMC' }, data: { status: BOOKING_STATUS.Cancelled } });
+    await tx.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Cancelled } });
+  });
+  await audit(id, 'INTEGRATION', `TMC confirmed cancellation — ${cancelRef}${feeSgd ? `, fee SGD ${feeSgd}, refund SGD ${refundSgd}` : ' (no fee)'}`);
+  revalidatePath(`/requests/${id}`);
+  revalidatePath(`/requests/${id}/booking`);
+  revalidatePath('/dashboard');
 }
 
 /* --------------------------------------------- TMC hand-off (TR-14, §13.9) */

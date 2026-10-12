@@ -56,9 +56,14 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
 - **Impact:** WF · UI — **Effort: M** — **Dep:** group per-traveller dates
 - **Stories:** detect itinerary **variations** (per-traveller dates, extensions, complex multi-city) → force **agent-assisted/offline**; allow straight-through **online only when deterministic**.
 
-### E7 · Cancellation lifecycle — **DD-22**
-- **Impact:** WF · INT — **Effort: M** — **Dep:** none *(partially built)*
-- **Stories:** **before hand-off** → local withdraw/cancel; **after transmitted/booked** → **TMC-mediated** cancel; inbound cancelled/not-booked status; tie to the duplicate guard.
+### E7 · Cancellation lifecycle — **DD-22** — ✅ BUILT
+- **Impact:** WF · INT — **Effort: M** — **Dep:** none
+- **Status:** built & verified — cancellation is now a **two-way** lifecycle:
+  - **Before hand-off / no live booking** (Not Sent, Self-Booked, Failed) → cancelled **locally**: booking → Cancelled, **no TMC message, no fee**.
+  - **After transmitted / booked** → an outbound **`TMC_CANCEL` (BOOKING_CANCEL_REQUEST)** is sent and the booking holds at a new **`Cancellation Requested`** status; the inbound **`receiveCancellation` (BOOKING_CANCEL_CONFIRMATION)** settles the actual **cancellation fee + refund** (correlated by `messageId`) and marks the booking **Cancelled**.
+  - The request's authorisation is **voided immediately** on cancel, so the **duplicate guard** (terminal statuses excluded) no longer blocks a re-raise.
+  - UI: booking page shows the in-flight "Cancellation requested — awaiting TMC confirmation" panel with a receive-confirmation action, plus side-by-side **Cancellation Request / Confirmation** payload cards.
+- **Acceptance:** a booked request cancels via a TMC round-trip that settles the fee/refund; a not-yet-sent request cancels locally; a cancelled request frees a re-raise. ✅
 
 ### E8 · Emergency / retrospective lane — **DD-23**
 - **Impact:** WF · UI — **Effort: M** — **Dep:** none
@@ -98,4 +103,4 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/ E7 / E11** (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/ E11** (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).

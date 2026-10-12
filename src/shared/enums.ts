@@ -53,6 +53,7 @@ export const BOOKING_STATUS = {
   TravelCompleted: 'Travel Completed',        // §30 trip taken; ready to close/claim
   Failed: 'Booking Failed',
   SelfBooked: 'Self-Booked',
+  CancellationRequested: 'Cancellation Requested', // §34 cancel sent to TMC; awaiting confirmation (two-way)
   Cancelled: 'Cancelled',
 } as const;
 

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, amendAfterFailedBooking, cancelRequest } from '@/modules/pretrip/actions';
+import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, amendAfterFailedBooking, cancelRequest, receiveCancellation } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
@@ -24,6 +24,8 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   const inbound = req.messages.find((m) => m.kind === 'TMC_RESPONSE');
   const sapPost = req.messages.find((m) => m.kind === 'SAP_AIRFARE_POST');
   const cancelMsg = req.messages.find((m) => m.kind === 'TMC_CANCEL');
+  const cancelConfirmMsg = req.messages.find((m) => m.kind === 'TMC_CANCEL_CONFIRM');
+  const cancellationInFlight = req.bookingStatus === BOOKING_STATUS.CancellationRequested;
   const bookings = req.bookings;
   // §36 direct airfare posting is offered only when the setting selects it and a booking exists.
   const canPostSap = settings.airfareTreatment === 'DIRECT_SAP' && req.bookingStatus === BOOKING_STATUS.Booked && !sapPost;
@@ -109,6 +111,15 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
             <p className="text-xs text-amber-800 mt-2">For an urgent trip the TMC will usually contact the traveller directly; once a replacement is booked, cancel this request so no two authorisations stay live — the duplicate check blocks a re-raise until this one is cancelled or amended.</p>
           </div>
         )}
+        {cancellationInFlight && (
+          <div className="card p-4 w-full border-amber-200 bg-amber-50">
+            <div className="font-semibold text-amber-900 mb-1">Cancellation requested — awaiting TMC confirmation (§34)</div>
+            <p className="text-sm text-amber-900 mb-2">
+              The request is cancelled and a <b>cancellation instruction</b> has been sent to the TMC. The booking stays at <b>Cancellation Requested</b> until the TMC confirms and settles any airline/TMC cancellation fee and refund.
+            </p>
+            <form action={receiveCancellation.bind(null, id)}><button className="btn-secondary">Receive cancellation confirmation (mock)</button></form>
+          </div>
+        )}
         {canPostSap && (
           <form action={postAirfareToSap.bind(null, id)}><button className="btn-secondary">Post airfare to ERP (SAP)</button></form>
         )}
@@ -131,8 +142,11 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
       {req.bookingStatus === BOOKING_STATUS.Failed && (
         <div className="card p-3 text-sm text-red-800 bg-red-50 border-red-200">The TMC reported a <strong>failed booking</strong>. Review the inbound payload and re-send when ready.</div>
       )}
+      {cancellationInFlight && (
+        <div className="card p-3 text-sm text-amber-800 bg-amber-50 border-amber-200">Cancellation sent to the TMC — the booking is held at <strong>Cancellation Requested</strong> pending confirmation of the fee/refund.</div>
+      )}
       {req.bookingStatus === BOOKING_STATUS.Cancelled && (
-        <div className="card p-3 text-sm text-amber-800 bg-amber-50 border-amber-200">This request was <strong>cancelled</strong>; the booking is no longer active.</div>
+        <div className="card p-3 text-sm text-amber-800 bg-amber-50 border-amber-200">This request was <strong>cancelled</strong>; the booking is no longer active.{cancelConfirmMsg && ' The TMC confirmed the cancellation below.'}</div>
       )}
 
       {fanoutCount > 1 && (
@@ -197,10 +211,19 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {cancelMsg && (
-        <Card title="TMC Booking Cancellation (§34)">
-          <pre className="text-xs bg-[var(--ecs-panel-2)] p-3 rounded overflow-x-auto border border-[var(--ecs-border)]">{cancelMsg.payload}</pre>
-        </Card>
+      {(cancelMsg || cancelConfirmMsg) && (
+        <div className="grid md:grid-cols-2 gap-5">
+          {cancelMsg && (
+            <Card title="→ TMC Cancellation Request (§34)">
+              <pre className="text-xs bg-[var(--ecs-panel-2)] p-3 rounded overflow-x-auto border border-[var(--ecs-border)]">{cancelMsg.payload}</pre>
+            </Card>
+          )}
+          {cancelConfirmMsg && (
+            <Card title="← TMC Cancellation Confirmation (§34)">
+              <pre className="text-xs bg-[var(--ecs-panel-2)] p-3 rounded overflow-x-auto border border-[var(--ecs-border)]">{cancelConfirmMsg.payload}</pre>
+            </Card>
+          )}
+        </div>
       )}
 
       {sapPost && (
