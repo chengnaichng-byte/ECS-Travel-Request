@@ -29,6 +29,10 @@ export interface CanonicalOutbound {
   travellerName?: string;             // §8 resolved name (guest or employee)
   bookingFor?: 'EMPLOYEE' | 'GUEST';  // §8 guest / non-employee indicator (AC7)
   guest?: { name: string; email?: string | null; organisation?: string | null }; // §8 guest identity (no ECS profile)
+  // §8 / DD-21 PDPA: ECS holds only the guest's name/email/org. The TMC is instructed to
+  // collect the guest's own travel profile (passport/DOB/contact) via a secure link — ECS
+  // never stores it. Present only for a GUEST booking, and only when the contract toggle is on.
+  guestProfile?: { collectVia: 'TMC_SECURE_LINK'; deliverTo: string | null; tmcCollectedFields: string[]; ecsRetains: string };
   settlement?: { mode: 'HOST_DIRECT_BILL'; costObject: string }; // §8 guest: TMC direct-bills the host cost object (no traveller reimbursement / claim)
   travellers?: string[];              // §13.14 group hand-off carries all travellers
   // §9.3 group fan-out (AC15): one approval emits one instruction PER traveller.

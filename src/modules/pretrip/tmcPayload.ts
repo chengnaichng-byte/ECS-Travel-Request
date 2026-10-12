@@ -21,6 +21,24 @@ function guestBlock(req: FullRequest) {
     : { bookingFor: 'EMPLOYEE' as const };
 }
 
+// §8 / DD-21 The sensitive travel-profile fields the TMC collects directly from the guest
+// (via its secure link). ECS never stores these — only name, e-mail and organisation.
+export const GUEST_PROFILE_FIELDS = [
+  'Full name (as in passport)', 'Passport number & expiry', 'Nationality',
+  'Date of birth', 'Mobile contact', 'Frequent-flyer / dietary (optional)',
+];
+
+/** §8 / DD-21 PDPA guest-profile indicator: tells the TMC to e-mail the guest a secure
+ *  link to capture the fields above directly. ECS retains name/e-mail/organisation only. */
+export function guestProfileBlock(email?: string | null) {
+  return {
+    collectVia: 'TMC_SECURE_LINK' as const,
+    deliverTo: email ?? null,
+    tmcCollectedFields: GUEST_PROFILE_FIELDS,
+    ecsRetains: 'name, e-mail & organisation only',
+  };
+}
+
 /** §29/§36 Charging / cost objects carried to the TMC (primary = largest share, which
  *  bears the direct airfare posting to ERP). */
 export function chargingBlock(req: FullRequest) {
@@ -64,6 +82,7 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
     travellerCategory: isGuestRequest(req) ? 'GUEST' : (emp?.travelPolicyGroup ?? 'STAFF'),
     travellerEmail: isGuestRequest(req) ? req.guestEmail : null,
     personalTravel: requestPersonal(req),
+    guestProfile: isGuestRequest(req) ? guestProfileBlock(req.guestEmail) : undefined,
   }, enabled, meta);
   // §8 a guest request is host-settled: the TMC direct-bills the host cost object.
   if (isGuestRequest(req)) out.settlement = { mode: 'HOST_DIRECT_BILL', costObject: hostCostObject(req) };
@@ -109,7 +128,8 @@ export function assembleOutboundInstructions(
       travellerName: memberName(t),
       bookingFor: guest ? 'GUEST' : 'EMPLOYEE',
       ...(guest ? { guest: { name: memberName(t), email: t.guestEmail, organisation: t.guestOrg },
-        settlement: { mode: 'HOST_DIRECT_BILL' as const, costObject: hostCostObject(req) } } : {}),
+        settlement: { mode: 'HOST_DIRECT_BILL' as const, costObject: hostCostObject(req) },
+        ...(on('guestProfile') ? { guestProfile: guestProfileBlock(t.guestEmail) } : {}) } : {}),
       instructionSeq: i + 1,
       instructionCount: count,
       bookingMethod: req.bookingMethod ?? 'TMC_ONLINE',

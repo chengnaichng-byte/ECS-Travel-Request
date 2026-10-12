@@ -18,7 +18,7 @@ import { TreatmentPill } from '@/components/StatusPill';
 
 export const dynamic = 'force-dynamic';
 
-const TMC_GROUPS = ['Booking header', 'Itinerary', 'Accommodation'];
+const TMC_GROUPS = ['Booking header', 'Itinerary', 'Accommodation', 'Charging & context', 'Guest (PDPA)'];
 const TE_GROUPS = ['Claim header', 'Claim lines', 'Claim actuals'];
 
 export default async function IntegrationContractsPage({ searchParams }: { searchParams: Promise<{ preview?: string }> }) {

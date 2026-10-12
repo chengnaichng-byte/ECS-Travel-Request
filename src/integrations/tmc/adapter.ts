@@ -35,6 +35,7 @@ export function buildOutbound(req: {
   travellerCategory?: string;
   travellerEmail?: string | null;
   personalTravel?: boolean;
+  guestProfile?: { collectVia: 'TMC_SECURE_LINK'; deliverTo: string | null; tmcCollectedFields: string[]; ecsRetains: string };
 }, enabled?: Set<string>, meta?: OutboundMeta): CanonicalOutbound {
   const on = (k: string) => !enabled || enabled.has(k);
   const out: CanonicalOutbound = {
@@ -77,6 +78,8 @@ export function buildOutbound(req: {
   if (on('approvalMetadata') && req.approvals?.length) out.approvals = req.approvals;
   if (on('travellerCategory') && req.travellerCategory) out.traveller = { category: req.travellerCategory, email: req.travellerEmail ?? null };
   if (on('personalIndicator')) out.personalTravel = !!req.personalTravel;
+  // §8 / DD-21 PDPA — guest-only profile-collection instruction.
+  if (on('guestProfile') && req.bookingFor === 'GUEST' && req.guestProfile) out.guestProfile = req.guestProfile;
   return out;
 }
 

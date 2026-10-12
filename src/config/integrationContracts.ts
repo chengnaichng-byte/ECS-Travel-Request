@@ -73,6 +73,11 @@ export const CONTRACT_FIELDS: ContractField[] = [
     tmc: 'toggle', defaultTmc: true, note: 'Grade / policy group (or GUEST) + contact for the booking.' },
   { key: 'personalIndicator', group: 'Charging & context', label: 'Personal-travel indicator', source: 'req.personalStart / personal legs',
     tmc: 'toggle', defaultTmc: true, note: 'Flags a personal extension so the TMC separates the personal portion.' },
+  // §8 / DD-21 Guest profile collection via the TMC (PDPA). For a GUEST request only, the
+  // instruction asks the TMC to e-mail the guest a secure link to capture passport / DOB /
+  // contact directly — ECS never stores guest sensitive data (name, e-mail & organisation only).
+  { key: 'guestProfile', group: 'Guest (PDPA)', label: 'Guest profile collection (TMC secure link)', source: 'guest.email → TMC secure profile link',
+    tmc: 'toggle', defaultTmc: true, note: '§8/DD-21 PDPA — guest-only: the TMC e-mails the guest a secure link to capture passport / DOB / contact; ECS stores name, e-mail & organisation only.' },
 
   // ======================= SYNC TO EXPENSE CLAIM (TE) =======================
   { key: 'teTraveller', group: 'Claim header', label: 'Traveller', source: 'employee.name', te: 'field', defaultTe: 'LOCKED' },

@@ -64,9 +64,11 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
 - **Impact:** WF · UI — **Effort: M** — **Dep:** none
 - **Stories:** book-first on **authorised approval**; **retrospective TR + approval**; bounded, audited scenario (not a general bypass).
 
-### E6 · Guest profile via TMC (PDPA) — **DD-21**
+### E6 · Guest profile via TMC (PDPA) — **DD-21** — ✅ BUILT
 - **Impact:** INT · UI — **Effort: S** — **Dep:** none
-- **Stories:** booking-instruction **indicator** → TMC sends the guest a profile/passport link; ECS stores **name/email/org only**.
+- **Status:** built & verified — the outbound booking instruction carries a **`guestProfile`** block for GUEST bookings only: `collectVia: TMC_SECURE_LINK`, `deliverTo` (guest e-mail), the **TMC-collected fields** (passport no./expiry, nationality, DOB, contact, FF/dietary) and `ecsRetains: "name, e-mail & organisation only"`. It is **governed by a new Integration-Contract toggle** ("Guest profile collection (TMC secure link)", default on) and is **omitted for employee requests**. A **PDPA callout** on the Guest Settlement card states ECS stores name/e-mail/org only and the TMC collects the rest. *(Also surfaced the previously-hidden "Charging & context" enrichment toggles in the admin table.)*
+- **Stories:** booking-instruction **indicator** → TMC sends the guest a profile/passport link ✅; ECS stores **name/email/org only** ✅.
+- **Acceptance:** a guest request's outbound payload instructs the TMC to collect the guest profile via a secure link; ECS holds no guest PII beyond name/email/org. ✅
 
 ### E9 · Approver dashboard tabs + one-page summary — **DD-24**
 - **Impact:** UI · INT (platform) — **Effort: M** — **Dep:** ECS dashboard
@@ -96,4 +98,4 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. **E6 / E7 / E11** (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/ E7 / E11** (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).

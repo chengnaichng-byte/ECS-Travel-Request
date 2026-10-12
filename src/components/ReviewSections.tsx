@@ -233,6 +233,11 @@ export function GuestSettlementCard({ req, letter, className }: { req: FullReque
       <p className="text-xs text-[var(--ecs-muted)] mt-2">
         Guests have no ECS login and file <b>no TE claim</b> (§8). Their airfare and accommodation are <b>direct-billed by the TMC to the host department</b> cost object above; the actual is read from the guest&apos;s own booking in the group fan-out (§9.3). Guests carry <b>no share of any shared line</b> and no ODA is settled through this flow.
       </p>
+      {/* §8 / DD-21 PDPA — ECS never holds guest sensitive data; the TMC collects it. */}
+      <div className="mt-3 rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 text-xs text-[var(--ecs-muted)]">
+        <div className="font-semibold text-[var(--ecs-navy)] mb-1">🔒 Guest data (PDPA) — DD-21</div>
+        ECS stores the guest&apos;s <b>name, e-mail &amp; organisation only</b>. Passport, date of birth and contact details are <b>collected by the TMC</b> via a secure link e-mailed to the guest — they are never held in ECS. The booking instruction carries a <span className="font-mono">guestProfile</span> indicator (governed by the Integration Contract); see the TMC booking-instruction preview on the Integration Contracts screen.
+      </div>
     </Card>
   );
 }
