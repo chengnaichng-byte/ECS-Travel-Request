@@ -83,6 +83,7 @@ model TravelRequest {
   guestOrg          String?                          // guest's home organisation / affiliation
   additionalApproverId String?                       // §23 optional traveller-selected Additional Approver (any AD person)
   selectedDoaId     String?                          // §13.14 traveller-selected DOA (from the eligible DOA candidates; not pre-selected)
+  provostId         String?                          // §8 / DD-25 selected Provost (approver id) for a guest travel-class upgrade
   entityId          String?
   departmentId      String?
   isResearch        Boolean  @default(false)
@@ -137,6 +138,21 @@ model TravelRequest {
   messages          IntegrationMessage[]
   auditEvents       AuditEvent[]
   attachments       Attachment[]
+}
+
+/// §8 / DD-25 Per-school Provost list — the approvers who may authorise a guest (non-employee)
+/// travel-class upgrade. Maintained in Setup & Maintenance (list + add/deactivate); the host
+/// school's active provosts are offered for selection when a guest is booked above Economy.
+model Provost {
+  id         String   @id @default(cuid())
+  schoolId   String                                  // department / school this provost authorises for
+  approverId String                                  // employee id who approves (resolves name/title)
+  name       String                                  // display snapshot
+  title      String                                  // display snapshot
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  @@unique([schoolId, approverId])
+  @@index([schoolId])
 }
 
 /// §13.14 group travellers — one request, many travellers

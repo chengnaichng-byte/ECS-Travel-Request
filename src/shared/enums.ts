@@ -8,6 +8,7 @@ export const REQUEST_STATUS = {
   PendingRO: 'Pending RO Approval',
   PendingAdditional: 'Pending Additional Approval',  // §23 traveller-added Additional Approver
   PendingException: 'Pending Exception Approval',
+  PendingProvost: 'Pending Provost Approval',          // §8 / DD-25 guest travel-class upgrade
   PendingDOA: 'Pending DOA Approval',
   Approved: 'Approved',
   AmendmentInProgress: 'Amendment In Progress',
@@ -26,10 +27,11 @@ export type RequestStatus = (typeof REQUEST_STATUS)[keyof typeof REQUEST_STATUS]
  *  is no longer a transition target. */
 export const STATUS_TRANSITIONS: Record<string, string[]> = {
   [REQUEST_STATUS.Draft]: [REQUEST_STATUS.Submitted, REQUEST_STATUS.Withdrawn],
-  [REQUEST_STATUS.Submitted]: [REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException],
-  [REQUEST_STATUS.PendingRO]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.SentBack],
-  [REQUEST_STATUS.PendingAdditional]: [REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
-  [REQUEST_STATUS.PendingException]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.Submitted]: [REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingProvost],
+  [REQUEST_STATUS.PendingRO]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingProvost, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingAdditional]: [REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingException]: [REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingProvost]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.PendingDOA]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.Approved]: [REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Cancelled, REQUEST_STATUS.Expired, REQUEST_STATUS.Closed],
   [REQUEST_STATUS.AmendmentInProgress]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack, REQUEST_STATUS.Cancelled],
@@ -83,6 +85,7 @@ export const APPROVER_ROLE = {
   DOA: 'DOA',
   ResearchDOA: 'RESEARCH_DOA',
   Exception: 'EXCEPTION',
+  Provost: 'PROVOST',              // §8 / DD-25 guest travel-class upgrade authority
   FundingOwner: 'FUNDING_OWNER',
   Verifier: 'VERIFIER',            // §51 TE claim verifier (claim-stage only)
 } as const;

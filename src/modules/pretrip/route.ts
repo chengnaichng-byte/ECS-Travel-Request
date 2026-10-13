@@ -67,7 +67,7 @@ function pickDoa(line: string[], tierIndex: number, travellerIds: string[]): { i
 
 export function buildRoute(
   req: FullRequest,
-  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string },
+  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null },
 ): RouteStep[] {
   const steps: RouteStep[] = [];
   const travellerIds = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
@@ -133,6 +133,13 @@ export function buildRoute(
     if (exc) steps.push({ seq: seq++, roleType: APPROVER_ROLE.Exception, approverId: exc.id, note: 'Policy exception review' });
   }
 
+  // §8 / DD-25 Guest travel-class upgrade — the selected Provost authorises the upgrade ahead of
+  // the host DOA (the DOA still owns the cost). Inserted only for a guest upgrade with a chosen
+  // Provost; the policy hard-stop guarantees a Provost is selected before submission.
+  if (opts.guestUpgradeProvostId && !travellerIds.includes(opts.guestUpgradeProvostId)) {
+    steps.push({ seq: seq++, roleType: APPROVER_ROLE.Provost, approverId: opts.guestUpgradeProvostId, note: 'Guest travel-class upgrade — Provost authorisation (§8 / DD-25)' });
+  }
+
   // DOA step — tier from amount band, line depends on research route.
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
   const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
@@ -153,5 +160,6 @@ export function statusForStep(roleType: string): string {
   if (roleType === APPROVER_ROLE.RO) return 'Pending RO Approval';
   if (roleType === APPROVER_ROLE.AdditionalApprover) return 'Pending Additional Approval';
   if (roleType === APPROVER_ROLE.Exception) return 'Pending Exception Approval';
+  if (roleType === APPROVER_ROLE.Provost) return 'Pending Provost Approval';
   return 'Pending DOA Approval';
 }

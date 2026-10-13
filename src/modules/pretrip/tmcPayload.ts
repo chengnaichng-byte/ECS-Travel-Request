@@ -69,6 +69,11 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
     .filter((e) => e.category === EXPENSE_CATEGORY.Airfare || e.category === EXPENSE_CATEGORY.Accommodation)
     .reduce((s, e) => s + e.sgdAmount, 0);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception).map((c) => c.label);
+  // §8 / DD-25 when a guest upgrade was Provost-authorised, carry that authority to the TMC so the
+  // agent may book the approved higher class against a named approver.
+  if (isGuestRequest(req) && req.provostId && req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception)) {
+    exceptions.push(`Guest travel-class upgrade — Provost-approved (${EcsIdentity.employee(req.provostId)?.name ?? req.provostId})`);
+  }
   const g = guestBlock(req);
   const emp = EcsIdentity.employee(req.travellerId);
   const out = buildOutbound({

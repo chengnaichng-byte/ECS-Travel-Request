@@ -64,4 +64,4 @@ export const employees: Employee[] = baseEmployees.map((e) => ({
 }));
 
 /** The persona switcher offers these identities (§4.1 role/context). */
-export const PERSONA_IDS = ['E-TRAV', 'E-TRAV2', 'E-TRAV3', 'E-PA', 'E-RO', 'E-RO2', 'E-DOA', 'E-DEAN', 'E-RDOA', 'E-RDIR', 'E-EXC', 'E-ADMIN', 'E-SYS', 'E-FIN'];
+export const PERSONA_IDS = ['E-TRAV', 'E-TRAV2', 'E-TRAV3', 'E-PA', 'E-RO', 'E-RO2', 'E-DOA', 'E-DEAN', 'E-PROVOST', 'E-RDOA', 'E-RDIR', 'E-EXC', 'E-ADMIN', 'E-SYS', 'E-FIN'];

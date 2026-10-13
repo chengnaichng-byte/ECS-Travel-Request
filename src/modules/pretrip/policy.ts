@@ -9,6 +9,7 @@ import { effectiveLegs, sharedLegs } from './group';
 import { policyThresholds as PT } from '@/config/policyThresholds';
 import { ruleActive } from '@/config/policyRules';
 import { highRiskDestinationsForRequest } from './risk';
+import { isGuestRequest } from './traveller';
 
 export interface EvaluatedCheck {
   code: string;
@@ -96,6 +97,15 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string):
           code: 'CLASS_JUSTIFY', label: 'Class upgrade justification required', outcome: POLICY_OUTCOME.HardStop,
           detail: `Selecting a class above the derived entitlement requires a justification comment${req.isGroup ? ` (${EcsIdentity.employee(t.employeeId)?.name})` : ''}.`,
           travellerId: req.isGroup ? t.employeeId : null,
+        });
+      }
+      // §8 / DD-25 a GUEST upgrade additionally requires a selected Provost (host-school list) to
+      // authorise the above-Economy class; the Provost step is inserted ahead of the host DOA.
+      if (!req.isGroup && isGuestRequest(req) && !req.provostId) {
+        checks.push({
+          code: 'CLASS_PROVOST', label: 'Provost authorisation required (guest upgrade)', outcome: POLICY_OUTCOME.HardStop,
+          detail: 'A guest booked above Economy must have a Provost selected to authorise the upgrade (§8 / DD-25).',
+          travellerId: null,
         });
       }
     }

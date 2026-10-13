@@ -19,7 +19,7 @@ import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './ame
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement } from './booking';
-import { GUEST_TRAVELLER_ID, travellerName } from './traveller';
+import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest } from './traveller';
 import { ruleActive } from '@/config/policyRules';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipientFor } from '@/config/visaLetter';
@@ -522,6 +522,8 @@ export async function addAirfare(id: string, fd: FormData) {
       data: {
         ...(proposed ? { travelClassId: proposed } : {}),
         classJustification: str(fd, 'classJustification') || null,
+        // §8 / DD-25 guest airfare form carries the selected Provost for an above-Economy upgrade.
+        ...(fd.has('provostId') ? { provostId: str(fd, 'provostId') || null } : {}),
       },
     });
   }
@@ -734,7 +736,7 @@ export async function submitRequest(id: string, fd?: FormData) {
   }
 
   // Re-run policy (on the locked amounts); block on hard stop (AC06).
-  const { hardStop, exception } = await persistPolicy(id);
+  const { hardStop } = await persistPolicy(id);
   if (hardStop) {
     revalidatePath(`/requests/${id}/review`);
     return; // UI shows the hard stops and disables submit
@@ -743,13 +745,22 @@ export async function submitRequest(id: string, fd?: FormData) {
   const fresh = await loadRequest(id);
   if (!fresh) return;
   const summary = computeSummary(fresh.expenses, settings.approvalAmountBasis);
+  // §8 / DD-25 a GUEST travel-class upgrade routes to the selected host-school Provost ahead of
+  // the DOA; that upgrade is the Provost's to authorise, so it is excluded from the generic
+  // Exception step (other exceptions still insert one).
+  const exceptionsOnReq = fresh.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
+  const travellerIds = fresh.isGroup ? fresh.travellers.map((t) => t.employeeId) : [fresh.travellerId];
+  const guestUpgrade = isGuestRequest(fresh) && !fresh.isGroup && exceptionsOnReq.some((c) => c.code === 'CLASS');
+  const guestUpgradeProvostId = guestUpgrade && fresh.provostId && !travellerIds.includes(fresh.provostId) ? fresh.provostId : null;
+  const routeHasException = (guestUpgrade ? exceptionsOnReq.filter((c) => c.code !== 'CLASS') : exceptionsOnReq).length > 0;
   const steps = buildRoute(fresh, {
     exceptionApproverRequired: settings.exceptionApproverRequired,
     sameRouteResearch: settings.sameRouteResearch,
     approvalAmount: summary.approvalAmount,
-    hasException: exception,
+    hasException: routeHasException,
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
+    guestUpgradeProvostId,
   });
   const firstStatus = steps.length ? statusForStep(steps[0].roleType) : REQUEST_STATUS.PendingDOA;
   // Atomic: approval amount + rebuilt route + status move together (no half-built route).

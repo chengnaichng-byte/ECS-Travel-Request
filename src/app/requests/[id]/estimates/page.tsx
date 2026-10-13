@@ -10,6 +10,7 @@ import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAccommodation, addOda, addOther, deleteExpense } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest } from '@/modules/pretrip/traveller';
+import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { computeSummary, computeOda, fmtSgd } from '@/modules/pretrip/pricing';
 import { countries, cities, airports } from '@/data/locations';
@@ -65,6 +66,11 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // §8 ODA is not a guest entitlement — a pure guest request hides the ODA card, and a group's
   // ODA traveller picker offers employee members only (guests are also filtered server-side).
   const guestRequest = isGuestRequest(req);
+  // §8 / DD-25 host-school Provost list for a guest travel-class upgrade (above Economy).
+  const hostSchoolId = req.departmentId ?? EcsIdentity.employee(req.requestorId)?.departmentId ?? null;
+  const provostOptions = guestRequest ? await provostsForSchool(hostSchoolId) : [];
+  const economyId = travelClasses.find((c) => /eco/i.test(c.name))?.id ?? 'TC-ECO';
+  const guestUpgrading = guestRequest && !!req.travelClassId && req.travelClassId !== economyId;
   const employeeMembers = req.travellers.filter((t) => !(t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')));
   const odaTravellers: [string, string][] = [
     ['__ALL__', `All travellers (${employeeMembers.length}) — one line each`],
@@ -205,6 +211,18 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 <label className="label">Justification for higher class (required if above entitlement — §13.19)</label>
                 <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
                 <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledClassName}</strong> for this itinerary. Choosing a higher proposed class requires a justification.</p>
+              </div>
+            )}
+            {/* §8 / DD-25 Guest travel-class upgrade — a guest booked above Economy needs a host-school
+                Provost to authorise it; the Provost step is inserted ahead of the host DOA. */}
+            {guestRequest && (
+              <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+                <label className="label">Provost authorisation (required for a guest booked above Economy — §8 / DD-25)</label>
+                <select name="provostId" defaultValue={req.provostId ?? ''} className="field">
+                  <option value="">— No upgrade / Economy (no Provost needed) —</option>
+                  {provostOptions.map((p) => <option key={p.id} value={p.approverId}>{p.name} · {p.title} ({EcsIdentity.department(p.schoolId)?.name ?? p.schoolId})</option>)}
+                </select>
+                <p className="text-xs text-[var(--ecs-muted)] mt-1">A guest flies <strong>Economy</strong> by default. Selecting a higher proposed class requires a justification <em>and</em> a Provost from the host school&apos;s list; approval routes to the Provost before the host DOA.{guestUpgrading && !req.provostId && <span className="text-[var(--ecs-red)]"> This guest is above Economy — select a Provost.</span>}</p>
               </div>
             )}
             <button className="btn-secondary w-full">Add airfare estimate</button>

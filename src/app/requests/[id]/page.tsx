@@ -32,7 +32,7 @@ import { createClaimFromRequest } from '@/modules/te/actions';
 export const dynamic = 'force-dynamic';
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
 
-const ROLE_LABEL: Record<string, string> = { RO: 'Reporting Officer', ADDITIONAL_APPROVER: 'Additional Approver', DOA: 'DOA Approver', RESEARCH_DOA: 'Research DOA', EXCEPTION: 'Exception Approver', FUNDING_OWNER: 'Funding Owner' };
+const ROLE_LABEL: Record<string, string> = { RO: 'Reporting Officer', ADDITIONAL_APPROVER: 'Additional Approver', DOA: 'DOA Approver', RESEARCH_DOA: 'Research DOA', EXCEPTION: 'Exception Approver', PROVOST: 'Provost', FUNDING_OWNER: 'Funding Owner' };
 
 export default async function RequestDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

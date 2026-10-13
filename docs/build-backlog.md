@@ -33,9 +33,17 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
   - Confirm guest rules (Economy default, no ODA/shared, host direct-bill) apply on the **Guest request**. ✅
 - **Acceptance:** a group can only hold employees; a guest is raised on the Guest request and shows the settlement line. ✅
 
-### E10 · Guest class upgrade + Provost approval — **DD-25**  *(new this round)*
-- **Impact:** CFG (reference) · UI · WF · INT — **Effort: M** — **Dep:** O-6 (Provost source)
-- **Build approach**
+### E10 · Guest class upgrade + Provost approval — **DD-25** — ✅ BUILT
+- **Impact:** CFG (reference) · UI · WF · INT — **Effort: M** — **Dep:** O-6 (Provost source — list is maintainable; governance still open)
+- **Status:** built & verified — a guest booked **above Economy** now requires a host-school **Provost** selection; the Provost authorises the upgrade **ahead of the host DOA**.
+  - **Reference master:** DB-backed **Provost** model (per-school, seeded idempotently), maintained at **Setup & Maintenance → Provost List** (`/setup/provosts`: list + add + activate/deactivate, admin-gated).
+  - **Model/role:** `TravelRequest.provostId`; new `APPROVER_ROLE.Provost` + `REQUEST_STATUS.PendingProvost`.
+  - **UI:** guest airfare form shows a **Provost select** from the host school's active list (+ "above Economy — select a Provost" warning).
+  - **Policy:** `CLASS_PROVOST` hard-stop when a guest upgrade has no Provost (verified: blocks submit).
+  - **Routing:** `buildRoute` inserts a **Provost step** before the DOA for a guest upgrade; the generic Exception step is suppressed for that upgrade (the Provost covers it). Verified: Submitted → **Pending Provost (Prof Quek Li Mei)** → Pending DOA (Prof Daniel Sim).
+  - **TMC:** `approvedExceptions` carries *"Guest travel-class upgrade — Provost-approved (<name>)"* (verified).
+- **Acceptance:** a guest Business request with justification routes to the host school's Provost; on approval the upgraded class + exception reach the TMC. ✅
+- **Original build approach (as implemented)**
   1. **Reference master:** per-school **Provost list** (`provosts` data → mock `EcsProvost.forSchool()`), plus a **Provosts maintenance** screen under Setup & Maintenance (list + add/edit).
   2. **Model:** reuse `travelClassId` / `entitledClassId` / `classJustification`; add the selected approver as a **PROVOST** approval step (new `APPROVER_ROLE.Provost`).
   3. **UI (Guest request airfare):** enable the **class picker** for a guest (today Economy-locked); when class > Economy show a **required justification** + a **Provost select** from the host school's list.
@@ -106,4 +114,4 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. **E10 / E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. ~~**E10**~~ ✅ **/ E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
