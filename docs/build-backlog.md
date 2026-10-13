@@ -60,9 +60,15 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
 - **Impact:** CFG · DATA · INT — **Effort: M–L** — **Dep:** O-5 (percentages, Finance)
 - **Stories:** configurable **base → operating / project**, **differential → reserve (M6)**; proxy % per scenario; split **passed to the TMC**/finance interface.
 
-### E3 · Deterministic hand-off routing — **DD-18**
-- **Impact:** WF · UI — **Effort: M** — **Dep:** group per-traveller dates
-- **Stories:** detect itinerary **variations** (per-traveller dates, extensions, complex multi-city) → force **agent-assisted/offline**; allow straight-through **online only when deterministic**.
+### E3 · Deterministic hand-off routing — **DD-18** — ✅ BUILT
+- **Impact:** WF · UI — **Effort: M** — **Dep:** none
+- **Status:** built & verified — `assessHandoffRouting(req)` derives the TMC channel from the itinerary's determinism and **enforces it at hand-off** (the channel on the outbound instruction), not the free-text trip choice:
+  - **Straight-through `TMC_ONLINE`** only when the itinerary is deterministic — single traveller, closed-loop round/one-way, no personal extension, non-guest, no offline requirement.
+  - **Forced `AGENT_ASSISTED`** on any variation: a **group block** (>1 traveller), **per-traveller dates / sub-itineraries** (`ownStartDate/ownEndDate/legOverrideNote` or a per-traveller leg), a **personal extension**, a **complex multi-city / open-jaw**, or a **guest** (TMC collects the profile).
+  - **Forced `OFFLINE`** on an offline requirement (OFFLINE method or OFFLINE policy exception).
+  - UI: a hand-off-channel panel on the Booking page (green deterministic / amber forced, with the reasons); the override is audited.
+- **Verified:** a simple round-trip → TMC online (green); a 3-traveller group → agent-assisted (block-booking reason); a multi-city request whose stored method was deliberately set to `TMC_ONLINE` was **overridden to `AGENT_ASSISTED`** at hand-off (outbound payload `bookingMethod: AGENT_ASSISTED` + audit "forced to agent/offline — … Complex multi-city").
+- **Acceptance:** itinerary variations force agent-assisted/offline; straight-through online only when deterministic. ✅
 
 ### E7 · Cancellation lifecycle — **DD-22** — ✅ BUILT
 - **Impact:** WF · INT — **Effort: M** — **Dep:** none
@@ -114,4 +120,4 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. ~~**E10**~~ ✅ **/ E3 / E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. ~~**E10**~~ ✅ **/** ~~**E3**~~ ✅ **/ E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).

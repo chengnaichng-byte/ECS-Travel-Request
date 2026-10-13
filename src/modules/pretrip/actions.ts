@@ -28,6 +28,7 @@ import { adapterFor } from '@/integrations/tmc/adapter';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { resolveTmcProvider } from './tmcRouting';
+import { assessHandoffRouting, channelLabel } from './handoffRouting';
 import { resolveChargingRows } from './chargingRollup';
 import { tmcProvider } from '@/data/tmcProviders';
 import { getContractSettings, tmcEnabledSet, getGuardSettings, evaluateFlow } from './integration';
@@ -961,6 +962,15 @@ export async function handoffToTmc(id: string) {
     await audit(id, 'INTEGRATION', `Hand-off blocked by contract filter — ${gate.checks.filter((c) => !c.pass).map((c) => `${c.rule} (is ${c.actual})`).join('; ')}`);
     revalidatePath(`/requests/${id}/booking`);
     return;
+  }
+  // §13.9 / DD-18 Deterministic hand-off routing — the TMC channel follows the itinerary's
+  // determinism (straight-through online only when nothing needs an agent). Enforced on the
+  // outbound instruction so the TMC receives it on the correct channel.
+  const routing = assessHandoffRouting(req);
+  if (req.bookingMethod !== routing.channel) {
+    await prisma.travelRequest.update({ where: { id }, data: { bookingMethod: routing.channel } });
+    req.bookingMethod = routing.channel; // reflect in the payload build below
+    await audit(id, 'INTEGRATION', `Hand-off channel ${routing.deterministic ? 'deterministic → straight-through' : 'forced to agent/offline'} — ${channelLabel(routing.channel)}${routing.reasons.length ? `: ${routing.reasons.join('; ')}` : ''}`);
   }
   // Multi-TMC: resolve the single provider this request routes to.
   const { provider } = resolveTmcProvider(req);

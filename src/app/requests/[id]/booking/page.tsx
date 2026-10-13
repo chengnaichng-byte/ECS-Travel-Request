@@ -9,6 +9,7 @@ import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { isTmcArrangement, isSelfBooked, isHostArranged, isNoBooking, arrangementLabel } from '@/modules/pretrip/booking';
+import { assessHandoffRouting, channelLabel } from '@/modules/pretrip/handoffRouting';
 import { tmcProvider } from '@/data/tmcProviders';
 import { BOOKING_STATUS, TMC_INFLIGHT_STATUSES } from '@/shared/enums';
 import { Card, KV, Empty } from '@/components/ui';
@@ -45,6 +46,8 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   // §9.3 group fan-out (AC15) — the outbound hand-off carries N traveller instructions.
   let fanoutCount = 0;
   if (outbound) { try { const p = JSON.parse(outbound.payload); if (p?.mode === 'GROUP_FANOUT') fanoutCount = p.instructionCount ?? p.instructions?.length ?? 0; } catch { /* ignore */ } }
+  // §13.9 / DD-18 deterministic hand-off routing — the channel the instruction will be (or was) sent on.
+  const channelRouting = isTmcArrangement(req.bookingArrangement) ? assessHandoffRouting(req) : null;
 
   return (
     <div className="space-y-5">
@@ -125,6 +128,23 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         )}
         <Link href={`/requests/${id}`} className="btn-ghost">← Back to request</Link>
       </div>
+
+      {/* §13.9 / DD-18 Deterministic hand-off routing */}
+      {channelRouting && (
+        <div className={`card p-4 ${channelRouting.deterministic ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-[var(--ecs-navy)]">Hand-off channel (§13.9 / DD-18):</span>
+            <span className={channelRouting.deterministic ? 'pill-pass' : 'pill-warn'}>{channelLabel(channelRouting.channel)}</span>
+            <span className="text-xs text-[var(--ecs-muted)]">{channelRouting.deterministic ? 'Deterministic itinerary — straight-through online booking is safe.' : 'Non-deterministic — routed to a TMC agent.'}</span>
+          </div>
+          {!channelRouting.deterministic && (
+            <ul className="mt-2 text-xs text-amber-900 list-disc pl-5 space-y-0.5">
+              {channelRouting.reasons.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+          )}
+          {req.bookingStatus === BOOKING_STATUS.NotSent && <p className="text-[11px] text-[var(--ecs-muted)] mt-2">The outbound instruction will be sent to the TMC on this channel; it is enforced at hand-off.</p>}
+        </div>
+      )}
 
       <div className="card px-4 py-3 text-sm flex flex-wrap items-center gap-x-6 gap-y-1">
         <div><span className="text-[var(--ecs-muted)]">Booking arrangement</span> <strong className="text-[var(--ecs-navy)]">{arrangementLabel(req.bookingArrangement)}</strong></div>
