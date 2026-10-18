@@ -114,7 +114,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
       {/* Header + status chips + view-details */}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--ecs-navy)]">Approval Summary (for DOA)</h2>
+          <h2 className="text-lg font-semibold text-[var(--ecs-navy)]">Approval Summary</h2>
           <p className="text-xs text-[var(--ecs-muted)]">Key information for decision. View the details below for full information.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -180,10 +180,10 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
       {/* Policy exceptions + approval-requested */}
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         {exViews.length > 0 ? (
-          <div className="rounded-md border border-[#f3b26b] border-l-4 border-l-[#c2410c] bg-[#fff2e4] p-3">
+          <div className="rounded-md border border-[#f97316] bg-[#fff3e8] p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-[#9a3412]"><span className="text-[#c2410c]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
-              <a href="#sec-exceptions" className="text-[#c2410c] hover:text-[#9a3412] text-sm" title="Jump to full details">›</a>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-[#c2410c]"><span className="text-[#ea580c]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
+              <a href="#sec-exceptions" className="text-[#ea580c] hover:text-[#c2410c] text-sm" title="Jump to full details">›</a>
             </div>
             <ol className="space-y-2 text-sm">
               {exViews.map((e, i) => (
@@ -202,7 +202,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           </div>
         )}
 
-        <div className="rounded-md border border-[var(--ecs-border)] border-l-4 border-l-[var(--ecs-navy)] bg-white p-3">
+        <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
           <div className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Approval Requested</div>
           <div className="text-sm text-[var(--ecs-muted)]">You are approving:</div>
           <ul className="list-disc pl-5 text-sm space-y-1 mt-1">
