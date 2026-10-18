@@ -97,9 +97,14 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
 - **Stories:** booking-instruction **indicator** → TMC sends the guest a profile/passport link ✅; ECS stores **name/email/org only** ✅.
 - **Acceptance:** a guest request's outbound payload instructs the TMC to collect the guest profile via a secure link; ECS holds no guest PII beyond name/email/org. ✅
 
-### E9 · Approver dashboard tabs + one-page summary — **DD-24**
-- **Impact:** UI · INT (platform) — **Effort: M** — **Dep:** ECS dashboard
-- **Stories:** **TR / Expense-Claim tabs** in the ECS approval dashboard; **one-page** approver summary; **exception emphasis**.
+### E9 · Approver dashboard tabs + one-page summary — **DD-24** — ✅ BUILT
+- **Impact:** UI · INT (platform) — **Effort: M** — **Dep:** none
+- **Status:** built & verified —
+  - **Live tabs** on the RO/DOA dashboard: **Travel Requests** and **Expense Claims**, each URL-driven (`?tab=…`) with its own **pending counter** for the acting approver (claims filtered to those where the persona is the current Verifier/Exception/RO/DOA step).
+  - **One-page approver summary** — the "Review →" buttons open the summary-first page (`/requests/[id]` for a TR, `/claims/[id]` for a claim); the TR summary is the Approval Summary card delivered earlier.
+  - **Exception emphasis** — rows carrying a policy exception are shaded amber (`#fff8ec`) with a `⚠` pill on both tabs; TR rows also show inline Emergency/Retrospective pills (DD-23).
+- **Verified:** as Travel Admin, the Travel Requests tab (5) shades the exception rows (TR-000008, TR-000002) and flags the emergency/retrospective ones; the Expense Claims tab (1) lists CLM-2026-000001 with its linked TR, claimed amount, exception flag, pending DOA step and Review →.
+- **Stories:** TR / Expense-Claim tabs ✅; one-page approver summary ✅; exception emphasis ✅.
 
 ---
 
@@ -128,6 +133,6 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. ~~**E10**~~ ✅ **/** ~~**E3**~~ ✅ **/** ~~**E8**~~ ✅ → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. ~~**E10**~~ ✅ **/** ~~**E3**~~ ✅ **/** ~~**E8**~~ ✅ → 5. **E4 / E5** (await O-4 / O-5) → 6. ~~**E9**~~ ✅.
 
-**Remaining:** E4 (CTA central payment — gated by O-4), E5 (upgrade-cost split — gated by O-5), E9 (approver dashboard tabs / one-page — platform-dependent). Also delivered outside the epic list: an **Approval Summary** glance card (total cost + per-account charging) high on the request/approval page so a DOA can approve at a glance.
+**Remaining:** only **E4** (CTA central payment — gated by O-4) and **E5** (upgrade-cost split — gated by O-5), both blocked on pending decisions. Also delivered outside the epic list: an **Approval Summary** card (one-page approver glance: total cost + per-account charging, policy exceptions, "You are approving" statement) on the request/approval page, with the full detail cards on a separate **Full Details** page; and a **Travel Request type flag** (Standard / Emergency book-first / Retrospective) on the dashboard.
