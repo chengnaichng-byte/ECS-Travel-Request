@@ -50,3 +50,8 @@ next-env.d.ts
 
 # scratch scripts
 /_*.mjs
+
+# local scratch / logs
+_*.mjs
+_*.log
+_dev.log
