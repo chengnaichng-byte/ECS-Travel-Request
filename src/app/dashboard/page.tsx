@@ -83,7 +83,7 @@ export default async function Dashboard() {
                 {rows.map((r) => (
                   <tr key={r.id} className="hover:bg-[var(--ecs-panel-2)]">
                     <td className="td font-medium">
-                      <Link href={`/requests/${r.id}`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
+                      <Link href={`/requests/${r.id}/details`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
                       {r.isGroup && <span className="pill-navy ml-1">Group</span>}
                     </td>
                     <td className="td whitespace-nowrap">

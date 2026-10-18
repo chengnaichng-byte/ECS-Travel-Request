@@ -1,11 +1,14 @@
-// Full Details page — the detail cards for a Travel Request, moved off the summary page.
-// Reached from the Approval Summary ("View Full Details" / tile chevrons); has a Back button.
+// Full Details page — the detail cards for a Travel Request. Reached directly from the Travel
+// Request Dashboard (viewers), or via "View Full Details" from the Approval Summary (approvers).
+// It shows the same chrome (header, status + decision bar, workflow) so an approver can act here
+// too, plus a Back-to-summary button.
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
+import { currentPersonaId } from '@/shared/session';
 import { computeSummary } from '@/modules/pretrip/pricing';
-import { isGuestRequest } from '@/modules/pretrip/traveller';
+import { RequestChrome } from '@/components/RequestChrome';
 import { RequestFullDetails } from '@/components/RequestFullDetails';
 
 export const dynamic = 'force-dynamic';
@@ -15,18 +18,16 @@ export default async function RequestDetailsPage({ params }: { params: Promise<{
   const req = await loadRequest(id);
   if (!req) notFound();
   const settings = await getSettings();
+  const persona = await currentPersonaId();
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
 
   return (
     <div className="w-full space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <RequestChrome req={req} id={id} persona={persona} settings={settings} />
+
+      <div className="flex items-center justify-between gap-3 border-t border-[var(--ecs-border)] pt-4">
+        <h2 className="text-sm font-semibold text-[var(--ecs-muted)] uppercase tracking-wide">Full Details</h2>
         <Link href={`/requests/${id}`} className="btn-secondary">← Back to summary</Link>
-        <h1 className="text-lg font-semibold text-[var(--ecs-navy)] flex items-center gap-2">
-          Full Details
-          <span className="font-mono text-[var(--ecs-text)]">{req.requestNumber}</span>
-          {req.isGroup && <span className="pill-navy">GROUP</span>}
-          {isGuestRequest(req) && <span className="pill-info">GUEST</span>}
-        </h1>
       </div>
 
       <RequestFullDetails req={req} summary={summary} settings={settings} />
