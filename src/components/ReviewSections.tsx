@@ -46,12 +46,12 @@ function Field({ label, children, accent }: { label: string; children: React.Rea
 // tile chevrons and "View Full Details" scroll to them (anchors set on the request page).
 const fmtPretty = (d: Date | null) => (d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
-function SumTile({ title, anchor, children }: { title: string; anchor: string; children: React.ReactNode }) {
+function SumTile({ title, href, children }: { title: string; href: string; children: React.ReactNode }) {
   return (
     <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
       <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-[var(--ecs-border)]">
         <div className="text-sm font-semibold text-[var(--ecs-navy)]">{title}</div>
-        <a href={`#${anchor}`} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
+        <a href={href} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Open full details">›</a>
       </div>
       <div className="space-y-2 text-sm">{children}</div>
     </div>
@@ -61,8 +61,8 @@ function TileRow({ label, children }: { label: string; children: React.ReactNode
   return <div><div className="text-[11px] text-[var(--ecs-muted)]">{label}</div><div className="text-sm">{children ?? '—'}</div></div>;
 }
 
-export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, detailsAnchor = 'approval-details' }: {
-  req: FullRequest; summary: CostSummary; bookingDeadlineDays: number; detailsAnchor?: string;
+export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, detailsHref }: {
+  req: FullRequest; summary: CostSummary; bookingDeadlineDays: number; detailsHref: string;
 }) {
   const isGuest = isGuestRequest(req);
   const emp = EcsIdentity.employee(req.travellerId);
@@ -121,13 +121,13 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           {exViews.length > 0
             ? <><span className="pill-warn">{exViews.length} Policy Exception{exViews.length > 1 ? 's' : ''}</span><span className="pill-pass">All other checks passed</span></>
             : <span className="pill-pass">All policy checks passed</span>}
-          <a href={`#${detailsAnchor}`} className="btn-ghost text-xs">View Full Details ▾</a>
+          <a href={detailsHref} className="btn-secondary text-xs">View Full Details →</a>
         </div>
       </div>
 
       {/* 4 decision tiles */}
       <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <SumTile title="Traveller & Purpose" anchor="sec-traveller">
+        <SumTile title="Traveller & Purpose" href={`${detailsHref}#sec-traveller`}>
           <div>
             <div className="font-semibold text-[var(--ecs-navy)]">{req.isGroup ? `Group travel · ${req.travellers.length} travellers` : travellerName(req)}{isGuest && <span className="pill-info ml-1">Guest</span>}</div>
             <div className="text-xs text-[var(--ecs-muted)]">
@@ -139,13 +139,13 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           {req.description && <TileRow label="Business justification"><span className="text-[13px]">{req.description}</span></TileRow>}
         </SumTile>
 
-        <SumTile title="Trip Details" anchor="sec-trip">
+        <SumTile title="Trip Details" href={`${detailsHref}#sec-trip`}>
           <TileRow label="Destination">{destText}</TileRow>
           <TileRow label="Official travel dates">{dateText}</TileRow>
           <TileRow label="Personal extension">{personalText}</TileRow>
         </SumTile>
 
-        <SumTile title="Estimated Cost & Charging" anchor="sec-cost">
+        <SumTile title="Estimated Cost & Charging" href={`${detailsHref}#sec-cost`}>
           <div>
             <div className="text-[11px] text-[var(--ecs-muted)]">Total Estimated Trip Cost</div>
             <div className="text-xl font-bold text-[var(--ecs-navy)]">{fmtSgd(summary.gross)}</div>
@@ -167,7 +167,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           )}
         </SumTile>
 
-        <SumTile title="Travel Arrangement" anchor="sec-trip">
+        <SumTile title="Travel Arrangement" href={`${detailsHref}#sec-trip`}>
           <TileRow label="Proposed travel class">{clsName}</TileRow>
           <TileRow label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</TileRow>
           <TileRow label="Authorisation validity">
@@ -183,7 +183,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           <div className="rounded-md border border-[#f97316] bg-[#fff3e8] p-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-1.5 text-sm font-semibold text-[#c2410c]"><span className="text-[#ea580c]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
-              <a href="#sec-exceptions" className="text-[#ea580c] hover:text-[#c2410c] text-sm" title="Jump to full details">›</a>
+              <a href={`${detailsHref}#sec-exceptions`} className="text-[#ea580c] hover:text-[#c2410c] text-sm" title="Jump to full details">›</a>
             </div>
             <ol className="space-y-2 text-sm">
               {exViews.map((e, i) => (

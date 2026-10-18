@@ -12,21 +12,15 @@ import { isGuestRequest } from '@/modules/pretrip/traveller';
 import { isHighRisk } from '@/modules/pretrip/risk';
 import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
 import { computeSummary } from '@/modules/pretrip/pricing';
-import { sharedLegs } from '@/modules/pretrip/group';
 import { REQUEST_STATUS, POLICY_OUTCOME } from '@/shared/enums';
 import { Stepper } from '@/components/ui';
 import { StatusPill } from '@/components/StatusPill';
 import { DecisionBar } from '@/components/DecisionBar';
 import { MoreActions } from '@/components/MoreActions';
 import { WorkflowChevrons } from '@/components/WorkflowChevrons';
-import { RequestActivity } from '@/components/RequestActivity';
-import { GroupTravellers } from '@/components/GroupTravellers';
-import {
-  SummaryCard, TravellerCard, GroupSummaryCard, TravellerRoster, ItineraryLegsCard,
-  CostAllocationCard, PolicyExceptionsCard, CostItems, GuestSettlementCard, ApprovalSummaryCard,
-} from '@/components/ReviewSections';
+import { ApprovalSummaryCard } from '@/components/ReviewSections';
+import { RequestFullDetails } from '@/components/RequestFullDetails';
 import { withdrawRequest, reopenDraft, handoffToTmc, markSelfBooked } from '@/modules/pretrip/actions';
-import { hasGuestMembers } from '@/modules/pretrip/settlement';
 import { createClaimFromRequest } from '@/modules/te/actions';
 
 export const dynamic = 'force-dynamic';
@@ -50,7 +44,6 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
   const canCancel = [REQUEST_STATUS.Approved, REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Expired].includes(req.status as never);
   // §13.x / DD-23 an emergency (non-retrospective) request may book before DOA ratification.
   const emergencyBookFirst = req.isEmergency && !req.isRetrospective && !!req.emergencyAuthoriserId && isPending;
-  const isMulti = sharedLegs(req).length > 2;
 
   const pendingStep = req.approvalSteps.find((s) => s.status === 'Pending');
   const canAct = !!pendingStep && (pendingStep.approverId === persona || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
@@ -126,40 +119,12 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
       <HighRiskAdvisory req={req} />
 
-      {/* Approval Summary (for DOA) — decision glance below the workflow, above all detail cards. */}
-      {!isDraft && <ApprovalSummaryCard req={req} summary={summary} bookingDeadlineDays={settings.bookingDeadlineDays} />}
-
-      {/* Full details below (source of truth); the summary tiles / "View Full Details" link here. */}
-      <div id="approval-details" />
-      <div id="sec-trip" className="scroll-mt-20"><SummaryCard req={req} bookingDeadlineDays={settings.bookingDeadlineDays} /></div>
-
-      {/* Lettered cards (letters assigned in reading order) */}
-      <div className="grid md:grid-cols-2 gap-5 items-start">
-        <div id="sec-traveller" className="scroll-mt-20">{req.isGroup ? <GroupSummaryCard req={req} letter="A" /> : <TravellerCard req={req} letter="A" />}</div>
-        <div id="sec-exceptions" className="scroll-mt-20"><PolicyExceptionsCard req={req} letter="B" /></div>
-      </div>
-      {req.isGroup && <TravellerRoster req={req} letter="C" />}
-      {isMulti && <ItineraryLegsCard req={req} letter="C" />}
-
-      <div id="sec-cost" className="scroll-mt-20"><CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} letter={req.isGroup || isMulti ?'D' : 'C'} /></div>
-
-      <CostAllocationCard req={req} amount={summary.ntuFunded} letter={req.isGroup || isMulti ?'E' : 'D'} />
-
-      {/* §8 Guest settlement (host direct-billed) — the standalone Guest request (DD-13), or a
-          legacy group with guests. The card self-hides when there is no guest cost to settle. */}
-      {hasGuestMembers(req) && <GuestSettlementCard req={req} letter={req.isGroup ? 'F' : 'E'} />}
-
-      {/* Group management workbench (confirmations, per-traveller class & sub-itineraries) — collapsible */}
-      {req.isGroup && (
-        <details className="group">
-          <summary className="card px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
-            <span className="transition-transform group-open:rotate-90">▸</span> Group Management — confirmations, per-traveller class &amp; sub-itineraries
-          </summary>
-          <div className="mt-3"><GroupTravellers req={req} /></div>
-        </details>
-      )}
-
-      <RequestActivity req={req} />
+      {/* Non-draft: the Approval Summary is the landing view; the full detail cards live on a
+          separate page (reached via "View Full Details" / the tile chevrons). A draft keeps the
+          full detail cards inline since the traveller is still reviewing before submission. */}
+      {isDraft
+        ? <RequestFullDetails req={req} summary={summary} settings={settings} />
+        : <ApprovalSummaryCard req={req} summary={summary} bookingDeadlineDays={settings.bookingDeadlineDays} detailsHref={`/requests/${id}/details`} />}
     </div>
   );
 }
