@@ -28,6 +28,7 @@ export default async function Dashboard() {
       dest: EcsReference.city(r.destCity ?? '')?.name ?? '—',
       dates: `${fmtDate(r.startDate)} → ${fmtDate(r.endDate)}`,
       ntu: summary.ntuFunded, isGroup: r.isGroup, isGuest: r.travellerType === 'GUEST', exceptions: r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length,
+      isEmergency: r.isEmergency, isRetrospective: r.isRetrospective,
     };
   });
 
@@ -72,7 +73,7 @@ export default async function Dashboard() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  <th className="th">Request</th><th className="th">Traveller</th><th className="th">Purpose</th>
+                  <th className="th">Request</th><th className="th">Type</th><th className="th">Traveller</th><th className="th">Purpose</th>
                   <th className="th">Destination</th><th className="th">Travel dates</th>
                   <th className="th text-right">Est. NTU cost</th><th className="th">Exc.</th>
                   <th className="th">Status</th><th className="th">Booking</th>
@@ -84,6 +85,13 @@ export default async function Dashboard() {
                     <td className="td font-medium">
                       <Link href={`/requests/${r.id}`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
                       {r.isGroup && <span className="pill-navy ml-1">Group</span>}
+                    </td>
+                    <td className="td whitespace-nowrap">
+                      {r.isEmergency
+                        ? (r.isRetrospective
+                            ? <span className="pill-warn" title="Raised after the trip was booked/taken — DOA ratifies after the fact (DD-23)">⏱ Retrospective</span>
+                            : <span className="pill-exc" title="Emergency — may book before DOA ratification (DD-23)">⚡ Emergency · book-first</span>)
+                        : <span className="text-xs text-[var(--ecs-muted)]">Standard</span>}
                     </td>
                     <td className="td">{r.traveller}{r.isGuest && <span className="pill-info ml-1">Guest</span>}</td>
                     <td className="td">{r.purpose}</td>
