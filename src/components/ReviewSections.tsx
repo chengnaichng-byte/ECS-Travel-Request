@@ -46,11 +46,11 @@ function Field({ label, children, accent }: { label: string; children: React.Rea
 // tile chevrons and "View Full Details" scroll to them (anchors set on the request page).
 const fmtPretty = (d: Date | null) => (d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
-function SumTile({ icon, title, anchor, children }: { icon: string; title: string; anchor: string; children: React.ReactNode }) {
+function SumTile({ title, anchor, children }: { title: string; anchor: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span aria-hidden>{icon}</span>{title}</div>
+    <div className="rounded-md border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+      <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-[var(--ecs-border)]">
+        <div className="text-sm font-semibold text-[var(--ecs-navy)]">{title}</div>
         <a href={`#${anchor}`} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
       </div>
       <div className="space-y-2 text-sm">{children}</div>
@@ -107,28 +107,27 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
     : isGuest ? `guest ${travellerName(req)}${req.guestOrg ? ` of ${req.guestOrg}` : ''} hosted by ${deptName}`
     : `${travellerName(req)}`;
 
+  const sevClass: Record<string, string> = { Low: 'pill-info', Medium: 'pill-warn', High: 'pill-stop' };
+
   return (
-    <div className="card p-5 border-2 border-[var(--ecs-navy-2)]/30">
+    <div className="card p-5">
       {/* Header + status chips + view-details */}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
-        <div className="flex items-start gap-2">
-          <span className="text-xl" aria-hidden>🧾</span>
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--ecs-navy)]">Approval Summary (for DOA)</h2>
-            <p className="text-xs text-[var(--ecs-muted)]">Key information for decision. View the details below for full information.</p>
-          </div>
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--ecs-navy)]">Approval Summary (for DOA)</h2>
+          <p className="text-xs text-[var(--ecs-muted)]">Key information for decision. View the details below for full information.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {exViews.length > 0
-            ? <><span className="pill-exc">⚠ {exViews.length} Policy Exception{exViews.length > 1 ? 's' : ''}</span><span className="pill-pass">✓ All other checks passed</span></>
-            : <span className="pill-pass">✓ All policy checks passed</span>}
+            ? <><span className="pill-warn">{exViews.length} Policy Exception{exViews.length > 1 ? 's' : ''}</span><span className="pill-pass">All other checks passed</span></>
+            : <span className="pill-pass">All policy checks passed</span>}
           <a href={`#${detailsAnchor}`} className="btn-ghost text-xs">View Full Details ▾</a>
         </div>
       </div>
 
       {/* 4 decision tiles */}
       <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        <SumTile icon="👤" title="Traveller & Purpose" anchor="sec-traveller">
+        <SumTile title="Traveller & Purpose" anchor="sec-traveller">
           <div>
             <div className="font-semibold text-[var(--ecs-navy)]">{req.isGroup ? `Group travel · ${req.travellers.length} travellers` : travellerName(req)}{isGuest && <span className="pill-info ml-1">Guest</span>}</div>
             <div className="text-xs text-[var(--ecs-muted)]">
@@ -140,25 +139,25 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           {req.description && <TileRow label="Business justification"><span className="text-[13px]">{req.description}</span></TileRow>}
         </SumTile>
 
-        <SumTile icon="✈️" title="Trip Details" anchor="sec-trip">
+        <SumTile title="Trip Details" anchor="sec-trip">
           <TileRow label="Destination">{destText}</TileRow>
           <TileRow label="Official travel dates">{dateText}</TileRow>
           <TileRow label="Personal extension">{personalText}</TileRow>
         </SumTile>
 
-        <SumTile icon="💰" title="Estimated Cost & Charging" anchor="sec-cost">
+        <SumTile title="Estimated Cost & Charging" anchor="sec-cost">
           <div>
             <div className="text-[11px] text-[var(--ecs-muted)]">Total Estimated Trip Cost</div>
             <div className="text-xl font-bold text-[var(--ecs-navy)]">{fmtSgd(summary.gross)}</div>
             {summary.sponsorship > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded (committed): <strong>{fmtSgd(summary.ntuFunded)}</strong> · less sponsorship {fmtSgd(summary.sponsorship)}</div>}
           </div>
-          <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
+          <div className="rounded border border-[var(--ecs-border)] bg-white p-2">
             <div className="text-[11px] text-[var(--ecs-muted)]">Primary Charging Account</div>
             <div className="text-[13px] font-medium">{primary ? `${primary.chargingCode} · ${primaryCode?.name ?? ''}` : '—'}</div>
             <div className="text-[11px]">{primary ? `${primary.percent}% (${amountFor(primary.percent)})` : ''}{research && <span className="pill-warn ml-1">Research WBS</span>}</div>
           </div>
           <TileRow label="Cross-charge">
-            {crossCharge ? <span className="text-amber-700 font-medium">Yes — {allocs.length} accounts</span> : 'No cross-charge'}
+            {crossCharge ? <span className="pill-warn">Yes · {allocs.length} accounts</span> : 'No cross-charge'}
           </TileRow>
           {crossCharge && (
             <ul className="text-[11px] space-y-0.5 -mt-1">
@@ -168,7 +167,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           )}
         </SumTile>
 
-        <SumTile icon="🧳" title="Travel Arrangement" anchor="sec-trip">
+        <SumTile title="Travel Arrangement" anchor="sec-trip">
           <TileRow label="Proposed travel class">{clsName}</TileRow>
           <TileRow label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</TileRow>
           <TileRow label="Authorisation validity">
@@ -181,31 +180,32 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
       {/* Policy exceptions + approval-requested */}
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         {exViews.length > 0 ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <div className="rounded-md border border-[#f0d9a8] bg-[#fff8ec] p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-900"><span aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
-              <a href="#sec-exceptions" className="text-amber-700 hover:text-amber-900 text-sm" title="Jump to full details">›</a>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span className="text-[#c07a00]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
+              <a href="#sec-exceptions" className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
             </div>
             <ol className="space-y-2 text-sm">
               {exViews.map((e, i) => (
-                <li key={i} className="text-amber-900">
-                  <div className="flex items-center gap-2"><span className="font-medium">{i + 1}. {e.label}</span><span className={e.severity === 'High' ? 'pill-exc' : 'pill-warn'}>{e.severity}</span></div>
-                  <div className="text-xs">{e.detail}</div>
-                  {e.impactSgd > 0 && <div className="text-xs">Estimated incremental impact: <strong>{fmtSgd(e.impactSgd)}</strong></div>}
+                <li key={i}>
+                  <div className="flex items-center gap-2"><span className="font-medium">{i + 1}. {e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span></div>
+                  <div className="text-xs text-[var(--ecs-muted)]">{e.detail}</div>
+                  {e.impactSgd > 0 && <div className="text-xs">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
                 </li>
               ))}
             </ol>
           </div>
         ) : (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 flex items-center gap-2 text-sm text-emerald-900">
-            <span aria-hidden>✓</span><div><div className="font-semibold">All policy checks passed</div><div className="text-xs">This trip meets travel-policy requirements; no exception approval is required.</div></div>
+          <div className="rounded-md border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+            <div className="flex items-center gap-2 text-sm"><span className="pill-pass">Pass</span><span className="font-semibold text-[var(--ecs-navy)]">All policy checks passed</span></div>
+            <div className="text-xs text-[var(--ecs-muted)] mt-1">This trip meets travel-policy requirements; no exception approval is required.</div>
           </div>
         )}
 
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-900 mb-2"><span aria-hidden>📋</span>Approval Requested</div>
-          <div className="text-sm text-emerald-900">You are approving:</div>
-          <ul className="list-disc pl-5 text-sm text-emerald-900 space-y-1 mt-1">
+        <div className="rounded-md border border-[var(--ecs-border)] border-l-4 border-l-[var(--ecs-navy)] bg-[var(--ecs-panel-2)] p-3">
+          <div className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Approval Requested</div>
+          <div className="text-sm text-[var(--ecs-muted)]">You are approving:</div>
+          <ul className="list-disc pl-5 text-sm space-y-1 mt-1">
             <li>This trip for <strong>{whoPhrase}</strong> to <strong>{destText}</strong> ({dateText}).</li>
             <li>An estimated commitment of <strong>{fmtSgd(summary.ntuFunded)}</strong>{summary.sponsorship > 0 ? ` (gross ${fmtSgd(summary.gross)})` : ''} charged {chargePhrase}.</li>
             {exViews.length > 0 && (
