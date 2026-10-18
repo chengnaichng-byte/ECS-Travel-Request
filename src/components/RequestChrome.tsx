@@ -29,7 +29,7 @@ export function RequestChrome({ req, id, persona, settings }: {
   const isInitialPending = req.status.startsWith('Pending');
   const isApproved = req.status === REQUEST_STATUS.Approved || req.status === REQUEST_STATUS.Closed;
   const canCancel = [REQUEST_STATUS.Approved, REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Expired].includes(req.status as never);
-  const emergencyBookFirst = req.isEmergency && !req.isRetrospective && !!req.emergencyAuthoriserId && isPending;
+  const emergencyBookFirst = req.isEmergency && !!req.emergencyAuthoriserId && isPending;
 
   const pendingStep = req.approvalSteps.find((s) => s.status === 'Pending');
   const canAct = !!pendingStep && (pendingStep.approverId === persona || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
@@ -92,10 +92,8 @@ export function RequestChrome({ req, id, persona, settings }: {
 
       {req.isEmergency && (
         <div className="card p-4 bg-amber-50 border-amber-300 text-sm text-amber-900">
-          <strong>{req.isRetrospective ? 'Retrospective request' : 'Emergency — book-first'} (DD-23)</strong> — authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? '—'}</strong>.{' '}
-          {req.isRetrospective
-            ? 'Raised after the trip was booked / taken; the route is compressed to a single DOA ratification after the fact.'
-            : 'The route is compressed to a single DOA ratification; the booking may be sent to the TMC before that ratification.'}{' '}
+          <strong>Emergency — book first, raise later (DD-23)</strong> — authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? '—'}</strong>.{' '}
+          The route is compressed to a single DOA ratification; the trip may be booked (or already booked) before that ratification.{' '}
           {isApproved ? <span className="font-semibold">DOA-ratified ✓</span> : <span className="font-semibold">DOA ratification {req.status.startsWith('Pending') ? 'pending' : '—'}.</span>}
           {req.emergencyJustification && <div className="mt-1 text-xs italic">&ldquo;{req.emergencyJustification}&rdquo;</div>}
         </div>

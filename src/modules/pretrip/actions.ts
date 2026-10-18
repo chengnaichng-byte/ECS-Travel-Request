@@ -723,7 +723,7 @@ export async function submitRequest(id: string, fd?: FormData) {
         redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency / retrospective lane needs a justification and an authorising officer (not the traveller).')}`);
       }
       await prisma.travelRequest.update({ where: { id }, data: {
-        isEmergency: true, isRetrospective: str(fd, 'isRetrospective') === 'on',
+        isEmergency: true, isRetrospective: false,
         emergencyJustification: ej, emergencyAuthoriserId: ea, emergencyRatified: false,
         additionalApproverId: null, selectedDoaId: null, personalAck, highRiskAck,
       } });
@@ -979,7 +979,7 @@ export async function handoffToTmc(id: string) {
   // §13.x / DD-23 emergency book-first request may be handed off before full approval, on the
   // named authorising officer's authority, with the DOA ratification still pending (audited).
   const gate = evaluateFlow(req, 'OUTBOUND', await getGuardSettings());
-  const emergencyBookFirst = req.isEmergency && !req.isRetrospective && !!req.emergencyAuthoriserId;
+  const emergencyBookFirst = req.isEmergency && !!req.emergencyAuthoriserId; // book first, raise later (DD-23)
   if (!gate.ok && !emergencyBookFirst) {
     await audit(id, 'INTEGRATION', `Hand-off blocked by contract filter — ${gate.checks.filter((c) => !c.pass).map((c) => `${c.rule} (is ${c.actual})`).join('; ')}`);
     revalidatePath(`/requests/${id}/booking`);

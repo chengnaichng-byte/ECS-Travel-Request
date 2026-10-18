@@ -188,21 +188,17 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           </Card>
         )}
 
-        {/* §13.x / DD-23 Emergency / retrospective lane — bounded, audited alternative route. */}
+        {/* §13.x / DD-23 Emergency lane (book first, raise later) — bounded, audited. */}
         <details className="group card p-0 overflow-hidden" open={req.isEmergency}>
           <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
-            <span className="transition-transform group-open:rotate-90">▸</span> Emergency / retrospective lane (DD-23)
-            {req.isEmergency && <span className="pill-warn ml-1">In use</span>}
+            <span className="transition-transform group-open:rotate-90">▸</span> Emergency lane — book first, raise later (DD-23)
+            {req.isEmergency && <span className="pill-exc ml-1">In use</span>}
           </summary>
           <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
-            <p className="text-xs text-[var(--ecs-muted)]">A bounded, audited alternative to the full route for urgent travel. It compresses the approval route to a <strong>single DOA ratification</strong>; an emergency (non-retrospective) request may be <strong>handed off to the TMC before that ratification</strong> (book-first). Requires a justification and a named authorising officer — not a general bypass.</p>
+            <p className="text-xs text-[var(--ecs-muted)]">A bounded, audited alternative to the full route for urgent travel — <strong>book first, raise/approve later</strong>. It compresses the approval route to a <strong>single DOA ratification</strong> and lets the trip be <strong>booked (or already booked) before that ratification</strong>. Requires a justification and a named authorising officer — not a general bypass.</p>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" name="emergency" value="on" defaultChecked={req.isEmergency} className="mt-0.5 w-4 h-4" />
-              <span>Use the emergency / retrospective lane for this request.</span>
-            </label>
-            <label className="flex items-start gap-2 text-sm pl-6">
-              <input type="checkbox" name="isRetrospective" value="on" defaultChecked={req.isRetrospective} className="mt-0.5 w-4 h-4" />
-              <span>This trip was <strong>already booked / taken</strong> — raise retrospectively (no book-first; DOA ratifies after the fact).</span>
+              <span>Use the <strong>emergency lane</strong> (book first, raise later) for this request.</span>
             </label>
             <div className="pl-6">
               <label className="label">Authorising officer (records who authorised the emergency)</label>
@@ -212,7 +208,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               </select>
             </div>
             <div className="pl-6">
-              <label className="label">Emergency / retrospective justification</label>
+              <label className="label">Emergency justification</label>
               <textarea name="emergencyJustification" defaultValue={req.emergencyJustification ?? ''} rows={2} className="field w-full" placeholder="e.g. same-day flight to an urgent funder meeting; TMC held space pending authorisation." />
             </div>
           </div>

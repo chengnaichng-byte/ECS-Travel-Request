@@ -88,7 +88,7 @@ export function buildRoute(
       : pickDoa(line, band.doaTierIndex, travellerIds).id;
     steps.push({
       seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: auth,
-      note: opts.emergency.retrospective ? 'Emergency — retrospective DOA ratification (DD-23)' : 'Emergency — book-first, DOA ratification (DD-23)',
+      note: 'Emergency — book first, raise later: single DOA ratification (DD-23)',
     });
     return steps;
   }

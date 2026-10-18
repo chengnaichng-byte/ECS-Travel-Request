@@ -87,7 +87,7 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                       <tr key={r.id} className={rowCls(exc > 0)}>
                         <td className="td whitespace-nowrap">{fmtDate(r.versions.at(-1)?.createdAt ?? r.updatedAt)}</td>
                         <td className="td">{ba}</td>
-                        <td className="td font-medium">{r.requestNumber}{r.isEmergency && <span className={`ml-1 ${r.isRetrospective ? 'pill-warn' : 'pill-exc'}`}>{r.isRetrospective ? 'Retrospective' : 'Emergency'}</span>}</td>
+                        <td className="td font-medium">{r.requestNumber}{r.isEmergency && <span className="pill-exc ml-1" title="Emergency — book first, raise later (DD-23)">E</span>}</td>
                         <td className="td">{EcsReference.travelPurpose(r.purposeId ?? '')?.name}</td>
                         <td className="td">{EcsIdentity.employee(r.travellerId)?.name}{r.isGroup ? ` +${r.travellers.length - 1}` : ''}</td>
                         <td className="td">{EcsIdentity.employee(r.requestorId)?.name}</td>
