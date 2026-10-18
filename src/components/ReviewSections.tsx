@@ -48,7 +48,7 @@ const fmtPretty = (d: Date | null) => (d ? d.toLocaleDateString('en-GB', { day: 
 
 function SumTile({ title, anchor, children }: { title: string; anchor: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+    <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
       <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-[var(--ecs-border)]">
         <div className="text-sm font-semibold text-[var(--ecs-navy)]">{title}</div>
         <a href={`#${anchor}`} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
@@ -110,7 +110,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const sevClass: Record<string, string> = { Low: 'pill-info', Medium: 'pill-warn', High: 'pill-stop' };
 
   return (
-    <div className="card p-5">
+    <div className="rounded-md border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] shadow-sm p-5">
       {/* Header + status chips + view-details */}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
         <div>
@@ -151,7 +151,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
             <div className="text-xl font-bold text-[var(--ecs-navy)]">{fmtSgd(summary.gross)}</div>
             {summary.sponsorship > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded (committed): <strong>{fmtSgd(summary.ntuFunded)}</strong> · less sponsorship {fmtSgd(summary.sponsorship)}</div>}
           </div>
-          <div className="rounded border border-[var(--ecs-border)] bg-white p-2">
+          <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
             <div className="text-[11px] text-[var(--ecs-muted)]">Primary Charging Account</div>
             <div className="text-[13px] font-medium">{primary ? `${primary.chargingCode} · ${primaryCode?.name ?? ''}` : '—'}</div>
             <div className="text-[11px]">{primary ? `${primary.percent}% (${amountFor(primary.percent)})` : ''}{research && <span className="pill-warn ml-1">Research WBS</span>}</div>
@@ -180,29 +180,29 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
       {/* Policy exceptions + approval-requested */}
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         {exViews.length > 0 ? (
-          <div className="rounded-md border border-[#f0d9a8] bg-[#fff8ec] p-3">
+          <div className="rounded-md border border-[#f3b26b] border-l-4 border-l-[#c2410c] bg-[#fff2e4] p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span className="text-[#c07a00]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
-              <a href="#sec-exceptions" className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-[#9a3412]"><span className="text-[#c2410c]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
+              <a href="#sec-exceptions" className="text-[#c2410c] hover:text-[#9a3412] text-sm" title="Jump to full details">›</a>
             </div>
             <ol className="space-y-2 text-sm">
               {exViews.map((e, i) => (
                 <li key={i}>
-                  <div className="flex items-center gap-2"><span className="font-medium">{i + 1}. {e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span></div>
-                  <div className="text-xs text-[var(--ecs-muted)]">{e.detail}</div>
-                  {e.impactSgd > 0 && <div className="text-xs">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
+                  <div className="flex items-center gap-2"><span className="font-medium text-[#7c2d12]">{i + 1}. {e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span></div>
+                  <div className="text-xs text-[#9a3412]/80">{e.detail}</div>
+                  {e.impactSgd > 0 && <div className="text-xs text-[#7c2d12]">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
                 </li>
               ))}
             </ol>
           </div>
         ) : (
-          <div className="rounded-md border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+          <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
             <div className="flex items-center gap-2 text-sm"><span className="pill-pass">Pass</span><span className="font-semibold text-[var(--ecs-navy)]">All policy checks passed</span></div>
             <div className="text-xs text-[var(--ecs-muted)] mt-1">This trip meets travel-policy requirements; no exception approval is required.</div>
           </div>
         )}
 
-        <div className="rounded-md border border-[var(--ecs-border)] border-l-4 border-l-[var(--ecs-navy)] bg-[var(--ecs-panel-2)] p-3">
+        <div className="rounded-md border border-[var(--ecs-border)] border-l-4 border-l-[var(--ecs-navy)] bg-white p-3">
           <div className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Approval Requested</div>
           <div className="text-sm text-[var(--ecs-muted)]">You are approving:</div>
           <ul className="list-disc pl-5 text-sm space-y-1 mt-1">
