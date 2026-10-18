@@ -23,7 +23,7 @@ import { RequestActivity } from '@/components/RequestActivity';
 import { GroupTravellers } from '@/components/GroupTravellers';
 import {
   SummaryCard, TravellerCard, GroupSummaryCard, TravellerRoster, ItineraryLegsCard,
-  CostAllocationCard, PolicyExceptionsCard, CostItems, GuestSettlementCard, ApprovalCostSummary,
+  CostAllocationCard, PolicyExceptionsCard, CostItems, GuestSettlementCard, ApprovalSummaryCard,
 } from '@/components/ReviewSections';
 import { withdrawRequest, reopenDraft, handoffToTmc, markSelfBooked } from '@/modules/pretrip/actions';
 import { hasGuestMembers } from '@/modules/pretrip/settlement';
@@ -126,20 +126,22 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
 
       <HighRiskAdvisory req={req} />
 
-      <SummaryCard req={req} bookingDeadlineDays={settings.bookingDeadlineDays} />
+      {/* Approval Summary (for DOA) — decision glance below the workflow, above all detail cards. */}
+      {!isDraft && <ApprovalSummaryCard req={req} summary={summary} bookingDeadlineDays={settings.bookingDeadlineDays} />}
 
-      {/* Glance view for approvers — total cost & charging high on the page (details below). */}
-      {!isDraft && <ApprovalCostSummary req={req} summary={summary} basis={settings.approvalAmountBasis} />}
+      {/* Full details below (source of truth); the summary tiles / "View Full Details" link here. */}
+      <div id="approval-details" />
+      <div id="sec-trip" className="scroll-mt-20"><SummaryCard req={req} bookingDeadlineDays={settings.bookingDeadlineDays} /></div>
 
       {/* Lettered cards (letters assigned in reading order) */}
       <div className="grid md:grid-cols-2 gap-5 items-start">
-        {req.isGroup ? <GroupSummaryCard req={req} letter="A" /> : <TravellerCard req={req} letter="A" />}
-        <PolicyExceptionsCard req={req} letter="B" />
+        <div id="sec-traveller" className="scroll-mt-20">{req.isGroup ? <GroupSummaryCard req={req} letter="A" /> : <TravellerCard req={req} letter="A" />}</div>
+        <div id="sec-exceptions" className="scroll-mt-20"><PolicyExceptionsCard req={req} letter="B" /></div>
       </div>
       {req.isGroup && <TravellerRoster req={req} letter="C" />}
       {isMulti && <ItineraryLegsCard req={req} letter="C" />}
 
-      <CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} letter={req.isGroup || isMulti ?'D' : 'C'} />
+      <div id="sec-cost" className="scroll-mt-20"><CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} letter={req.isGroup || isMulti ?'D' : 'C'} /></div>
 
       <CostAllocationCard req={req} amount={summary.ntuFunded} letter={req.isGroup || isMulti ?'E' : 'D'} />
 

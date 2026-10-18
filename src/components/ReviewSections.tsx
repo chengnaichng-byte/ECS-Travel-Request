@@ -8,8 +8,9 @@ import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNigh
 import { guestSettlements } from '@/modules/pretrip/settlement';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
-import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
+import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { bookingSummaryText } from '@/modules/pretrip/booking';
+import { ENTITY_NAME } from '@/data/organisation';
 import { Card } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type SummaryRow } from './CostItemsTable';
 import type { FullRequest } from '@/modules/pretrip/queries';
@@ -37,88 +38,186 @@ function Field({ label, children, accent }: { label: string; children: React.Rea
   );
 }
 
-/* ------------------------------------------- Approval glance: total cost & charging */
-// A compact, high-on-the-page summary so an approver (RO/DOA) can decide at a glance:
-// the amount they are approving, the cost split, and which account(s) bear it — without
-// scrolling to the full Cost Items / Cost Allocation sections below.
-const BASIS_LABEL: Record<string, string> = { GROSS: 'Gross estimate', NET_NTU: 'Net NTU-funded', MAJOR_COST: 'Major cost only', ALLOCATION: 'Highest allocation' };
-const CAT_LABEL: Record<string, string> = { AIRFARE: 'Airfare', ACCOMMODATION: 'Accommodation', ODA: 'Overseas Daily Allowance', CONFERENCE: 'Conference', OTHER: 'Other' };
+/* ---------------------------------------------- Approval Summary (for DOA) — decision glance */
+// A compact, decision-oriented summary placed below the workflow and above the detail cards so
+// the DOA can decide without scrolling: who/what/where/when, how much & charged to what, the
+// policy exceptions, and an explicit "You are approving" statement. Variant-aware (standard,
+// cross-charge, research, group, guest). The detail cards below remain the source of truth; the
+// tile chevrons and "View Full Details" scroll to them (anchors set on the request page).
+const fmtPretty = (d: Date | null) => (d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
-export function ApprovalCostSummary({ req, summary, basis, letter }: { req: FullRequest; summary: CostSummary; basis: string; letter?: string }) {
-  const byCat = new Map<string, number>();
-  for (const e of req.expenses) byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.sgdAmount);
-  const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
-  const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
-  const exTravellers = new Set(exceptions.filter((e) => e.travellerId).map((e) => e.travellerId));
-  const crossCharge = req.allocations.length > 1;
-  const sorted = [...req.allocations].sort((a, b) => b.percent - a.percent);
+function SumTile({ icon, title, anchor, children }: { icon: string; title: string; anchor: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span aria-hidden>{icon}</span>{title}</div>
+        <a href={`#${anchor}`} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
+      </div>
+      <div className="space-y-2 text-sm">{children}</div>
+    </div>
+  );
+}
+function TileRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><div className="text-[11px] text-[var(--ecs-muted)]">{label}</div><div className="text-sm">{children ?? '—'}</div></div>;
+}
+
+export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, detailsAnchor = 'approval-details' }: {
+  req: FullRequest; summary: CostSummary; bookingDeadlineDays: number; detailsAnchor?: string;
+}) {
+  const isGuest = isGuestRequest(req);
+  const emp = EcsIdentity.employee(req.travellerId);
+  const hostDeptId = isGuest ? (req.departmentId ?? EcsIdentity.employee(req.requestorId)?.departmentId) : emp?.departmentId;
+  const deptName = EcsIdentity.department(hostDeptId ?? '')?.name ?? '—';
+  const coordinator = EcsIdentity.employee(req.requestorId)?.name ?? '—';
+  const purpose = EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—';
+
+  const legs = sharedLegs(req);
+  const isMulti = legs.length > 2;
+  const countries = new Set(legs.map((l) => EcsReference.country(EcsReference.city(EcsReference.airport(l.destCode)?.cityCode ?? '')?.countryCode ?? '')?.name).filter(Boolean));
+  const destText = isMulti
+    ? `${legs.length} legs · ${countries.size} countr${countries.size === 1 ? 'y' : 'ies'}`
+    : `${EcsReference.city(req.destCity ?? '')?.name ?? '—'}${req.destCountry ? `, ${EcsReference.country(req.destCountry)?.name ?? ''}` : ''}`;
+  const dateText = `${fmtPretty(req.startDate)} – ${fmtPretty(req.endDate)}${durationDN(req.startDate, req.endDate) ? ` (${durationDN(req.startDate, req.endDate)})` : ''}`;
+  const personalText = req.isGroup
+    ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers`
+    : (req.personalStart ? `${fmtPretty(req.personalStart)} – ${fmtPretty(req.personalEnd)}` : 'None');
+
+  const clsName = req.isGroup ? 'Per traveller (see roster)' : (EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—');
+  const { days } = daysToBook(req, bookingDeadlineDays);
+  const validityEnd = req.authorisationExpiry ?? (req.startDate ? new Date(req.startDate.getTime() - bookingDeadlineDays * 86400000) : null);
+
+  const allocs = [...req.allocations].sort((a, b) => b.percent - a.percent);
+  const primary = allocs[0];
+  const primaryCode = primary ? EcsCharging.code(primary.chargingCode) : null;
+  const crossCharge = allocs.length > 1;
+  const research = allocs.some((a) => EcsCharging.code(a.chargingCode)?.isResearch);
+  const amountFor = (pct: number) => fmtSgd((summary.ntuFunded * pct) / 100);
+
+  const exViews = exceptionViews(req);
+  const exImpact = exViews.reduce((s, e) => s + e.impactSgd, 0);
+  // §26/§DD-25 was the exception already approved upstream (Exception Approver / Provost)?
+  const upstreamExStep = req.approvalSteps.find((s) => (s.roleType === APPROVER_ROLE.Exception || s.roleType === APPROVER_ROLE.Provost) && s.status === 'Approved');
+
+  // "You are approving" charging phrase
+  const chargePhrase = crossCharge
+    ? `split across ${allocs.map((a) => `${a.chargingCode} (${a.percent}%)`).join(', ')}`
+    : `100% to ${primary?.chargingCode ?? '—'} (${primaryCode?.name ?? ''})`;
+  const whoPhrase = req.isGroup
+    ? `${req.travellers.length} travellers (coordinator ${coordinator})`
+    : isGuest ? `guest ${travellerName(req)}${req.guestOrg ? ` of ${req.guestOrg}` : ''} hosted by ${deptName}`
+    : `${travellerName(req)}`;
 
   return (
-    <Card title={heading(letter, 'Approval Summary — total cost & charging')}>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Headline amount the approver is signing off */}
-        <div className="rounded-lg border border-[var(--ecs-navy)]/20 bg-[var(--ecs-panel-2)] p-3">
-          <div className="text-xs text-[var(--ecs-muted)] mb-0.5">Amount for approval <span className="uppercase">({BASIS_LABEL[basis] ?? basis})</span></div>
-          <div className="text-2xl font-bold text-[var(--ecs-navy)]">{fmtSgd(summary.approvalAmount)}</div>
-          <div className="text-[11px] text-[var(--ecs-muted)] mt-1">Booking ceiling (air + hotel): {fmtSgd(summary.bookingCeiling)}</div>
-        </div>
-        {/* Totals breakdown */}
-        <div className="lg:col-span-1">
-          <dl className="text-sm space-y-1">
-            <div className="flex justify-between"><dt className="text-[var(--ecs-muted)]">Gross estimate</dt><dd className="font-medium">{fmtSgd(summary.gross)}</dd></div>
-            <div className="flex justify-between"><dt className="text-[var(--ecs-muted)]">Less sponsorship</dt><dd className="font-medium">{summary.sponsorship > 0 ? `– ${fmtSgd(summary.sponsorship)}` : '—'}</dd></div>
-            <div className="flex justify-between border-t border-[var(--ecs-border)] pt-1"><dt className="text-[var(--ecs-navy)] font-semibold">NTU-funded</dt><dd className="font-semibold text-[var(--ecs-navy)]">{fmtSgd(summary.ntuFunded)}</dd></div>
-          </dl>
-        </div>
-        {/* Cost by category */}
-        <div className="lg:col-span-2">
-          <div className="text-xs text-[var(--ecs-muted)] mb-1">Cost by category</div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            {cats.map(([c, v]) => (
-              <span key={c}><span className="text-[var(--ecs-muted)]">{CAT_LABEL[c] ?? c}:</span> <span className="font-medium">{fmtSgd(v)}</span></span>
-            ))}
-            {cats.length === 0 && <span className="text-[var(--ecs-muted)]">No cost lines yet.</span>}
+    <div className="card p-5 border-2 border-[var(--ecs-navy-2)]/30">
+      {/* Header + status chips + view-details */}
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+        <div className="flex items-start gap-2">
+          <span className="text-xl" aria-hidden>🧾</span>
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--ecs-navy)]">Approval Summary (for DOA)</h2>
+            <p className="text-xs text-[var(--ecs-muted)]">Key information for decision. View the details below for full information.</p>
           </div>
-          {exceptions.length > 0 && (
-            <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#9a3412]">
-              <span>⚠</span>{req.isGroup ? `${exTravellers.size || exceptions.length} traveller(s) with a policy exception` : `${exceptions.length} policy exception${exceptions.length > 1 ? 's' : ''}`} — see section below.
-            </div>
-          )}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {exViews.length > 0
+            ? <><span className="pill-exc">⚠ {exViews.length} Policy Exception{exViews.length > 1 ? 's' : ''}</span><span className="pill-pass">✓ All other checks passed</span></>
+            : <span className="pill-pass">✓ All policy checks passed</span>}
+          <a href={`#${detailsAnchor}`} className="btn-ghost text-xs">View Full Details ▾</a>
         </div>
       </div>
 
-      {/* Respective charging accounts */}
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr>
-            <th className="th">Charging account</th><th className="th">Department</th><th className="th text-right">% of cost</th><th className="th text-right">Amount (SGD)</th>
-          </tr></thead>
-          <tbody>
-            {sorted.map((a) => {
-              const c = EcsCharging.code(a.chargingCode);
-              return (
-                <tr key={a.id} className="hover:bg-[var(--ecs-panel-2)]">
-                  <td className="td whitespace-nowrap font-medium">{a.chargingCode} · {c?.name ?? ''}
-                    {a.isMain && <span className="pill-navy ml-1">Main</span>}{c?.isResearch && <span className="pill-warn ml-1">Research</span>}</td>
-                  <td className="td text-xs">{EcsIdentity.department(c?.departmentId ?? '')?.name ?? '—'}</td>
-                  <td className="td text-right">{a.percent}%</td>
-                  <td className="td text-right whitespace-nowrap font-medium">{fmtSgd((summary.ntuFunded * a.percent) / 100)}</td>
-                </tr>
-              );
-            })}
-            {sorted.length === 0 && <tr><td className="td text-[var(--ecs-muted)]" colSpan={4}>No charging allocation yet.</td></tr>}
-          </tbody>
-          {sorted.length > 0 && (
-            <tfoot><tr className="font-semibold text-[var(--ecs-navy)]">
-              <td className="td" colSpan={2}>Total NTU-funded{crossCharge ? ' (cross-charged)' : ''}</td>
-              <td className="td text-right">{sorted.reduce((s, a) => s + a.percent, 0)}%</td>
-              <td className="td text-right">{fmtSgd(summary.ntuFunded)}</td>
-            </tr></tfoot>
+      {/* 4 decision tiles */}
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <SumTile icon="👤" title="Traveller & Purpose" anchor="sec-traveller">
+          <div>
+            <div className="font-semibold text-[var(--ecs-navy)]">{req.isGroup ? `Group travel · ${req.travellers.length} travellers` : travellerName(req)}{isGuest && <span className="pill-info ml-1">Guest</span>}</div>
+            <div className="text-xs text-[var(--ecs-muted)]">
+              {req.isGroup ? `Coordinator: ${coordinator}` : isGuest ? `Host: ${deptName}` : `${travellerTitle(req)} · ${deptName}`}
+            </div>
+            {!isGuest && !req.isGroup && <div className="text-xs text-[var(--ecs-muted)]">{ENTITY_NAME}</div>}
+          </div>
+          <TileRow label="Purpose">{purpose}</TileRow>
+          {req.description && <TileRow label="Business justification"><span className="text-[13px]">{req.description}</span></TileRow>}
+        </SumTile>
+
+        <SumTile icon="✈️" title="Trip Details" anchor="sec-trip">
+          <TileRow label="Destination">{destText}</TileRow>
+          <TileRow label="Official travel dates">{dateText}</TileRow>
+          <TileRow label="Personal extension">{personalText}</TileRow>
+        </SumTile>
+
+        <SumTile icon="💰" title="Estimated Cost & Charging" anchor="sec-cost">
+          <div>
+            <div className="text-[11px] text-[var(--ecs-muted)]">Total Estimated Trip Cost</div>
+            <div className="text-xl font-bold text-[var(--ecs-navy)]">{fmtSgd(summary.gross)}</div>
+            {summary.sponsorship > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded (committed): <strong>{fmtSgd(summary.ntuFunded)}</strong> · less sponsorship {fmtSgd(summary.sponsorship)}</div>}
+          </div>
+          <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
+            <div className="text-[11px] text-[var(--ecs-muted)]">Primary Charging Account</div>
+            <div className="text-[13px] font-medium">{primary ? `${primary.chargingCode} · ${primaryCode?.name ?? ''}` : '—'}</div>
+            <div className="text-[11px]">{primary ? `${primary.percent}% (${amountFor(primary.percent)})` : ''}{research && <span className="pill-warn ml-1">Research WBS</span>}</div>
+          </div>
+          <TileRow label="Cross-charge">
+            {crossCharge ? <span className="text-amber-700 font-medium">Yes — {allocs.length} accounts</span> : 'No cross-charge'}
+          </TileRow>
+          {crossCharge && (
+            <ul className="text-[11px] space-y-0.5 -mt-1">
+              {allocs.map((a) => <li key={a.id} className="flex justify-between"><span>{a.chargingCode}{EcsCharging.code(a.chargingCode)?.isResearch ? ' (research)' : ''}</span><span className="font-medium">{a.percent}% · {amountFor(a.percent)}</span></li>)}
+              <li className="text-[var(--ecs-muted)] pt-0.5 border-t border-[var(--ecs-border)]">DOA basis: highest-share account{primaryCode ? ` (${EcsIdentity.department(primaryCode.departmentId)?.name ?? ''})` : ''}</li>
+            </ul>
           )}
-        </table>
+        </SumTile>
+
+        <SumTile icon="🧳" title="Travel Arrangement" anchor="sec-trip">
+          <TileRow label="Proposed travel class">{clsName}</TileRow>
+          <TileRow label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</TileRow>
+          <TileRow label="Authorisation validity">
+            {fmtPretty(req.createdAt)} – {fmtPretty(validityEnd)}
+            <div className="mt-1"><span className="pill-pass">{days} days to book</span></div>
+          </TileRow>
+        </SumTile>
       </div>
-      <p className="text-[11px] text-[var(--ecs-muted)] mt-2">Glance view for approval — the full cost lines and allocation detail are in the sections below. The approving DOA is derived from the highest-share department{crossCharge ? '; other business areas are notified/concur per threshold (§13.14/§18)' : ''}.</p>
-    </Card>
+
+      {/* Policy exceptions + approval-requested */}
+      <div className="grid md:grid-cols-2 gap-3 mt-3">
+        {exViews.length > 0 ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-900"><span aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
+              <a href="#sec-exceptions" className="text-amber-700 hover:text-amber-900 text-sm" title="Jump to full details">›</a>
+            </div>
+            <ol className="space-y-2 text-sm">
+              {exViews.map((e, i) => (
+                <li key={i} className="text-amber-900">
+                  <div className="flex items-center gap-2"><span className="font-medium">{i + 1}. {e.label}</span><span className={e.severity === 'High' ? 'pill-exc' : 'pill-warn'}>{e.severity}</span></div>
+                  <div className="text-xs">{e.detail}</div>
+                  {e.impactSgd > 0 && <div className="text-xs">Estimated incremental impact: <strong>{fmtSgd(e.impactSgd)}</strong></div>}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 flex items-center gap-2 text-sm text-emerald-900">
+            <span aria-hidden>✓</span><div><div className="font-semibold">All policy checks passed</div><div className="text-xs">This trip meets travel-policy requirements; no exception approval is required.</div></div>
+          </div>
+        )}
+
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-900 mb-2"><span aria-hidden>📋</span>Approval Requested</div>
+          <div className="text-sm text-emerald-900">You are approving:</div>
+          <ul className="list-disc pl-5 text-sm text-emerald-900 space-y-1 mt-1">
+            <li>This trip for <strong>{whoPhrase}</strong> to <strong>{destText}</strong> ({dateText}).</li>
+            <li>An estimated commitment of <strong>{fmtSgd(summary.ntuFunded)}</strong>{summary.sponsorship > 0 ? ` (gross ${fmtSgd(summary.gross)})` : ''} charged {chargePhrase}.</li>
+            {exViews.length > 0 && (
+              upstreamExStep
+                ? <li>The {exViews.map((e) => e.label.toLowerCase()).join('; ')} exception{exViews.length > 1 ? 's have' : ' has'} been <strong>separately approved</strong> ({upstreamExStep.roleType === APPROVER_ROLE.Provost ? 'Provost' : 'Exception Approver'}).</li>
+                : <li>The {exViews.map((e) => e.label.toLowerCase()).join('; ')} exception{exViews.length > 1 ? 's' : ''}{exImpact > 0 ? <> with an estimated incremental cost of <strong>{fmtSgd(exImpact)}</strong></> : ''}.</li>
+            )}
+            {isGuest && <li>Guest cost is <strong>host direct-billed</strong> (no traveller claim) — see the Guest Settlement section.</li>}
+          </ul>
+        </div>
+      </div>
+    </div>
   );
 }
 
