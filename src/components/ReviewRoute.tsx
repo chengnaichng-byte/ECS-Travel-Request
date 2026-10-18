@@ -41,7 +41,9 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
       <div className="grid md:grid-cols-2 gap-4 mt-4 border-t border-[var(--ecs-border)] pt-4">
         <div>
           <label className="label" htmlFor="selectedDoaId">Approving {doaRoleLabel} <span className="text-[var(--ecs-red)]">*</span></label>
-          <select id="selectedDoaId" name="selectedDoaId" required value={doa} onChange={(e) => setDoa(e.target.value)} className="field">
+          {/* Not a native `required` — the emergency / retrospective lane routes to the named
+              authorising officer instead; the server enforces DOA selection on the normal path. */}
+          <select id="selectedDoaId" name="selectedDoaId" value={doa} onChange={(e) => setDoa(e.target.value)} className="field">
             <option value="">— select the {doaRoleLabel} —</option>
             {doaCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.note ? ` · ${c.note}` : ''}</option>)}
           </select>

@@ -711,16 +711,34 @@ export async function submitRequest(id: string, fd?: FormData) {
       revalidatePath(`/requests/${id}/review`);
       return;
     }
-    // §13.14 the traveller must select the approving DOA from the eligible candidates.
-    const approvalAmount = computeSummary(req.expenses, settings.approvalAmountBasis).approvalAmount;
-    const candidates = doaCandidatesFor(req, { approvalAmount, sameRouteResearch: settings.sameRouteResearch });
-    const selDoa = str(fd, 'selectedDoaId');
-    const doaOk = candidates.length === 0 || candidates.some((c) => c.id === selDoa);
-    if (!doaOk) {
-      await audit(id, 'STATUS', 'Submission blocked — please select the approving DOA');
-      redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
+    // §13.x / DD-23 Emergency / retrospective lane — a bounded, audited alternative to the full
+    // route: it needs a justification and a named authorising officer (never the traveller); the
+    // route then compresses to a single DOA ratification and (unless retrospective) book-first
+    // hand-off is allowed before that ratification.
+    if (str(fd, 'emergency') === 'on') {
+      const ej = str(fd, 'emergencyJustification').trim();
+      const ea = str(fd, 'emergencyAuthoriserId');
+      if (!ej || !ea || ea === req.travellerId) {
+        await audit(id, 'STATUS', 'Submission blocked — emergency lane requires a justification and an authorising officer (not the traveller)');
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency / retrospective lane needs a justification and an authorising officer (not the traveller).')}`);
+      }
+      await prisma.travelRequest.update({ where: { id }, data: {
+        isEmergency: true, isRetrospective: str(fd, 'isRetrospective') === 'on',
+        emergencyJustification: ej, emergencyAuthoriserId: ea, emergencyRatified: false,
+        additionalApproverId: null, selectedDoaId: null, personalAck, highRiskAck,
+      } });
+    } else {
+      // §13.14 the traveller must select the approving DOA from the eligible candidates.
+      const approvalAmount = computeSummary(req.expenses, settings.approvalAmountBasis).approvalAmount;
+      const candidates = doaCandidatesFor(req, { approvalAmount, sameRouteResearch: settings.sameRouteResearch });
+      const selDoa = str(fd, 'selectedDoaId');
+      const doaOk = candidates.length === 0 || candidates.some((c) => c.id === selDoa);
+      if (!doaOk) {
+        await audit(id, 'STATUS', 'Submission blocked — please select the approving DOA');
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
+      }
+      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, additionalApproverId: aaId, selectedDoaId: selDoa || null, personalAck, highRiskAck } });
     }
-    await prisma.travelRequest.update({ where: { id }, data: { additionalApproverId: aaId, selectedDoaId: selDoa || null, personalAck, highRiskAck } });
   }
 
   // §13.4 lock foreign-currency estimates to the SGD rate effective on the submission date.
@@ -762,6 +780,7 @@ export async function submitRequest(id: string, fd?: FormData) {
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
     guestUpgradeProvostId,
+    emergency: fresh.isEmergency ? { authoriserId: fresh.emergencyAuthoriserId, retrospective: fresh.isRetrospective } : undefined,
   });
   const firstStatus = steps.length ? statusForStep(steps[0].roleType) : REQUEST_STATUS.PendingDOA;
   // Atomic: approval amount + rebuilt route + status move together (no half-built route).
@@ -956,12 +975,18 @@ export async function handoffToTmc(id: string) {
     revalidatePath(`/requests/${id}/booking`);
     return;
   }
-  // §13.9 parameter filters — only hand off when the outbound guards all pass.
+  // §13.9 parameter filters — only hand off when the outbound guards all pass. Exception: a
+  // §13.x / DD-23 emergency book-first request may be handed off before full approval, on the
+  // named authorising officer's authority, with the DOA ratification still pending (audited).
   const gate = evaluateFlow(req, 'OUTBOUND', await getGuardSettings());
-  if (!gate.ok) {
+  const emergencyBookFirst = req.isEmergency && !req.isRetrospective && !!req.emergencyAuthoriserId;
+  if (!gate.ok && !emergencyBookFirst) {
     await audit(id, 'INTEGRATION', `Hand-off blocked by contract filter — ${gate.checks.filter((c) => !c.pass).map((c) => `${c.rule} (is ${c.actual})`).join('; ')}`);
     revalidatePath(`/requests/${id}/booking`);
     return;
+  }
+  if (!gate.ok && emergencyBookFirst) {
+    await audit(id, 'INTEGRATION', `Emergency book-first — authorised by ${EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? req.emergencyAuthoriserId}; handing off before DOA ratification (DD-23)`);
   }
   // §13.9 / DD-18 Deterministic hand-off routing — the TMC channel follows the itinerary's
   // determinism (straight-through online only when nothing needs an agent). Enforced on the

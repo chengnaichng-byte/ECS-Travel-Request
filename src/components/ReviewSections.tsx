@@ -37,6 +37,91 @@ function Field({ label, children, accent }: { label: string; children: React.Rea
   );
 }
 
+/* ------------------------------------------- Approval glance: total cost & charging */
+// A compact, high-on-the-page summary so an approver (RO/DOA) can decide at a glance:
+// the amount they are approving, the cost split, and which account(s) bear it — without
+// scrolling to the full Cost Items / Cost Allocation sections below.
+const BASIS_LABEL: Record<string, string> = { GROSS: 'Gross estimate', NET_NTU: 'Net NTU-funded', MAJOR_COST: 'Major cost only', ALLOCATION: 'Highest allocation' };
+const CAT_LABEL: Record<string, string> = { AIRFARE: 'Airfare', ACCOMMODATION: 'Accommodation', ODA: 'Overseas Daily Allowance', CONFERENCE: 'Conference', OTHER: 'Other' };
+
+export function ApprovalCostSummary({ req, summary, basis, letter }: { req: FullRequest; summary: CostSummary; basis: string; letter?: string }) {
+  const byCat = new Map<string, number>();
+  for (const e of req.expenses) byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.sgdAmount);
+  const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+  const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
+  const exTravellers = new Set(exceptions.filter((e) => e.travellerId).map((e) => e.travellerId));
+  const crossCharge = req.allocations.length > 1;
+  const sorted = [...req.allocations].sort((a, b) => b.percent - a.percent);
+
+  return (
+    <Card title={heading(letter, 'Approval Summary — total cost & charging')}>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Headline amount the approver is signing off */}
+        <div className="rounded-lg border border-[var(--ecs-navy)]/20 bg-[var(--ecs-panel-2)] p-3">
+          <div className="text-xs text-[var(--ecs-muted)] mb-0.5">Amount for approval <span className="uppercase">({BASIS_LABEL[basis] ?? basis})</span></div>
+          <div className="text-2xl font-bold text-[var(--ecs-navy)]">{fmtSgd(summary.approvalAmount)}</div>
+          <div className="text-[11px] text-[var(--ecs-muted)] mt-1">Booking ceiling (air + hotel): {fmtSgd(summary.bookingCeiling)}</div>
+        </div>
+        {/* Totals breakdown */}
+        <div className="lg:col-span-1">
+          <dl className="text-sm space-y-1">
+            <div className="flex justify-between"><dt className="text-[var(--ecs-muted)]">Gross estimate</dt><dd className="font-medium">{fmtSgd(summary.gross)}</dd></div>
+            <div className="flex justify-between"><dt className="text-[var(--ecs-muted)]">Less sponsorship</dt><dd className="font-medium">{summary.sponsorship > 0 ? `– ${fmtSgd(summary.sponsorship)}` : '—'}</dd></div>
+            <div className="flex justify-between border-t border-[var(--ecs-border)] pt-1"><dt className="text-[var(--ecs-navy)] font-semibold">NTU-funded</dt><dd className="font-semibold text-[var(--ecs-navy)]">{fmtSgd(summary.ntuFunded)}</dd></div>
+          </dl>
+        </div>
+        {/* Cost by category */}
+        <div className="lg:col-span-2">
+          <div className="text-xs text-[var(--ecs-muted)] mb-1">Cost by category</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {cats.map(([c, v]) => (
+              <span key={c}><span className="text-[var(--ecs-muted)]">{CAT_LABEL[c] ?? c}:</span> <span className="font-medium">{fmtSgd(v)}</span></span>
+            ))}
+            {cats.length === 0 && <span className="text-[var(--ecs-muted)]">No cost lines yet.</span>}
+          </div>
+          {exceptions.length > 0 && (
+            <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#9a3412]">
+              <span>⚠</span>{req.isGroup ? `${exTravellers.size || exceptions.length} traveller(s) with a policy exception` : `${exceptions.length} policy exception${exceptions.length > 1 ? 's' : ''}`} — see section below.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Respective charging accounts */}
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr>
+            <th className="th">Charging account</th><th className="th">Department</th><th className="th text-right">% of cost</th><th className="th text-right">Amount (SGD)</th>
+          </tr></thead>
+          <tbody>
+            {sorted.map((a) => {
+              const c = EcsCharging.code(a.chargingCode);
+              return (
+                <tr key={a.id} className="hover:bg-[var(--ecs-panel-2)]">
+                  <td className="td whitespace-nowrap font-medium">{a.chargingCode} · {c?.name ?? ''}
+                    {a.isMain && <span className="pill-navy ml-1">Main</span>}{c?.isResearch && <span className="pill-warn ml-1">Research</span>}</td>
+                  <td className="td text-xs">{EcsIdentity.department(c?.departmentId ?? '')?.name ?? '—'}</td>
+                  <td className="td text-right">{a.percent}%</td>
+                  <td className="td text-right whitespace-nowrap font-medium">{fmtSgd((summary.ntuFunded * a.percent) / 100)}</td>
+                </tr>
+              );
+            })}
+            {sorted.length === 0 && <tr><td className="td text-[var(--ecs-muted)]" colSpan={4}>No charging allocation yet.</td></tr>}
+          </tbody>
+          {sorted.length > 0 && (
+            <tfoot><tr className="font-semibold text-[var(--ecs-navy)]">
+              <td className="td" colSpan={2}>Total NTU-funded{crossCharge ? ' (cross-charged)' : ''}</td>
+              <td className="td text-right">{sorted.reduce((s, a) => s + a.percent, 0)}%</td>
+              <td className="td text-right">{fmtSgd(summary.ntuFunded)}</td>
+            </tr></tfoot>
+          )}
+        </table>
+      </div>
+      <p className="text-[11px] text-[var(--ecs-muted)] mt-2">Glance view for approval — the full cost lines and allocation detail are in the sections below. The approving DOA is derived from the highest-share department{crossCharge ? '; other business areas are notified/concur per threshold (§13.14/§18)' : ''}.</p>
+    </Card>
+  );
+}
+
 /* -------------------------------------------------------- top summary banner */
 export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bookingDeadlineDays: number }) {
   const legs = sharedLegs(req);

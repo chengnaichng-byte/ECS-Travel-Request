@@ -23,7 +23,7 @@ import { RequestActivity } from '@/components/RequestActivity';
 import { GroupTravellers } from '@/components/GroupTravellers';
 import {
   SummaryCard, TravellerCard, GroupSummaryCard, TravellerRoster, ItineraryLegsCard,
-  CostAllocationCard, PolicyExceptionsCard, CostItems, GuestSettlementCard,
+  CostAllocationCard, PolicyExceptionsCard, CostItems, GuestSettlementCard, ApprovalCostSummary,
 } from '@/components/ReviewSections';
 import { withdrawRequest, reopenDraft, handoffToTmc, markSelfBooked } from '@/modules/pretrip/actions';
 import { hasGuestMembers } from '@/modules/pretrip/settlement';
@@ -48,6 +48,8 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
   const isInitialPending = req.status.startsWith('Pending');
   const isApproved = req.status === REQUEST_STATUS.Approved || req.status === REQUEST_STATUS.Closed;
   const canCancel = [REQUEST_STATUS.Approved, REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Expired].includes(req.status as never);
+  // §13.x / DD-23 an emergency (non-retrospective) request may book before DOA ratification.
+  const emergencyBookFirst = req.isEmergency && !req.isRetrospective && !!req.emergencyAuthoriserId && isPending;
   const isMulti = sharedLegs(req).length > 2;
 
   const pendingStep = req.approvalSteps.find((s) => s.status === 'Pending');
@@ -93,6 +95,12 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
               <form action={createClaimFromRequest.bind(null, id)}><button className="btn-primary">Create TE claim →</button></form>
             </>
           )}
+          {emergencyBookFirst && (
+            <>
+              <Link href={`/requests/${id}/booking`} className="btn-secondary">Booking →</Link>
+              {req.bookingStatus === 'Not Sent' && <form action={handoffToTmc.bind(null, id)}><button className="btn-secondary">Send to TMC (book-first)</button></form>}
+            </>
+          )}
           <MoreActions id={id} canRecall={isInitialPending || isDraft} canCancel={canCancel} />
         </div>
       </div>
@@ -103,11 +111,25 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
       {req.status === REQUEST_STATUS.Rejected && <div className="card p-4 bg-red-50 border-red-200 text-sm text-red-800">This request was rejected. A new request is required (it may be copied below).</div>}
       {isAmendment && <div className="card p-4 bg-amber-50 border-amber-200 text-sm text-amber-800">Under <strong>material-amendment reapproval</strong> (§13.14): the route has been re-derived and restarted; the Travel Authorisation is retained and a new approved version is created on reapproval.</div>}
 
+      {req.isEmergency && (
+        <div className="card p-4 bg-amber-50 border-amber-300 text-sm text-amber-900">
+          <strong>{req.isRetrospective ? 'Retrospective request' : 'Emergency — book-first'} (DD-23)</strong> — authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? '—'}</strong>.{' '}
+          {req.isRetrospective
+            ? 'Raised after the trip was booked / taken; the route is compressed to a single DOA ratification after the fact.'
+            : 'The route is compressed to a single DOA ratification; the booking may be sent to the TMC before that ratification.'}{' '}
+          {isApproved ? <span className="font-semibold">DOA-ratified ✓</span> : <span className="font-semibold">DOA ratification {req.status.startsWith('Pending') ? 'pending' : '—'}.</span>}
+          {req.emergencyJustification && <div className="mt-1 text-xs italic">“{req.emergencyJustification}”</div>}
+        </div>
+      )}
+
       {isDraft && <Stepper id={id} active="traveller" />}
 
       <HighRiskAdvisory req={req} />
 
       <SummaryCard req={req} bookingDeadlineDays={settings.bookingDeadlineDays} />
+
+      {/* Glance view for approvers — total cost & charging high on the page (details below). */}
+      {!isDraft && <ApprovalCostSummary req={req} summary={summary} basis={settings.approvalAmountBasis} />}
 
       {/* Lettered cards (letters assigned in reading order) */}
       <div className="grid md:grid-cols-2 gap-5 items-start">

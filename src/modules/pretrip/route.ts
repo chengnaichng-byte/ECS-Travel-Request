@@ -67,7 +67,7 @@ function pickDoa(line: string[], tierIndex: number, travellerIds: string[]): { i
 
 export function buildRoute(
   req: FullRequest,
-  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null },
+  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; emergency?: { authoriserId: string | null; retrospective: boolean } },
 ): RouteStep[] {
   const steps: RouteStep[] = [];
   const travellerIds = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
@@ -76,6 +76,22 @@ export function buildRoute(
   const research = isResearchRequest(req) && !opts.sameRouteResearch;
 
   let seq = 1;
+
+  // §13.x / DD-23 Emergency / retrospective lane — a bounded, audited compression of the route to
+  // a SINGLE DOA ratification step. The RO / Additional / Exception / cross-charge steps are
+  // skipped; the named authorising officer ratifies (or the amount-band DOA if they cannot).
+  if (opts.emergency) {
+    const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
+    const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
+    const auth = opts.emergency.authoriserId && !travellerIds.includes(opts.emergency.authoriserId)
+      ? opts.emergency.authoriserId
+      : pickDoa(line, band.doaTierIndex, travellerIds).id;
+    steps.push({
+      seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: auth,
+      note: opts.emergency.retrospective ? 'Emergency — retrospective DOA ratification (DD-23)' : 'Emergency — book-first, DOA ratification (DD-23)',
+    });
+    return steps;
+  }
 
   // Pre-trip route (§51 configurable): Traveller → (optional Additional Approver, chosen by
   // the traveller — any AD person) → (Exception Approver when configured) → DOA. No RO step.

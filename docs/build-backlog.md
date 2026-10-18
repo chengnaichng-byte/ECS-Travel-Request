@@ -79,9 +79,17 @@ Derived from the decision set in the Build Specification (DD-13 revised, DD-17�
   - UI: booking page shows the in-flight "Cancellation requested — awaiting TMC confirmation" panel with a receive-confirmation action, plus side-by-side **Cancellation Request / Confirmation** payload cards.
 - **Acceptance:** a booked request cancels via a TMC round-trip that settles the fee/refund; a not-yet-sent request cancels locally; a cancelled request frees a re-raise. ✅
 
-### E8 · Emergency / retrospective lane — **DD-23**
+### E8 · Emergency / retrospective lane — **DD-23** — ✅ BUILT
 - **Impact:** WF · UI — **Effort: M** — **Dep:** none
-- **Stories:** book-first on **authorised approval**; **retrospective TR + approval**; bounded, audited scenario (not a general bypass).
+- **Status:** built & verified — a bounded, audited alternative route (not a general bypass):
+  - **Model:** `isEmergency / isRetrospective / emergencyJustification / emergencyAuthoriserId / emergencyRatified` on the request (migration).
+  - **Entry:** an "Emergency / retrospective lane" section on the Review page — requires a **justification** and a named **authorising officer** (senior, non-traveller); server blocks submit otherwise.
+  - **Compressed route:** `buildRoute` short-circuits to a **single DOA ratification** step (RO / Additional / Exception / cross-charge skipped); the authoriser ratifies (or the amount-band DOA).
+  - **Book-first:** an emergency (non-retrospective) request may be **handed off to the TMC before DOA ratification** — `handoffToTmc` relaxes the OUTBOUND "approved" guard for an authorised emergency and audits it; the detail page exposes a "Send to TMC (book-first)" action while Pending.
+  - **Retrospective:** same compressed ratification, no book-first (the trip was already booked/taken).
+  - **UI:** an emergency / retrospective banner on the detail page (authoriser, mode, justification, ratification status).
+- **Verified:** an emergency request routed **Submitted → Pending DOA (single ratification, Prof Carol Wong)** and was **handed off while still Pending** (bookingStatus `Sent to TMC`; audit "Emergency book-first — authorised by … handing off before DOA ratification").
+- **Acceptance:** book-first on authorised approval; retrospective TR + ratification; bounded & audited. ✅
 
 ### E6 · Guest profile via TMC (PDPA) — **DD-21** — ✅ BUILT
 - **Impact:** INT · UI — **Effort: S** — **Dep:** none
@@ -120,4 +128,6 @@ Three request types · trip structures (round/one-way/multi-city/country) · sel
 - **O-6** Provost list source/governance (gates E10 reference)
 
 ## Suggested sequence
-1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. ~~**E10**~~ ✅ **/** ~~**E3**~~ ✅ **/ E8** → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+1. ~~**E2** (multi-PNR, P1 foundational)~~ ✅ → 2. ~~**E1** (group flip, quick win)~~ ✅ → 3. ~~**E6**~~ ✅ **/** ~~**E7**~~ ✅ **/** ~~**E11**~~ ✅ (small) → 4. ~~**E10**~~ ✅ **/** ~~**E3**~~ ✅ **/** ~~**E8**~~ ✅ → 5. **E4 / E5** (await O-4 / O-5) → 6. **E9** (platform-dependent).
+
+**Remaining:** E4 (CTA central payment — gated by O-4), E5 (upgrade-cost split — gated by O-5), E9 (approver dashboard tabs / one-page — platform-dependent). Also delivered outside the epic list: an **Approval Summary** glance card (total cost + per-account charging) high on the request/approval page so a DOA can approve at a glance.

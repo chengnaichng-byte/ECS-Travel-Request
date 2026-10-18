@@ -72,6 +72,8 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const doaStep = previewSteps.find((s) => isDoaRole(s.roleType));
   const doaRoleLabel = doaStep?.roleType === APPROVER_ROLE.ResearchDOA ? 'Research DOA' : 'DOA';
   const doaCandidates = doaCandidatesFor(req, { approvalAmount: summary.approvalAmount, sameRouteResearch: settings.sameRouteResearch });
+  // §13.x / DD-23 emergency authorising officers — senior, non-traveller staff.
+  const emergencyAuthorisers = employees.filter((e) => !e.isTraveller && e.travelPolicyGroup === 'SENIOR' && e.id !== req.travellerId);
   const additionalCandidates = employees.filter((e) => e.id !== req.travellerId).map((e) => ({ id: e.id, name: e.name, title: e.title }));
   const research = isResearchRequest(req) && !settings.sameRouteResearch;
   const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
@@ -185,6 +187,36 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             </p>
           </Card>
         )}
+
+        {/* §13.x / DD-23 Emergency / retrospective lane — bounded, audited alternative route. */}
+        <details className="group card p-0 overflow-hidden" open={req.isEmergency}>
+          <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
+            <span className="transition-transform group-open:rotate-90">▸</span> Emergency / retrospective lane (DD-23)
+            {req.isEmergency && <span className="pill-warn ml-1">In use</span>}
+          </summary>
+          <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
+            <p className="text-xs text-[var(--ecs-muted)]">A bounded, audited alternative to the full route for urgent travel. It compresses the approval route to a <strong>single DOA ratification</strong>; an emergency (non-retrospective) request may be <strong>handed off to the TMC before that ratification</strong> (book-first). Requires a justification and a named authorising officer — not a general bypass.</p>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" name="emergency" value="on" defaultChecked={req.isEmergency} className="mt-0.5 w-4 h-4" />
+              <span>Use the emergency / retrospective lane for this request.</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm pl-6">
+              <input type="checkbox" name="isRetrospective" value="on" defaultChecked={req.isRetrospective} className="mt-0.5 w-4 h-4" />
+              <span>This trip was <strong>already booked / taken</strong> — raise retrospectively (no book-first; DOA ratifies after the fact).</span>
+            </label>
+            <div className="pl-6">
+              <label className="label">Authorising officer (records who authorised the emergency)</label>
+              <select name="emergencyAuthoriserId" defaultValue={req.emergencyAuthoriserId ?? ''} className="field w-96 max-w-full">
+                <option value="">— select an authorising officer —</option>
+                {emergencyAuthorisers.map((e) => <option key={e.id} value={e.id}>{e.name} · {e.title}</option>)}
+              </select>
+            </div>
+            <div className="pl-6">
+              <label className="label">Emergency / retrospective justification</label>
+              <textarea name="emergencyJustification" defaultValue={req.emergencyJustification ?? ''} rows={2} className="field w-full" placeholder="e.g. same-day flight to an urgent funder meeting; TMC held space pending authorisation." />
+            </div>
+          </div>
+        </details>
 
         <Card title="Declaration">
           <p className="text-sm text-[var(--ecs-muted)] mb-3">{settings.declarationText} Approval, entitlements and declarations derive from the traveller (§13.13).</p>

@@ -84,6 +84,12 @@ model TravelRequest {
   additionalApproverId String?                       // §23 optional traveller-selected Additional Approver (any AD person)
   selectedDoaId     String?                          // §13.14 traveller-selected DOA (from the eligible DOA candidates; not pre-selected)
   provostId         String?                          // §8 / DD-25 selected Provost (approver id) for a guest travel-class upgrade
+  // §13.x / DD-23 Emergency / retrospective lane — bounded, audited (not a general bypass).
+  isEmergency       Boolean  @default(false)          // emergency lane: compressed route + book-first
+  isRetrospective   Boolean  @default(false)          // raised after the trip was booked / taken
+  emergencyJustification String?                      // why the emergency lane was used
+  emergencyAuthoriserId  String?                      // the officer who authorised the emergency (recorded)
+  emergencyRatified Boolean  @default(false)          // the DOA ratified the emergency after the fact
   entityId          String?
   departmentId      String?
   isResearch        Boolean  @default(false)
