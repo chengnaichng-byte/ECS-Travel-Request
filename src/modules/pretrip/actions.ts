@@ -20,6 +20,7 @@ import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClas
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest } from './traveller';
+import { hasEmergencyApproval } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipientFor } from '@/config/visaLetter';
@@ -720,7 +721,12 @@ export async function submitRequest(id: string, fd?: FormData) {
       const ea = str(fd, 'emergencyAuthoriserId');
       if (!ej || !ea || ea === req.travellerId) {
         await audit(id, 'STATUS', 'Submission blocked — emergency lane requires a justification and an authorising officer (not the traveller)');
-        redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency / retrospective lane needs a justification and an authorising officer (not the traveller).')}`);
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency lane needs a justification and an authorising officer (not the traveller).')}`);
+      }
+      // §13.x / DD-23 a mandatory email approval (the authorising officer's e-mail) must be attached.
+      if (!hasEmergencyApproval(req)) {
+        await audit(id, 'STATUS', 'Submission blocked — emergency lane requires the authorising email approval to be attached');
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('Attach the mandatory email approval (the authorising officer’s e-mail) before submitting an emergency request.')}`);
       }
       await prisma.travelRequest.update({ where: { id }, data: {
         isEmergency: true, isRetrospective: false,

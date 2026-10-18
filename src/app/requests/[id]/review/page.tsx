@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { submitRequest } from '@/modules/pretrip/actions';
+import { submitRequest, addAttachment } from '@/modules/pretrip/actions';
+import { EMERGENCY_APPROVAL_DOC } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
@@ -74,6 +75,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const doaCandidates = doaCandidatesFor(req, { approvalAmount: summary.approvalAmount, sameRouteResearch: settings.sameRouteResearch });
   // §13.x / DD-23 emergency authorising officers — senior, non-traveller staff.
   const emergencyAuthorisers = employees.filter((e) => !e.isTraveller && e.travelPolicyGroup === 'SENIOR' && e.id !== req.travellerId);
+  const emergencyApprovals = req.attachments.filter((a) => a.docType === EMERGENCY_APPROVAL_DOC);
   const additionalCandidates = employees.filter((e) => e.id !== req.travellerId).map((e) => ({ id: e.id, name: e.name, title: e.title }));
   const research = isResearchRequest(req) && !settings.sameRouteResearch;
   const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
@@ -210,6 +212,23 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             <div className="pl-6">
               <label className="label">Emergency justification</label>
               <textarea name="emergencyJustification" defaultValue={req.emergencyJustification ?? ''} rows={2} className="field w-full" placeholder="e.g. same-day flight to an urgent funder meeting; TMC held space pending authorisation." />
+            </div>
+            {/* Mandatory email-approval attachment for the emergency lane. This uses the request's
+                attachment store via a button formAction, so it does not nest a form inside submit. */}
+            <div className="pl-6">
+              <label className="label">Email approval <span className="text-[var(--ecs-red)]">*</span> — attach the authorising officer&apos;s e-mail (PDF/PNG/JPEG)</label>
+              {emergencyApprovals.length > 0 ? (
+                <ul className="text-xs mb-1 space-y-0.5">
+                  {emergencyApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
+                </ul>
+              ) : (
+                <p className="text-xs text-[var(--ecs-red)] mb-1">Required for the emergency lane — attach the authorising e-mail before submitting.</p>
+              )}
+              <div className="flex items-center gap-2">
+                <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
+                <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
+                <button formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach email approval</button>
+              </div>
             </div>
           </div>
         </details>

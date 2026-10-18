@@ -34,6 +34,10 @@ export interface CanonicalOutbound {
   // never stores it. Present only for a GUEST booking, and only when the contract toggle is on.
   guestProfile?: { collectVia: 'TMC_SECURE_LINK'; deliverTo: string | null; tmcCollectedFields: string[]; ecsRetains: string };
   settlement?: { mode: 'HOST_DIRECT_BILL'; costObject: string }; // §8 guest: TMC direct-bills the host cost object (no traveller reimbursement / claim)
+  // §13.x / DD-23 emergency lane (book first, raise later): the instruction is authorised ahead of
+  // the full approval cycle. The indicator tells the TMC to reconcile against any space already
+  // held during the emergency and NOT create a duplicate booking.
+  emergency?: { lane: 'EMERGENCY_BOOK_FIRST'; authorisedBy: string | null; authorisationNumber: string; reconcile: string };
   travellers?: string[];              // §13.14 group hand-off carries all travellers
   // §9.3 group fan-out (AC15): one approval emits one instruction PER traveller.
   instructionSeq?: number;

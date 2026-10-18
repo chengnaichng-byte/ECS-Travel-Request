@@ -12,6 +12,7 @@ import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShares, hasPersonalExtension } from './group';
 import { isGuestRequest, travellerName, isGuestMember, memberName } from './traveller';
 import { hostCostObject } from './settlement';
+import { isEmergencyBookFirst } from './emergency';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import type { FullRequest } from './queries';
 
@@ -91,6 +92,14 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
   }, enabled, meta);
   // §8 a guest request is host-settled: the TMC direct-bills the host cost object.
   if (isGuestRequest(req)) out.settlement = { mode: 'HOST_DIRECT_BILL', costObject: hostCostObject(req) };
+  // §13.x / DD-23 emergency book-first: flag the instruction so the TMC reconciles to any space
+  // already held and does not create a duplicate booking.
+  if (isEmergencyBookFirst(req)) out.emergency = {
+    lane: 'EMERGENCY_BOOK_FIRST',
+    authorisedBy: EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? req.emergencyAuthoriserId ?? null,
+    authorisationNumber: req.authorisationNo ?? '',
+    reconcile: 'Authorised ahead of full approval — reconcile to any space already held during the emergency; do not create a duplicate booking.',
+  };
   return out;
 }
 
