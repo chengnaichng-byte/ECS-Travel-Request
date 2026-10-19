@@ -54,7 +54,12 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
       <div className="flex flex-wrap items-center gap-2">
         {req.bookingStatus === 'Not Sent' && (
           <>
-            {isTmcArrangement(req.bookingArrangement) && <form action={handoffToTmc.bind(null, id)}><button className="btn-primary">Send to TMC (mock hand-off)</button></form>}
+            {isTmcArrangement(req.bookingArrangement) && (
+              <form action={handoffToTmc.bind(null, id)} className="flex items-center gap-2">
+                <button className="btn-secondary" title="Fallback — the hand-off is sent automatically (on submit for emergencies, on final approval otherwise)">Send to TMC (manual)</button>
+                <span className="text-xs text-[var(--ecs-muted)]">Auto-sent on {req.isEmergency ? 'submit' : 'approval'} — use only if a manual re-send is needed.</span>
+              </form>
+            )}
             {(isSelfBooked(req.bookingArrangement) || settings.selfBookingEnabled) && <form action={markSelfBooked.bind(null, id)}><button className="btn-secondary">Mark self-booked (§13.17)</button></form>}
             {(isHostArranged(req.bookingArrangement) || isNoBooking(req.bookingArrangement)) && (
               <span className="text-sm text-[var(--ecs-muted)]">No TMC booking — this trip is <strong>{arrangementLabel(req.bookingArrangement)}</strong>.</span>

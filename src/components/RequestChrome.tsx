@@ -69,7 +69,7 @@ export function RequestChrome({ req, id, persona, settings }: {
           {isApproved && (
             <>
               <Link href={`/requests/${id}/booking`} className="btn-secondary">Booking →</Link>
-              {req.bookingStatus === 'Not Sent' && <form action={handoffToTmc.bind(null, id)}><button className="btn-secondary">Send to TMC</button></form>}
+              {req.bookingStatus === 'Not Sent' && <form action={handoffToTmc.bind(null, id)}><button className="btn-secondary" title="Fallback — the TMC hand-off is sent automatically on final approval">Send to TMC (manual)</button></form>}
               {isApproved && req.bookingStatus === 'Not Sent' && settings.selfBookingEnabled && <form action={markSelfBooked.bind(null, id)}><button className="btn-secondary">Self-booked</button></form>}
               <form action={createClaimFromRequest.bind(null, id)}><button className="btn-primary">Create TE claim →</button></form>
             </>
@@ -77,7 +77,7 @@ export function RequestChrome({ req, id, persona, settings }: {
           {emergencyBookFirst && (
             <>
               <Link href={`/requests/${id}/booking`} className="btn-secondary">Booking →</Link>
-              {req.bookingStatus === 'Not Sent' && <form action={handoffToTmc.bind(null, id)}><button className="btn-secondary">Send to TMC (book-first)</button></form>}
+              {req.bookingStatus === 'Not Sent' && <form action={handoffToTmc.bind(null, id)}><button className="btn-secondary" title="Fallback — emergency book-first hand-off is sent automatically on submit">Send to TMC (book-first, manual)</button></form>}
             </>
           )}
           <MoreActions id={id} canRecall={isInitialPending || isDraft} canCancel={canCancel} />

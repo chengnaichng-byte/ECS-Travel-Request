@@ -103,6 +103,10 @@ async function finalizeApproval(id: string) {
   const approved = await loadRequest(id);
   if (approved) await snapshot(approved, 'APPROVAL', true);
   await audit(id, 'STATUS', reapproval ? `Amendment reapproved — Travel Authorisation ${authNo} retained` : `Final approval — Travel Authorisation ${authNo} issued`);
+  // §13.9 auto hand-off on final approval — Travel Admin no longer triggers the send. Idempotent
+  // (a booking already sent/booked/in-flight is skipped), and only TMC-arranged bookings are sent
+  // (self-booked / host-arranged are not). A re-opened booking (Not Sent) on reapproval re-sends.
+  if (approved && isTmcArrangement(approved.bookingArrangement)) await handoffToTmc(id);
 }
 
 /** §13.4 Re-convert foreign-currency estimate lines to the SGD rate effective on
@@ -831,6 +835,11 @@ export async function submitRequest(id: string, fd?: FormData) {
     const names = highRiskDestinationsForRequest(fresh).map((h) => `${h.name} (${h.riskLevel})`).join(', ');
     await audit(id, 'STATUS', `High-risk travel — ${names}; traveller acknowledged, Risk Management Office notified (§4.8)`);
   }
+
+  // §13.x / DD-23 emergency = book first, raise later: hand off to the TMC automatically on
+  // submit, ahead of the (now retrospective) approval workflow. Travel Admin does not trigger it.
+  // handoffToTmc is idempotent and its emergency branch relaxes the "must be approved" gate.
+  if (fresh.isEmergency) await handoffToTmc(id);
 
   revalidatePath('/dashboard');
   redirect(`/requests/${id}`);

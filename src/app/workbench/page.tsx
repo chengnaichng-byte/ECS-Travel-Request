@@ -83,11 +83,11 @@ export default async function Workbench() {
         ))}
       </div>
 
-      <Bucket title="Approved — unbooked" count={approvedUnbooked.length} note="Approved requests not yet handed to the TMC. Send to the TMC or record as self-booked.">
+      <Bucket title="Approved — unbooked" count={approvedUnbooked.length} note="The TMC hand-off is now automatic (on submit for emergencies, on final approval otherwise). Anything here was not auto-sent — re-send manually as a fallback, or record as self-booked.">
         {approvedUnbooked.map((r) => (
           <Row key={r.id} r={r}>
             <div className="inline-flex gap-1 justify-end">
-              <form action={handoffToTmc.bind(null, r.id)}><button className="btn-secondary text-xs">Send to TMC</button></form>
+              <form action={handoffToTmc.bind(null, r.id)}><button className="btn-secondary text-xs" title="Fallback — hand-off is normally automatic">Send to TMC (manual)</button></form>
               {settings.selfBookingEnabled && <form action={markSelfBooked.bind(null, r.id)}><button className="btn-ghost text-xs">Self-booked</button></form>}
             </div>
           </Row>
