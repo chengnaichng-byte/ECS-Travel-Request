@@ -15,6 +15,7 @@ import { applyMaterialAmendment } from './amend';
 import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
+import { EMERGENCY_APPROVAL_DOC } from './emergency';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD } from '@/shared/enums';
 
 const YEAR = 2026;
@@ -243,7 +244,47 @@ export async function seedDemoScenarios() {
   // S16 — multi-country itinerary: SIN → London (3n) → Paris (2n) → SIN.
   await buildS16();
 
+  // S18 — DD-23 emergency book-first lane: urgent agent-assisted trip to Seoul.
+  await buildEmergencyS18();
+
   revalidatePath('/dashboard');
+}
+
+/** S18 — §13.x / DD-23 emergency (book-first) lane: an urgent agent-assisted trip to Seoul,
+ *  authorised by a senior officer (the Dean) with the authorising e-mail attached, handed to the
+ *  TMC automatically on submit, while the FULL approval workflow is still pending (retrospective
+ *  DOA ratification). A structured destination is captured — the lane changes timing, not rigour. */
+async function buildEmergencyS18() {
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: '2026-10-26', end: '2026-10-29',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+    airfare: { amount: 1600, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'SEL', nights: 3, quotedNightly: 280 },
+    oda: { country: 'KR', city: 'SEL', arrive: '2026-10-26', depart: '2026-10-29' },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  // Emergency lane: authorised by the Dean (senior, non-traveller); the DOA ratifies retrospectively.
+  await prisma.travelRequest.update({ where: { id }, data: {
+    isEmergency: true, isRetrospective: false, emergencyOutsideWindow: false,
+    emergencyAuthoriserId: 'E-DEAN', emergencyRatified: false,
+    emergencyJustification: 'Same-day flight to an urgent funder meeting in Seoul; TMC holding space pending authorisation.',
+    description: 'Urgent funder meeting — Seoul (emergency book-first)',
+  } });
+  // Mandatory authorising e-mail attachment for the emergency lane.
+  await prisma.attachment.create({ data: {
+    requestId: id, docType: EMERGENCY_APPROVAL_DOC, fileName: 'emergency-approval-email.pdf',
+    sizeKb: 48, contentType: 'application/pdf', uploadedById: 'E-TRAV',
+  } });
+  // Submit → full route built; status Pending DOA (retrospective ratification in progress).
+  const req = await submit(id);
+  // Book-first: automatic hand-off to the TMC on submit — outbound sent, awaiting the booking.
+  const acc = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation).map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly }));
+  const ceiling = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare || e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0);
+  const outbound = buildOutbound({ authorisationNo: req.authorisationNo, travellerId: req.travellerId, travellers: req.travellers, bookingMethod: req.bookingMethod, bookingDeadline: req.bookingDeadline, approvedCostCeilingSgd: ceiling, approvedExceptions: [], legs: sharedLegs(req), accommodation: acc });
+  await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify(outbound, null, 2) } });
+  await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.SentToTMC } });
+  await audit(id, 'E-SYS', 'INTEGRATION', 'Emergency book-first — handed off to the TMC on submit, ahead of DOA ratification (DD-23)');
 }
 
 /** S16 — multi-country trip across two countries (United Kingdom & France), with per-city

@@ -703,6 +703,13 @@ export async function submitRequest(id: string, fd?: FormData) {
     redirect(`/requests/${id}/review?error=${encodeURIComponent(`This trip duplicates an active request ${d.requestNumber} (${d.status}) — same traveller, ${d.destination}, overlapping dates ${d.dates}. Cancel or amend ${d.requestNumber} before resubmitting.`)}`);
   }
 
+  // §4.4 a destination is MANDATORY for every travel request (all lanes) — the approver, the
+  // policy engine and the TMC all key off it. Block submission when none has been captured.
+  if (!req.destCity || !req.destCountry) {
+    await audit(id, 'STATUS', 'Submission blocked — a destination is required');
+    redirect(`/requests/${id}/review?error=${encodeURIComponent('A destination is required before submitting. Add the destination / itinerary on the Trip step.')}`);
+  }
+
   // §4.8 high-risk destination — the traveller must acknowledge the advisory before submission.
   const highRisk = isHighRisk(req);
   // §23 optional traveller-selected Additional Approver (any AD person, never the traveller).
@@ -726,13 +733,6 @@ export async function submitRequest(id: string, fd?: FormData) {
       if (!ej || !ea || ea === req.travellerId) {
         await audit(id, 'STATUS', 'Submission blocked — emergency lane requires a justification and an authorising officer (not the traveller)');
         redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency lane needs a justification and an authorising officer (not the traveller).')}`);
-      }
-      // §4.4 / DD-23 a structured destination must be captured even for an emergency — the approver
-      // (and the TMC) need to see where the trip is to; a justification note is not a destination.
-      const hasDestination = !!req.destCity || req.legs.some((l) => !l.travellerId && !!l.destCode);
-      if (!hasDestination) {
-        await audit(id, 'STATUS', 'Submission blocked — emergency lane requires a destination to be captured on the Trip step');
-        redirect(`/requests/${id}/review?error=${encodeURIComponent('Capture the destination on the Trip step before submitting an emergency request — the approver needs to see where the trip is to.')}`);
       }
       // §13.x / DD-23 the book-first lane is only for a TMC channel where an agent can hold/place a
       // booking ahead of approval — agent-assisted or offline. Block with guidance otherwise.
