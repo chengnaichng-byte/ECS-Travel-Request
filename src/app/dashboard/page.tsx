@@ -76,7 +76,12 @@ export default async function Dashboard() {
 
       <Card title={`${isAdmin ? 'All Travel Requests' : 'My Travel Requests'} (${rows.length})`}>
         {rows.length === 0 ? (
-          <Empty>No travel requests{isAdmin ? ' yet. Create one to start the demonstration.' : ' for you yet. Create one to get started.'}</Empty>
+          <Empty>
+            {isAdmin
+              ? 'No travel requests yet. Create one to start the demonstration.'
+              : 'No travel requests of your own yet.'}
+            {!isAdmin && <> This dashboard shows <strong>your own</strong> trips — if you&apos;re an approver, requests awaiting your decision are on the <Link href="/approvals" className="underline">RO / DOA Dashboard</Link>.</>}
+          </Empty>
         ) : (
           <DashboardRequests rows={rows} />
         )}

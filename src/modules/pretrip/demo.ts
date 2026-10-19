@@ -16,7 +16,7 @@ import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsTravelClassRegister }
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
-import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD } from '@/shared/enums';
+import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
 
 const YEAR = 2026;
 const day = (iso: string) => new Date(iso + 'T00:00:00Z');
@@ -132,6 +132,21 @@ async function approveAll(id: string) {
   }
 }
 
+/** Approve the earlier steps only, leaving the request Pending at the given approver role — so
+ *  the demo populates each approver persona's queue (RO, Exception, DOA) with something to act on. */
+async function advanceTo(id: string, stopRole: string) {
+  let req = await loadRequest(id);
+  while (req && req.status.startsWith('Pending')) {
+    const step = req.approvalSteps.find((s) => s.status === 'Pending');
+    if (!step || step.roleType === stopRole) break;
+    await prisma.approvalStep.update({ where: { id: step.id }, data: { status: 'Approved', decidedAt: new Date() } });
+    await audit(id, step.approverId ?? 'E-SYS', 'APPROVE', `${step.roleType} approved`);
+    const next = req.approvalSteps.find((s) => s.seq > step.seq && s.status === 'Pending');
+    if (next) await prisma.travelRequest.update({ where: { id }, data: { status: statusForStep(next.roleType) } });
+    req = await loadRequest(id);
+  }
+}
+
 async function finaliseApproval(id: string) {
   const req = await loadRequest(id);
   if (!req) return;
@@ -209,7 +224,7 @@ export async function seedDemoScenarios() {
     oda: { country: 'JP', city: 'TYO', arrive: '2026-10-05', depart: '2026-10-08' },
     charging: [{ code: 'CC-1000', pct: 100 }],
   });
-  await submit(s03);
+  await submit(s03); await advanceTo(s03, APPROVER_ROLE.Exception); // leave at Pending Exception for the Exception-Approver persona
 
   // S02 — research trip: research WBS routes to Research DOA. Approved.
   const s02 = await buildDraft({
@@ -285,6 +300,9 @@ async function buildEmergencyS18() {
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify(outbound, null, 2) } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.SentToTMC } });
   await audit(id, 'E-SYS', 'INTEGRATION', 'Emergency book-first — handed off to the TMC on submit, ahead of DOA ratification (DD-23)');
+  // Advance past the earlier steps so the request sits at Pending DOA — the DOA ratifies the
+  // emergency retrospectively, giving the default DOA persona an actionable item to review.
+  await advanceTo(id, APPROVER_ROLE.DOA);
 }
 
 /** S16 — multi-country trip across two countries (United Kingdom & France), with per-city
