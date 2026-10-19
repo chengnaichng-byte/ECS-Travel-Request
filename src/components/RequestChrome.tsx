@@ -33,6 +33,9 @@ export function RequestChrome({ req, id, persona, settings }: {
 
   const pendingStep = req.approvalSteps.find((s) => s.status === 'Pending');
   const canAct = !!pendingStep && (pendingStep.approverId === persona || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
+  // Withdraw / Recall are the SUBMITTER's actions — never the approver's. An approver dissents by
+  // Send Back, they do not retract someone else's request. Gate to the requestor/traveller (or Travel Admin).
+  const canWithdraw = persona === req.requestorId || persona === req.travellerId || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN');
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
 
   return (
@@ -51,8 +54,10 @@ export function RequestChrome({ req, id, persona, settings }: {
         </div>
       </div>
 
-      {/* Status + decision bar */}
-      <div className="card px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+      {/* Status + decision bar. The action row ALWAYS sits on its own line below the status row
+          (not right-aligned beside it), so its position is consistent regardless of how many
+          buttons the current state shows. */}
+      <div className="card px-4 py-3">
         <div className="flex items-center gap-5 flex-wrap">
           <div className="flex items-center gap-2 text-sm"><span className="text-[var(--ecs-muted)]">Approval Status</span> <StatusPill status={req.status} /></div>
           <div className="flex items-center gap-2 text-sm"><span className="text-[var(--ecs-muted)]">Booking Status</span> <span className="pill-info">{req.bookingStatus}</span></div>
@@ -60,10 +65,10 @@ export function RequestChrome({ req, id, persona, settings }: {
             <div className="flex items-center gap-2 text-sm text-[#9a3412]"><span>⚠</span> {req.isGroup ? `${new Set(exceptions.filter((e) => e.travellerId).map((e) => e.travellerId)).size || exceptions.length} Travellers with Exception` : `${exceptions.length} Policy Exception${exceptions.length > 1 ? 's' : ''}`}</div>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-[var(--ecs-border)]">
           {isDraft && <Link href={`/requests/${id}/trip`} className="btn-primary">Continue editing →</Link>}
           {isDraft && req.status === REQUEST_STATUS.SentBack && <form action={reopenDraft.bind(null, id)}><button className="btn-secondary">Reopen as draft</button></form>}
-          {(isDraft || isInitialPending) && <form action={withdrawRequest.bind(null, id)}><button className="btn-secondary">Withdraw</button></form>}
+          {canWithdraw && (isDraft || isInitialPending) && <form action={withdrawRequest.bind(null, id)}><button className="btn-secondary">Withdraw</button></form>}
           {isPending && canAct && <DecisionBar id={id} roleLabel={ROLE_LABEL[pendingStep!.roleType] ?? pendingStep!.roleType} amendment={isAmendment} highRisk={isHighRisk(req)} />}
           {isPending && !canAct && pendingStep && <span className="text-xs text-[var(--ecs-muted)]">Awaiting {ROLE_LABEL[pendingStep.roleType] ?? pendingStep.roleType}: {EcsIdentity.employee(pendingStep.approverId ?? '')?.name ?? '—'}</span>}
           {isApproved && (
@@ -80,7 +85,7 @@ export function RequestChrome({ req, id, persona, settings }: {
               {req.bookingStatus === 'Not Sent' && <form action={handoffToTmc.bind(null, id)}><button className="btn-secondary" title="Fallback — emergency book-first hand-off is sent automatically on submit">Send to TMC (book-first, manual)</button></form>}
             </>
           )}
-          <MoreActions id={id} canRecall={isInitialPending || isDraft} canCancel={canCancel} />
+          <MoreActions id={id} canRecall={canWithdraw && (isInitialPending || isDraft)} canCancel={canCancel} />
         </div>
       </div>
 
