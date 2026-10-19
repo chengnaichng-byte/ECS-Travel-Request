@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { submitRequest, addAttachment } from '@/modules/pretrip/actions';
-import { EMERGENCY_APPROVAL_DOC } from '@/modules/pretrip/emergency';
+import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
@@ -76,6 +76,11 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // §13.x / DD-23 emergency authorising officers — senior, non-traveller staff.
   const emergencyAuthorisers = employees.filter((e) => !e.isTraveller && e.travelPolicyGroup === 'SENIOR' && e.id !== req.travellerId);
   const emergencyApprovals = req.attachments.filter((a) => a.docType === EMERGENCY_APPROVAL_DOC);
+  // §13.x / DD-23 emergency-lane gates: the book-first lane needs an agent-assisted / offline TMC
+  // booking, and raising it outside the configured lead-time window is soft-gated.
+  const emergencyMethodOk = emergencyMethodAllowed(req);
+  const emergencyLeadDays = leadTimeDays(req);
+  const emergencyOutsideWindow = !withinEmergencyWindow(req, settings.emergencyLeadDays);
   const additionalCandidates = employees.filter((e) => e.id !== req.travellerId).map((e) => ({ id: e.id, name: e.name, title: e.title }));
   const research = isResearchRequest(req) && !settings.sameRouteResearch;
   const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
@@ -195,41 +200,62 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
             <span className="transition-transform group-open:rotate-90">▸</span> Emergency lane — book first, raise later (DD-23)
             {req.isEmergency && <span className="pill-exc ml-1">In use</span>}
+            {req.isEmergency && req.emergencyOutsideWindow && <span className="pill-warn ml-1">Outside standard window</span>}
           </summary>
           <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
-            <p className="text-xs text-[var(--ecs-muted)]">A bounded, audited alternative to the full route for urgent travel — <strong>book first, raise/approve later</strong>. It compresses the approval route to a <strong>single DOA ratification</strong> and lets the trip be <strong>booked (or already booked) before that ratification</strong>. Requires a justification and a named authorising officer — not a general bypass.</p>
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" name="emergency" value="on" defaultChecked={req.isEmergency} className="mt-0.5 w-4 h-4" />
-              <span>Use the <strong>emergency lane</strong> (book first, raise later) for this request.</span>
-            </label>
-            <div className="pl-6">
-              <label className="label">Authorising officer (records who authorised the emergency)</label>
-              <select name="emergencyAuthoriserId" defaultValue={req.emergencyAuthoriserId ?? ''} className="field w-96 max-w-full">
-                <option value="">— select an authorising officer —</option>
-                {emergencyAuthorisers.map((e) => <option key={e.id} value={e.id}>{e.name} · {e.title}</option>)}
-              </select>
-            </div>
-            <div className="pl-6">
-              <label className="label">Emergency justification</label>
-              <textarea name="emergencyJustification" defaultValue={req.emergencyJustification ?? ''} rows={2} className="field w-full" placeholder="e.g. same-day flight to an urgent funder meeting; TMC held space pending authorisation." />
-            </div>
-            {/* Mandatory email-approval attachment for the emergency lane. This uses the request's
-                attachment store via a button formAction, so it does not nest a form inside submit. */}
-            <div className="pl-6">
-              <label className="label">Email approval <span className="text-[var(--ecs-red)]">*</span> — attach the authorising officer&apos;s e-mail (PDF/PNG/JPEG)</label>
-              {emergencyApprovals.length > 0 ? (
-                <ul className="text-xs mb-1 space-y-0.5">
-                  {emergencyApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
-                </ul>
-              ) : (
-                <p className="text-xs text-[var(--ecs-red)] mb-1">Required for the emergency lane — attach the authorising e-mail before submitting.</p>
-              )}
-              <div className="flex items-center gap-2">
-                <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
-                <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
-                <button formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach email approval</button>
+            <p className="text-xs text-[var(--ecs-muted)]">A bounded, audited lane for urgent travel — <strong>book first, raise/approve later</strong>. It lets the trip be <strong>booked (or already booked) before approval</strong> on a named officer&apos;s authority, but the <strong>full approval workflow still runs, retrospectively</strong> — it changes the timing of approval, not who approves. Requires a justification, a named authorising officer and the authorising e-mail; available only for TMC agent-assisted / offline bookings.</p>
+
+            {!emergencyMethodOk ? (
+              <div className="text-sm rounded border border-[#f59e0b] bg-[#fff8ec] p-3">
+                <strong>Emergency lane unavailable for this booking method.</strong> The current booking is <em>{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</em>. The book-first lane needs a human agent to hold or place the booking ahead of approval, so it is offered only for <strong>TMC agent-assisted</strong> or <strong>offline</strong> bookings. Change the booking method on the <Link href={`/requests/${id}/trip`} className="underline">Trip step</Link> to use it.
               </div>
-            </div>
+            ) : (
+              <>
+                {emergencyOutsideWindow && (
+                  <div className="text-sm rounded border border-[#f97316] bg-[#fff3e8] p-3">
+                    <strong>Outside the standard {settings.emergencyLeadDays}-day window.</strong> The earliest departure is about <strong>{emergencyLeadDays ?? '—'} day(s)</strong> away — there is normally time for the standard lane. You may still use the emergency lane, but a <strong>detailed justification</strong> (at least {EMERGENCY_OOW_MIN_JUSTIFICATION} characters) and the confirmation below are required, and the request will be flagged <span className="pill-warn">Outside standard window</span> to the approver.
+                  </div>
+                )}
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" name="emergency" value="on" defaultChecked={req.isEmergency} className="mt-0.5 w-4 h-4" />
+                  <span>Use the <strong>emergency lane</strong> (book first, raise later) for this request.</span>
+                </label>
+                <div className="pl-6">
+                  <label className="label">Authorising officer (records who authorised the emergency)</label>
+                  <select name="emergencyAuthoriserId" defaultValue={req.emergencyAuthoriserId ?? ''} className="field w-96 max-w-full">
+                    <option value="">— select an authorising officer —</option>
+                    {emergencyAuthorisers.map((e) => <option key={e.id} value={e.id}>{e.name} · {e.title}</option>)}
+                  </select>
+                </div>
+                <div className="pl-6">
+                  <label className="label">Emergency justification{emergencyOutsideWindow && <span className="text-[var(--ecs-red)]"> * (detailed — at least {EMERGENCY_OOW_MIN_JUSTIFICATION} characters)</span>}</label>
+                  <textarea name="emergencyJustification" defaultValue={req.emergencyJustification ?? ''} rows={emergencyOutsideWindow ? 3 : 2} className="field w-full" placeholder="e.g. same-day flight to an urgent funder meeting; TMC held space pending authorisation." />
+                </div>
+                {emergencyOutsideWindow && (
+                  <label className="pl-6 flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="emergencyOutOfWindowAck" value="on" defaultChecked={req.emergencyOutsideWindow} className="mt-0.5 w-4 h-4" />
+                    <span>I confirm this is a genuine emergency despite the {emergencyLeadDays ?? '—'}-day lead time, and the standard lane is not feasible.</span>
+                  </label>
+                )}
+                {/* Mandatory email-approval attachment for the emergency lane. This uses the request's
+                    attachment store via a button formAction, so it does not nest a form inside submit. */}
+                <div className="pl-6">
+                  <label className="label">Email approval <span className="text-[var(--ecs-red)]">*</span> — attach the authorising officer&apos;s e-mail (PDF/PNG/JPEG)</label>
+                  {emergencyApprovals.length > 0 ? (
+                    <ul className="text-xs mb-1 space-y-0.5">
+                      {emergencyApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-[var(--ecs-red)] mb-1">Required for the emergency lane — attach the authorising e-mail before submitting.</p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
+                    <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
+                    <button formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach email approval</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </details>
 

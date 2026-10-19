@@ -41,6 +41,7 @@ model ModuleSettings {
   sftpConfig             String  @default("sftp://tmc-gateway.example:22 (key: ECS_TMC_2026)") // §43 transport config (display only)
   authorisationValidityDays Int  @default(30)     // §13.3
   bookingDeadlineDays    Int     @default(14)     // §13.3
+  emergencyLeadDays      Int     @default(14)     // §13.x/DD-23 emergency-lane standard lead-time window (days before departure); beyond it the out-of-window justification + confirmation are required
   updatedAt              DateTime @updatedAt
 }
 
@@ -90,6 +91,7 @@ model TravelRequest {
   emergencyJustification String?                      // why the emergency lane was used
   emergencyAuthoriserId  String?                      // the officer who authorised the emergency (recorded)
   emergencyRatified Boolean  @default(false)          // the DOA ratified the emergency after the fact
+  emergencyOutsideWindow Boolean @default(false)      // DD-23 emergency raised outside the standard lead-time window (soft-gated, needs extra justification)
   entityId          String?
   departmentId      String?
   isResearch        Boolean  @default(false)

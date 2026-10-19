@@ -28,6 +28,7 @@ export const moduleSettingsDefaults = {
   sftpConfig: 'sftp://tmc-gateway.example:22 (key: ECS_TMC_2026)',
   authorisationValidityDays: 30,    // §13.3
   bookingDeadlineDays: 14,          // §13.3
+  emergencyLeadDays: 14,            // §13.x/DD-23 emergency-lane standard lead-time window (days before departure)
 };
 
 /** §3.4 decision catalogue — drives the Module Settings screen (TR-19). */

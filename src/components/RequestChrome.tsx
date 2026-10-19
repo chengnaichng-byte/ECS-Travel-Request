@@ -92,9 +92,15 @@ export function RequestChrome({ req, id, persona, settings }: {
 
       {req.isEmergency && (
         <div className="card p-4 bg-amber-50 border-amber-300 text-sm text-amber-900">
-          <strong>Emergency — book first, raise later (DD-23)</strong> — authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? '—'}</strong>.{' '}
-          The route is compressed to a single DOA ratification; the trip may be booked (or already booked) before that ratification.{' '}
-          {isApproved ? <span className="font-semibold">DOA-ratified ✓</span> : <span className="font-semibold">DOA ratification {req.status.startsWith('Pending') ? 'pending' : '—'}.</span>}
+          <div className="flex items-center gap-2 flex-wrap">
+            <strong>Emergency — book first, raise later (DD-23)</strong>
+            {req.emergencyOutsideWindow && <span className="pill-warn">Outside standard window</span>}
+          </div>
+          <div className="mt-1">
+            Authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? '—'}</strong>; the trip may be booked (or already booked) ahead of approval.{' '}
+            The <strong>full approval workflow still applies</strong> and is ratified <strong>retrospectively</strong> — the emergency changes the timing of approval, not who approves.{' '}
+            {isApproved ? <span className="font-semibold">Ratified ✓</span> : <span className="font-semibold">Ratification {req.status.startsWith('Pending') ? 'in progress' : '—'}.</span>}
+          </div>
           {req.emergencyJustification && <div className="mt-1 text-xs italic">&ldquo;{req.emergencyJustification}&rdquo;</div>}
         </div>
       )}

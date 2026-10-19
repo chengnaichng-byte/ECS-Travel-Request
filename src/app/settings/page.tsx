@@ -57,6 +57,24 @@ export default async function SettingsPage() {
           </div>
         </Card>
 
+        <Card title="Emergency lane (DD-23)" className="mt-5">
+          <div className="grid md:grid-cols-3 gap-4 items-start">
+            <div>
+              <label className="label">Standard lead-time window (days before departure)</label>
+              <input type="number" name="emergencyLeadDays" defaultValue={Number(s.emergencyLeadDays)} className="field" />
+            </div>
+            <div className="md:col-span-2 text-xs text-[var(--ecs-muted)] leading-relaxed">
+              Within this window the emergency lane is freely available. Beyond it (plenty of runway to the
+              earliest departure) the lane is <strong>soft-gated</strong>: the traveller must give a fuller
+              justification and tick an explicit confirmation, and the request is flagged
+              <span className="pill-exc mx-1">Outside standard window</span> for the approver and in reporting.
+              The emergency lane is offered only for <strong>TMC agent-assisted or offline</strong> bookings
+              (a human agent holds/books ahead of approval), and it no longer compresses the route — the
+              <strong> full approval workflow still runs, retrospectively</strong>, after the book-first hand-off.
+            </div>
+          </div>
+        </Card>
+
         <Card title="Thresholds, Limits & Transport (§43)" className="mt-5">
           <div className="grid md:grid-cols-3 gap-4">
             <div>

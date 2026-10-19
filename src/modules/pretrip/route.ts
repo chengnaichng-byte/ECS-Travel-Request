@@ -77,21 +77,14 @@ export function buildRoute(
 
   let seq = 1;
 
-  // §13.x / DD-23 Emergency / retrospective lane — a bounded, audited compression of the route to
-  // a SINGLE DOA ratification step. The RO / Additional / Exception / cross-charge steps are
-  // skipped; the named authorising officer ratifies (or the amount-band DOA if they cannot).
-  if (opts.emergency) {
-    const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
-    const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
-    const auth = opts.emergency.authoriserId && !travellerIds.includes(opts.emergency.authoriserId)
-      ? opts.emergency.authoriserId
-      : pickDoa(line, band.doaTierIndex, travellerIds).id;
-    steps.push({
-      seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: auth,
-      note: 'Emergency — book first, raise later: single DOA ratification (DD-23)',
-    });
-    return steps;
-  }
+  // §13.x / DD-23 Emergency / retrospective lane — the emergency lane NO LONGER compresses the
+  // route. It changes the TIMING of approval (book-first, ratified after the fact), never the SET
+  // of approvers: the full workflow below is built exactly as for a standard request, so an
+  // emergency cannot be used to skip the Additional / RO / cross-charge / Exception / DOA steps.
+  // Each step is a retrospective ratification; the note (appended at the end) flags that to the
+  // approver and in the audit trail. The authorising officer's e-mail authorises the book-first
+  // hand-off; it is not itself a route step.
+  const emergency = !!opts.emergency;
 
   // Pre-trip route (§51 configurable): Traveller → (optional Additional Approver, chosen by
   // the traveller — any AD person) → (Exception Approver when configured) → DOA. No RO step.
@@ -167,6 +160,14 @@ export function buildRoute(
     const d = pickDoa(line, band.doaTierIndex, travellerIds); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · ');
   }
   steps.push({ seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: doaId, note: doaNote });
+
+  // §13.x / DD-23 emergency = the SAME route, ratified retrospectively (book-first). Flag every
+  // step so the approver sees the booking was authorised ahead of their decision.
+  if (emergency) {
+    for (const s of steps) {
+      s.note = s.note ? `${s.note} · retrospective ratification (emergency book-first, DD-23)` : 'Retrospective ratification (emergency book-first, DD-23)';
+    }
+  }
 
   return steps;
 }

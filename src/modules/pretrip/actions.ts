@@ -20,7 +20,7 @@ import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClas
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest } from './traveller';
-import { hasEmergencyApproval } from './emergency';
+import { hasEmergencyApproval, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipientFor } from '@/config/visaLetter';
@@ -712,10 +712,10 @@ export async function submitRequest(id: string, fd?: FormData) {
       revalidatePath(`/requests/${id}/review`);
       return;
     }
-    // §13.x / DD-23 Emergency / retrospective lane — a bounded, audited alternative to the full
-    // route: it needs a justification and a named authorising officer (never the traveller); the
-    // route then compresses to a single DOA ratification and (unless retrospective) book-first
-    // hand-off is allowed before that ratification.
+    // §13.x / DD-23 Emergency lane (book first, raise later) — a bounded, audited lane that changes
+    // the TIMING of approval, not the SET of approvers: it needs a justification and a named
+    // authorising officer (never the traveller) plus the authorising e-mail, and it permits a
+    // book-first hand-off before approval. The FULL approval workflow still runs, retrospectively.
     if (str(fd, 'emergency') === 'on') {
       const ej = str(fd, 'emergencyJustification').trim();
       const ea = str(fd, 'emergencyAuthoriserId');
@@ -723,15 +723,41 @@ export async function submitRequest(id: string, fd?: FormData) {
         await audit(id, 'STATUS', 'Submission blocked — emergency lane requires a justification and an authorising officer (not the traveller)');
         redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency lane needs a justification and an authorising officer (not the traveller).')}`);
       }
+      // §4.4 / DD-23 a structured destination must be captured even for an emergency — the approver
+      // (and the TMC) need to see where the trip is to; a justification note is not a destination.
+      const hasDestination = !!req.destCity || req.legs.some((l) => !l.travellerId && !!l.destCode);
+      if (!hasDestination) {
+        await audit(id, 'STATUS', 'Submission blocked — emergency lane requires a destination to be captured on the Trip step');
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('Capture the destination on the Trip step before submitting an emergency request — the approver needs to see where the trip is to.')}`);
+      }
+      // §13.x / DD-23 the book-first lane is only for a TMC channel where an agent can hold/place a
+      // booking ahead of approval — agent-assisted or offline. Block with guidance otherwise.
+      if (!emergencyMethodAllowed(req)) {
+        await audit(id, 'STATUS', `Submission blocked — emergency lane requires an agent-assisted or offline TMC booking (is ${req.bookingMethod ?? 'none'})`);
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency lane is only available for TMC agent-assisted or offline bookings — a human agent must be able to book ahead of approval. Change the booking method on the Trip step to agent-assisted or offline.')}`);
+      }
       // §13.x / DD-23 a mandatory email approval (the authorising officer's e-mail) must be attached.
       if (!hasEmergencyApproval(req)) {
         await audit(id, 'STATUS', 'Submission blocked — emergency lane requires the authorising email approval to be attached');
         redirect(`/requests/${id}/review?error=${encodeURIComponent('Attach the mandatory email approval (the authorising officer’s e-mail) before submitting an emergency request.')}`);
       }
+      // §13.x / DD-23 soft lead-time gate — within the configured window the lane is freely
+      // available; outside it (ample runway to the earliest departure) a fuller justification and
+      // an explicit confirmation are mandatory, and the request is flagged outside-window.
+      const outsideWindow = !withinEmergencyWindow(req, settings.emergencyLeadDays);
+      if (outsideWindow) {
+        const ack = str(fd, 'emergencyOutOfWindowAck') === 'on';
+        if (!ack || ej.length < EMERGENCY_OOW_MIN_JUSTIFICATION) {
+          const lead = leadTimeDays(req);
+          await audit(id, 'STATUS', `Submission blocked — emergency outside the ${settings.emergencyLeadDays}-day window (departs in ${lead ?? '—'} days) needs a detailed justification and the out-of-window confirmation`);
+          redirect(`/requests/${id}/review?error=${encodeURIComponent(`This trip departs in about ${lead ?? '—'} day(s) — beyond the ${settings.emergencyLeadDays}-day standard window. Using the emergency lane here needs a detailed justification (at least ${EMERGENCY_OOW_MIN_JUSTIFICATION} characters) and the explicit out-of-window confirmation.`)}`);
+        }
+      }
+      // §13.x the full workflow runs — preserve the traveller's selected DOA / additional approver.
       await prisma.travelRequest.update({ where: { id }, data: {
-        isEmergency: true, isRetrospective: false,
+        isEmergency: true, isRetrospective: false, emergencyOutsideWindow: outsideWindow,
         emergencyJustification: ej, emergencyAuthoriserId: ea, emergencyRatified: false,
-        additionalApproverId: null, selectedDoaId: null, personalAck, highRiskAck,
+        additionalApproverId: aaId, selectedDoaId: str(fd, 'selectedDoaId') || null, personalAck, highRiskAck,
       } });
     } else {
       // §13.14 the traveller must select the approving DOA from the eligible candidates.
@@ -743,7 +769,7 @@ export async function submitRequest(id: string, fd?: FormData) {
         await audit(id, 'STATUS', 'Submission blocked — please select the approving DOA');
         redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
       }
-      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, additionalApproverId: aaId, selectedDoaId: selDoa || null, personalAck, highRiskAck } });
+      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, emergencyOutsideWindow: false, additionalApproverId: aaId, selectedDoaId: selDoa || null, personalAck, highRiskAck } });
     }
   }
 
