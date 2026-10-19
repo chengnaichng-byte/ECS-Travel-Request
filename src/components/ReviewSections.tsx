@@ -29,6 +29,43 @@ function primaryCharging(req: FullRequest) {
   return { code: p.chargingCode, name: c?.name ?? '', dept: EcsIdentity.department(c?.departmentId ?? '')?.name ?? '', pct: p.percent, research: c?.isResearch };
 }
 
+// §4.4 industry trip types. Driven by the authoritative `tripType` field (not a leg-count
+// heuristic). Multi-city carries the stop count so the DOA sees the itinerary's shape at a glance.
+const TRIP_TYPE_LABEL: Record<string, string> = { ONE_WAY: 'One-way', ROUND_TRIP: 'Round trip', MULTI_CITY: 'Multi-city' };
+function tripTypeLabel(req: FullRequest): string {
+  const base = TRIP_TYPE_LABEL[req.tripType] ?? 'Round trip';
+  if (req.tripType === 'MULTI_CITY') {
+    const stops = Math.max(0, sharedLegs(req).length - 1);
+    return stops ? `${base} · ${stops} stop${stops > 1 ? 's' : ''}` : base;
+  }
+  return base;
+}
+/** The distinct ordered city codes of a multi-city itinerary (origin + each destination). */
+function routeCityCodes(req: FullRequest): string[] {
+  const legs = sharedLegs(req);
+  const codes = [legs[0]?.originCode, ...legs.map((l) => l.destCode)]
+    .map((c) => EcsReference.airport(c ?? '')?.cityCode ?? c)
+    .filter((c): c is string => !!c);
+  // collapse consecutive duplicates (e.g. a layover returning to the same city)
+  return codes.filter((c, i) => c !== codes[i - 1]);
+}
+/** Compact destination string for the decision tile: a real route for multi-city, City/Country
+ *  otherwise, degrading gracefully to "Not specified" when no destination was captured. */
+function destinationText(req: FullRequest): string {
+  if (req.tripType === 'MULTI_CITY') {
+    const codes = routeCityCodes(req);
+    if (codes.length > 1) return codes.length > 4 ? `${codes[0]} → … → ${codes[codes.length - 1]}` : codes.join(' → ');
+  }
+  const city = EcsReference.city(req.destCity ?? '')?.name;
+  const country = req.destCountry ? EcsReference.country(req.destCountry)?.name : null;
+  const text = [city, country].filter(Boolean).join(', ');
+  return text || 'Not specified';
+}
+/** Count of distinct foreign countries on the itinerary (excludes Singapore as the base). */
+function foreignCountryCount(req: FullRequest): number {
+  return new Set(sharedLegs(req).map((l) => EcsReference.city(EcsReference.airport(l.destCode)?.cityCode ?? '')?.countryCode).filter((c) => c && c !== 'SG')).size;
+}
+
 function Field({ label, children, accent }: { label: string; children: React.ReactNode; accent?: boolean }) {
   return (
     <div>
@@ -71,12 +108,10 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const coordinator = EcsIdentity.employee(req.requestorId)?.name ?? '—';
   const purpose = EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—';
 
-  const legs = sharedLegs(req);
-  const isMulti = legs.length > 2;
-  const countries = new Set(legs.map((l) => EcsReference.country(EcsReference.city(EcsReference.airport(l.destCode)?.cityCode ?? '')?.countryCode ?? '')?.name).filter(Boolean));
-  const destText = isMulti
-    ? `${legs.length} legs · ${countries.size} countr${countries.size === 1 ? 'y' : 'ies'}`
-    : `${EcsReference.city(req.destCity ?? '')?.name ?? '—'}${req.destCountry ? `, ${EcsReference.country(req.destCountry)?.name ?? ''}` : ''}`;
+  const destText = destinationText(req);
+  const tripType = tripTypeLabel(req);
+  const foreignCountries = foreignCountryCount(req);
+  const isMultiCity = req.tripType === 'MULTI_CITY';
   const dateText = `${fmtPretty(req.startDate)} – ${fmtPretty(req.endDate)}${durationDN(req.startDate, req.endDate) ? ` (${durationDN(req.startDate, req.endDate)})` : ''}`;
   const personalText = req.isGroup
     ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers`
@@ -140,7 +175,14 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
         </SumTile>
 
         <SumTile title="Trip Details" href={`${detailsHref}#sec-trip`}>
-          <TileRow label="Destination">{destText}</TileRow>
+          <TileRow label="Trip type">{tripType}</TileRow>
+          <TileRow label={isMultiCity ? 'Route' : 'Destination'}>
+            <div>
+              <div>{destText}</div>
+              {isMultiCity && foreignCountries > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">{foreignCountries} countr{foreignCountries === 1 ? 'y' : 'ies'}</div>}
+            </div>
+          </TileRow>
+          {req.isGroup && <TileRow label="Travellers">{req.travellers.length}</TileRow>}
           <TileRow label="Official travel dates">{dateText}</TileRow>
           <TileRow label="Personal extension">{personalText}</TileRow>
         </SumTile>
@@ -223,14 +265,11 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
 
 /* -------------------------------------------------------- top summary banner */
 export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bookingDeadlineDays: number }) {
-  const legs = sharedLegs(req);
-  const isMulti = legs.length > 2;
+  const isMulti = req.tripType === 'MULTI_CITY';
   const purpose = EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—';
   const cls = EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—';
-  const dests = isMulti
-    ? [legs[0]?.originCode, ...legs.map((l) => l.destCode)].map((c) => EcsReference.airport(c ?? '')?.cityCode ?? c).filter(Boolean)
-    : [EcsReference.city(req.destCity ?? '')?.name];
-  const countries = new Set(legs.map((l) => EcsReference.city(EcsReference.airport(l.destCode)?.cityCode ?? '')?.countryCode).filter((c) => c && c !== 'SG'));
+  const routeCodes = routeCityCodes(req);
+  const countryCount = foreignCountryCount(req);
   const { days } = daysToBook(req, bookingDeadlineDays);
   const validityEnd = req.authorisationExpiry ?? (req.startDate ? new Date(req.startDate.getTime() - bookingDeadlineDays * 86400000) : null);
   const pc = primaryCharging(req);
@@ -239,14 +278,15 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
     <Card>
       <div className="grid md:grid-cols-3 xl:grid-cols-5 gap-4">
         <Field label="Travel Purpose" accent>{purpose}</Field>
-        <Field label={isMulti ? 'Destinations' : 'Destination'} accent>
-          {isMulti ? (
+        <Field label="Trip Type" accent>{tripTypeLabel(req)}</Field>
+        <Field label={isMulti ? 'Route' : 'Destination'} accent>
+          {isMulti && routeCodes.length > 1 ? (
             <div>
-              <div>{dests.join(' → ')}</div>
-              <span className="pill-navy mt-1">{legs.length} legs · {countries.size} countries</span>
+              <div>{routeCodes.join(' → ')}</div>
+              <span className="pill-navy mt-1">{sharedLegs(req).length} legs · {countryCount} countr{countryCount === 1 ? 'y' : 'ies'}</span>
             </div>
           ) : (
-            `${EcsReference.city(req.destCity ?? '')?.name ?? '—'}, ${EcsReference.country(req.destCountry ?? '')?.name ?? ''}`
+            destinationText(req)
           )}
         </Field>
         <Field label="Official Travel Dates" accent>{fmtDate(req.startDate)} – {fmtDate(req.endDate)} {durationDN(req.startDate, req.endDate) && <span className="text-[var(--ecs-muted)]">({durationDN(req.startDate, req.endDate)})</span>}</Field>
