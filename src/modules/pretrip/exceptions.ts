@@ -21,6 +21,22 @@ export interface ExceptionView {
   travellerName?: string;
   impactSgd: number;
   severity: Severity;
+  justification?: string | null;
+}
+
+/** The traveller-provided justification for an exception, from where that exception captures it:
+ *  a travel-class upgrade keeps it on the request/traveller; an over-cap hotel uses its line note. */
+function exceptionJustification(req: FullRequest, code: string, travellerId: string | null): string | null {
+  if (code === 'CLASS') {
+    const t = travellerId ? req.travellers.find((x) => x.employeeId === travellerId) : null;
+    return (t?.classJustification ?? req.classJustification ?? null)?.trim() || null;
+  }
+  if (code === 'HOTEL_CAP') {
+    const acc = req.expenses.find((e) => e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation
+      && (!travellerId || e.travellerId === travellerId || e.isShared));
+    return acc?.notes?.trim() || null;
+  }
+  return null;
 }
 
 const costIndex = (id: string) => travelClasses.find((c) => c.id === id)?.costIndex ?? 1;
@@ -74,6 +90,7 @@ export function exceptionViews(req: FullRequest): ExceptionView[] {
         travellerName: c.travellerId ? EcsIdentity.employee(c.travellerId)?.name : undefined,
         impactSgd,
         severity: severityFor(impactSgd),
+        justification: exceptionJustification(req, c.code, c.travellerId),
       } as ExceptionView;
     });
 }

@@ -27,7 +27,7 @@ interface ScenarioInput {
   destCountry: string; destCity: string; destAirport: string; start: string; end: string;
   personalStart?: string; personalEnd?: string; travelClassId: string; bookingMethod: string;
   airfare: { amount: number; currency: string; classId: string; sponsorship?: number };
-  hotel?: { city: string; nights: number; personalNights?: number; quotedNightly: number };
+  hotel?: { city: string; nights: number; personalNights?: number; quotedNightly: number; note?: string };
   oda?: { country: string; city: string; arrive: string; depart: string; personalDays?: number };
   conference?: { amount: number };
   charging: Charge[];
@@ -73,7 +73,7 @@ async function buildDraft(s: ScenarioInput): Promise<string> {
   // Accommodation
   if (s.hotel) {
     const calc = computeAccommodation({ cityCode: s.hotel.city, nights: s.hotel.nights, personalNights: s.hotel.personalNights ?? 0, quotedNightly: s.hotel.quotedNightly, basis: settings.hotelEstimateBasis });
-    const exp = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+    const exp = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount, estimateBasis: settings.hotelEstimateBasis, notes: s.hotel.note ?? null } });
     await prisma.accommodationEstimate.create({ data: { expenseId: exp.id, city: s.hotel.city, nights: s.hotel.nights, personalNights: s.hotel.personalNights ?? 0, quotedNightly: s.hotel.quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome } });
   }
   // ODA
@@ -220,7 +220,7 @@ export async function seedDemoScenarios() {
     destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: '2026-10-05', end: '2026-10-08',
     travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
     airfare: { amount: 1300, currency: 'SGD', classId: 'TC-ECO' },
-    hotel: { city: 'TYO', nights: 3, quotedNightly: 450 },
+    hotel: { city: 'TYO', nights: 3, quotedNightly: 450, note: 'Conference venue hotel — only option within walking distance of the sessions; cheaper hotels are 45+ min away and would add taxi costs.' },
     oda: { country: 'JP', city: 'TYO', arrive: '2026-10-05', depart: '2026-10-08' },
     charging: [{ code: 'CC-1000', pct: 100 }],
   });

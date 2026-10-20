@@ -251,6 +251,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
                 <li key={i}>
                   <div className="flex items-center gap-2"><span className="font-medium text-[#7c2d12]">{i + 1}. {e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span></div>
                   <div className="text-xs text-[#9a3412]/80">{e.detail}</div>
+                  <div className="text-xs text-[#7c2d12] mt-0.5"><span className="font-medium">Justification:</span> {e.justification ? <span className="italic">&ldquo;{e.justification}&rdquo;</span> : <span className="text-[#9a3412]/70">— none provided</span>}</div>
                   {e.impactSgd > 0 && <div className="text-xs text-[#7c2d12]">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
                 </li>
               ))}
@@ -537,6 +538,7 @@ export function PolicyExceptionsCard({ req, letter, className }: { req: FullRequ
               <span className={sevClass[v.severity]}>{v.severity}</span>
             </div>
             <div className="text-xs text-[var(--ecs-muted)] mt-1">{v.detail}{v.travellerName ? ` · ${v.travellerName}` : ''}</div>
+            <div className="text-xs mt-1"><span className="font-medium text-[var(--ecs-text)]">Justification:</span> {v.justification ? <span className="italic">&ldquo;{v.justification}&rdquo;</span> : <span className="text-[var(--ecs-muted)]">— none provided</span>}</div>
             {v.impactSgd > 0 && <div className="text-sm mt-2 pt-2 border-t border-[#f0d9a8] flex items-center justify-between"><span className="text-[var(--ecs-muted)]">Impact (est.)</span><span className="font-semibold tabular-nums">{fmtSgd(v.impactSgd)}</span></div>}
           </div>
         ))}

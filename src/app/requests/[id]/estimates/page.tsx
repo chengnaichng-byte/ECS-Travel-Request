@@ -239,6 +239,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               <Input name="checkIn" label="Check-in" type="date" defaultValue={tripDefaults.start} />
               <Input name="checkOut" label="Check-out" type="date" defaultValue={tripDefaults.end} />
             </div>
+            <Input name="notes" label="Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)" />
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" /> Conference hotel</label>
             {isGroup && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
             {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
