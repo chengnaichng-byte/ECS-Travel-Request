@@ -29,12 +29,19 @@ export function actionAllowed(action: string, status: string): boolean {
   return (ACTION_SOURCE[action] ?? []).includes(status);
 }
 
-/** Approver authorization (AC14/AC22): the acting persona must be the step's assigned
- * approver, or a Travel Administrator acting as an override. A step with no resolved
- * approver is NOT open to arbitrary personas (closes the null-approver self-approval hole). */
+/** Approver authorization (AC14/AC22, separation of duties): the acting persona must be the
+ * step's ASSIGNED approver. Approval is a delegated financial authority (RO/DOA), so a
+ * Travel/System Administrator does NOT get an approval bypass — they may approve only when they
+ * independently hold the role and are the assigned approver (then approverId === persona). A step
+ * with no resolved approver is NOT open to arbitrary personas (closes the null-approver hole). */
 export function canActOnStep(approverId: string | null | undefined, persona: string): boolean {
-  if (EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN')) return true;
   return !!approverId && approverId === persona;
+}
+
+/** True when the persona independently holds an approver role (RO / DOA / Research DOA /
+ * Exception). Used to gate access to the RO/DOA approval dashboard — admins are not approvers. */
+export function isApproverPersona(persona: string): boolean {
+  return ['RO', 'DOA', 'RESEARCH_DOA', 'EXCEPTION_APPROVER'].some((r) => EcsIdentity.hasRole(persona, r));
 }
 
 /** Travellers the persona may raise a request for (§13.13): themselves (if a traveller),

@@ -22,12 +22,16 @@ export default async function RequestDetail({ params }: { params: Promise<{ id: 
   const persona = await currentPersonaId();
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
   const isDraft = req.status === REQUEST_STATUS.Draft || req.status === REQUEST_STATUS.SentBack;
+  // The Approval Summary is the APPROVER's decision view. Only someone assigned to a step in this
+  // request's route sees it; the traveller / requestor (and other non-approvers) see the full
+  // details — they cannot approve their own request, so they are never shown the approval summary.
+  const isApprover = req.approvalSteps.some((s) => s.approverId === persona);
 
   return (
     <div className="w-full space-y-5">
       <RequestChrome req={req} id={id} persona={persona} settings={settings} />
 
-      {isDraft
+      {isDraft || !isApprover
         ? <RequestFullDetails req={req} summary={summary} settings={settings} />
         : <ApprovalSummaryCard req={req} summary={summary} bookingDeadlineDays={settings.bookingDeadlineDays} detailsHref={`/requests/${id}/details`} />}
     </div>

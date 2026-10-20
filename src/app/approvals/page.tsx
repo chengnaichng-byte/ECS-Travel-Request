@@ -9,6 +9,7 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { fullInclude } from '@/modules/pretrip/queries';
+import { isApproverPersona } from '@/modules/pretrip/guards';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { StatusPill } from '@/components/StatusPill';
 import { REQUEST_STATUS } from '@/shared/enums';
@@ -22,7 +23,10 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
 
   const persona = await currentPersonaId();
   const settings = await getSettings();
-  const isAdmin = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN');
+  // Separation of duties (DD-24): this is the APPROVER's dashboard. Only a persona that holds an
+  // approver role (RO / DOA / Research DOA / Exception) has access — a Travel/System Administrator
+  // is not an approver and sees no actionable queue here (oversight lives under Travel Admin).
+  const isApprover = isApproverPersona(persona);
 
   // --- Travel Requests pending the acting approver (incl. material-amendment reapprovals). ---
   const pendingReqs = await prisma.travelRequest.findMany({
@@ -32,7 +36,7 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
   });
   const mine = pendingReqs.filter((r) => {
     const step = r.approvalSteps.find((s) => s.status === 'Pending');
-    return step && (step.approverId === persona || isAdmin);
+    return step && step.approverId === persona;
   });
   const sentBack = await prisma.travelRequest.count({ where: { status: 'Sent Back' } });
 
@@ -44,11 +48,30 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
   });
   const myClaims = pendingClaims.filter((c) => {
     const step = c.approvalSteps.find((s) => s.status === 'Pending');
-    return step && (step.approverId === persona || isAdmin);
+    return step && step.approverId === persona;
   });
 
   const tabCls = (active: boolean) => `px-4 py-2 text-sm border-b-2 ${active ? 'font-semibold text-[var(--ecs-navy-2)] border-[var(--ecs-navy)]' : 'text-[var(--ecs-muted)] border-transparent hover:text-[var(--ecs-navy)]'}`;
   const rowCls = (hasExc: boolean) => (hasExc ? 'bg-[#fff8ec] hover:bg-[#ffeedd]' : 'hover:bg-[var(--ecs-panel-2)]');
+
+  // Separation of duties: a non-approver (e.g. Travel Administrator) has no access to the approval
+  // dashboard. Admin oversight of requests is on the Travel Request Dashboard / Travel Administration.
+  if (!isApprover) {
+    return (
+      <div className="w-full">
+        <PageTitle title="RO / DOA Dashboard"
+          subtitle="The approver dashboard for Reporting Officers and DOAs." />
+        <Card title="No approval authority">
+          <Empty>
+            You are acting as <strong>{EcsIdentity.employee(persona)?.name}</strong>, who does not hold an approver role.
+            Approving travel requests is a delegated financial authority (RO / DOA) — it is not part of Travel
+            Administration. Switch persona to an approver (e.g. Prof Ben Lim · RO, or Prof Carol Wong · DOA) to review approvals;
+            to monitor requests, use the <Link href="/dashboard" className="underline">Travel Request Dashboard</Link> or <Link href="/workbench" className="underline">Travel Administration</Link>.
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full">

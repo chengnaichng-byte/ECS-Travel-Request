@@ -29,6 +29,10 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   const roleId = (await currentRoleId()) ?? defaultRoleFor(persona.id);
   const roles = PERSONA_ROLES.map((r) => ({ key: r.key, label: r.label, note: r.note, stage: r.stage }));
   const isSysAdmin = persona.roles.includes(ROLE.SystemAdmin);
+  // Separation of duties: the RO / DOA Dashboard is only for personas that hold an approver role.
+  // A Travel/System Administrator (not also an approver) does not see the approval surface.
+  const isApprover = ([ROLE.RO, ROLE.DOA, ROLE.ResearchDOA, ROLE.ExceptionApprover] as string[]).some((r) => persona.roles.includes(r as never));
+  const nav = isApprover ? NAV : NAV.filter((n) => n.href !== '/approvals');
   const initials = persona.name.split(' ').map((w) => w[0]).slice(-2).join('');
 
   return (
@@ -60,7 +64,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
         {/* Left navigation */}
         <aside className="w-60 shrink-0 bg-white border-r border-[var(--ecs-border)] hidden md:flex md:flex-col">
           <nav className="p-2 space-y-0.5">
-            <NavLinks items={NAV} />
+            <NavLinks items={nav} />
             {isSysAdmin && <NavLinks items={[{ href: '/settings', label: 'Pre-Trip Module Settings', icon: '⚙' }]} />}
           </nav>
           <div className="px-3 pt-4 pb-2 mt-2 border-t border-[var(--ecs-border)]">

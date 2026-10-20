@@ -20,6 +20,9 @@ export default async function RequestDetailsPage({ params }: { params: Promise<{
   const settings = await getSettings();
   const persona = await currentPersonaId();
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
+  // "Back to summary" only makes sense for an APPROVER — the Approval Summary is their view.
+  // A traveller / non-approver cannot see the approval summary of their own request, so it is hidden.
+  const isApprover = req.approvalSteps.some((s) => s.approverId === persona);
 
   return (
     <div className="w-full space-y-5">
@@ -27,12 +30,12 @@ export default async function RequestDetailsPage({ params }: { params: Promise<{
 
       <div className="flex items-center justify-between gap-3 border-t border-[var(--ecs-border)] pt-4">
         <h2 className="text-sm font-semibold text-[var(--ecs-muted)] uppercase tracking-wide">Full Details</h2>
-        <Link href={`/requests/${id}`} className="btn-secondary">← Back to summary</Link>
+        {isApprover && <Link href={`/requests/${id}`} className="btn-secondary">← Back to summary</Link>}
       </div>
 
       <RequestFullDetails req={req} summary={summary} settings={settings} />
 
-      <div className="pt-2"><Link href={`/requests/${id}`} className="btn-secondary">← Back to summary</Link></div>
+      {isApprover && <div className="pt-2"><Link href={`/requests/${id}`} className="btn-secondary">← Back to summary</Link></div>}
     </div>
   );
 }
