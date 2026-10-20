@@ -216,10 +216,15 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
             {crossCharge ? <span className="pill-warn">Yes · {allocs.length} accounts</span> : 'No cross-charge'}
           </TileRow>
           {crossCharge && (
-            <ul className="text-[11px] space-y-0.5 -mt-1">
-              {allocs.map((a) => <li key={a.id} className="flex justify-between"><span>{a.chargingCode}{EcsCharging.code(a.chargingCode)?.isResearch ? ' (research)' : ''}</span><span className="font-medium">{a.percent}% · {amountFor(a.percent)}</span></li>)}
-              <li className="text-[var(--ecs-muted)] pt-0.5 border-t border-[var(--ecs-border)]">DOA basis: highest-share account{primaryCode ? ` (${EcsIdentity.department(primaryCode.departmentId)?.name ?? ''})` : ''}</li>
-            </ul>
+            <div className="text-[11px] -mt-1">
+              {/* Accounts highest-share first (allocs is sorted desc by %). The list is height-capped
+                  and scrolls when there are many accounts, so the tile stays balanced with its
+                  neighbours; rows never wrap. The DOA-basis line stays below, always visible. */}
+              <ul className="space-y-0.5 max-h-24 overflow-y-auto pr-1">
+                {allocs.map((a) => <li key={a.id} className="flex justify-between gap-2"><span className="truncate">{a.chargingCode}{EcsCharging.code(a.chargingCode)?.isResearch ? ' (research)' : ''}</span><span className="font-medium whitespace-nowrap">{a.percent}% · {amountFor(a.percent)}</span></li>)}
+              </ul>
+              <div className="text-[var(--ecs-muted)] pt-0.5 mt-0.5 border-t border-[var(--ecs-border)]">DOA basis: highest-share account{primaryCode ? ` (${EcsIdentity.department(primaryCode.departmentId)?.name ?? ''})` : ''}</div>
+            </div>
           )}
         </SumTile>
 
