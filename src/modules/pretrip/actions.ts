@@ -205,6 +205,9 @@ export async function createGuestDraft(fd: FormData) {
 /* ------------------------------------------------------------- trip (TR-04) */
 export async function saveTrip(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
+  // "Save as draft" persists whatever has been entered and returns to the dashboard — mandatory-
+  // field and date validation are deferred to Submit, so a partial step can be parked as a draft.
+  const draft = str(fd, 'saveMode') === 'draft';
   const purposeId = str(fd, 'purposeId');
   const purpose = EcsReference.travelPurpose(purposeId);
   const req0 = await loadRequest(id);
@@ -229,7 +232,7 @@ export async function saveTrip(id: string, fd: FormData) {
   if (formLegs.length === 0) missing.push('at least one itinerary leg with a destination');
   if (!start || !end) missing.push('travel dates');
   if (!str(fd, 'bookingArrangement')) missing.push('booking arrangement');
-  if (missing.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please provide: ' + missing.join(', ') + '.')}`);
+  if (!draft && missing.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please provide: ' + missing.join(', ') + '.')}`);
 
   // §4.4/§4.5 cross-field date validation — authoritative mirror of the in-form checks. The
   // legs must sit inside the travel window (widened by any personal extension on either side),
@@ -260,7 +263,7 @@ export async function saveTrip(id: string, fd: FormData) {
     if (dDep && prevDepart && dDep < prevDepart) invalid.push(`leg ${i + 1} departs before the previous leg`);
     if (dDep) prevDepart = dDep;
   });
-  if (invalid.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please fix the dates: ' + invalid.join('; ') + '.')}`);
+  if (!draft && invalid.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please fix the dates: ' + invalid.join('; ') + '.')}`);
   // §13.19 entitlement is derived across the WHOLE itinerary — each flown leg's duration gives
   // its entitled class and the highest wins (longest-duration leg drives the class), not just
   // the main destination. Falls back to the main destination when no legs carry a duration.
@@ -369,6 +372,7 @@ export async function saveTrip(id: string, fd: FormData) {
     ['Booking method', req0?.bookingMethod ?? '—', str(fd, 'bookingMethod') || '—'],
   ]);
   await audit(id, 'AMEND', diffs.length ? `Trip details updated — ${diffs.join('; ')}` : 'Trip details saved (no field changes)');
+  if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   revalidatePath(`/requests/${id}/trip`);
   redirect(`/requests/${id}/estimates`);
 }
@@ -637,6 +641,7 @@ export async function deleteExpense(id: string, expenseId: string) {
 /* --------------------------------------------------------- charging (TR-09) */
 export async function saveCharging(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
+  const draft = str(fd, 'saveMode') === 'draft'; // "Save as draft" → persist then return to the dashboard
   const req = await prisma.travelRequest.findUnique({ where: { id }, include: { expenses: { include: { accommodation: true, oda: true } } } });
   if (!req) return;
   const settings = await getSettings();
@@ -674,6 +679,7 @@ export async function saveCharging(id: string, fd: FormData) {
   }
   await audit(id, 'AMEND', raw.mode === 'ITEM' ? 'Charging allocated per expense item (cross-charge)' : raw.mode === 'CLAIM' ? 'Charging allocated at claim level' : 'Charging allocation saved');
   await persistPolicy(id);
+  if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   revalidatePath(`/requests/${id}/charging`);
   redirect(`/requests/${id}/policy`);
 }

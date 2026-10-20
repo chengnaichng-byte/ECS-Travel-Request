@@ -59,9 +59,12 @@ export default async function PolicyStep({ params }: { params: Promise<{ id: str
 
       <div className="flex justify-between mt-5">
         <Link href={`/requests/${id}/charging`} className="btn-secondary">← Back</Link>
-        <Link href={`/requests/${id}/review`} className={hardStop ? 'btn-secondary' : 'btn-primary'}>
-          {hardStop ? 'Continue (resolve hard stops first)' : 'Continue to submit →'}
-        </Link>
+        <div className="flex gap-2">
+          {(req.status === 'Draft' || req.status === 'Sent Back') && <Link href="/dashboard" className="btn-secondary" title="This request is saved as a draft — return to the dashboard and finish later">Save as draft</Link>}
+          <Link href={`/requests/${id}/review`} className={hardStop ? 'btn-secondary' : 'btn-primary'}>
+            {hardStop ? 'Continue (resolve hard stops first)' : 'Continue to submit →'}
+          </Link>
+        </div>
       </div>
     </div>
   );

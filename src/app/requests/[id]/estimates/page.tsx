@@ -292,7 +292,10 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
 
       <div className="flex justify-between mt-5">
         <Link href={`/requests/${id}/trip`} className="btn-secondary">← Back</Link>
-        <Link href={`/requests/${id}/charging`} className="btn-primary">Continue to charging →</Link>
+        <div className="flex gap-2">
+          {canEdit && <Link href="/dashboard" className="btn-secondary" title="Your estimates are saved — return to the dashboard and finish later">Save as draft</Link>}
+          <Link href={`/requests/${id}/charging`} className="btn-primary">Continue to charging →</Link>
+        </div>
       </div>
     </div>
   );

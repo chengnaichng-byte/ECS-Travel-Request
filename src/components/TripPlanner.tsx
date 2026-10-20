@@ -238,6 +238,7 @@ export function TripPlanner({
           )}
 
           <div className="flex justify-end gap-2">
+            {!disabled && <button type="submit" name="saveMode" value="draft" className="btn-secondary" title="Save what you have entered and return to the dashboard — finish it later">Save as draft</button>}
             {disabled
               ? <Link href={continueHref} className="btn-primary">Continue →</Link>
               : <button type="submit" disabled={blocking} className="btn-primary">Save trip &amp; continue →</button>}

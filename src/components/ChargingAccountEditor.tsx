@@ -331,7 +331,7 @@ export function ChargingAccountEditor({
         </div>
       </div>
 
-      {canEdit && <div className="flex justify-end"><button type="submit" className="btn-primary">{submitLabel}</button></div>}
+      {canEdit && <div className="flex justify-end gap-2"><button type="submit" name="saveMode" value="draft" className="btn-secondary" title="Save and return to the dashboard — finish it later">Save as draft</button><button type="submit" className="btn-primary">{submitLabel}</button></div>}
     </form>
   );
 }
