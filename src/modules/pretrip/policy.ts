@@ -66,6 +66,16 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string):
           detail: `${e.accommodation.city}: quoted SGD ${e.accommodation.quotedNightly}/night exceeds cap SGD ${e.accommodation.capNightly}/night.`,
           travellerId: e.travellerId,
         });
+        // §4.5 an above-cap rate cannot be submitted without a justification (mirrors the class
+        // upgrade hard-stop, CLASS_JUSTIFY) — the note travels to the approver with the exception.
+        if (!e.notes || e.notes.trim() === '') {
+          const where = EcsReference.city(e.accommodation.city)?.name ?? e.accommodation.city;
+          checks.push({
+            code: 'HOTEL_JUSTIFY', label: 'Above-cap accommodation justification required', outcome: POLICY_OUTCOME.HardStop,
+            detail: `${where}: the nightly rate SGD ${e.accommodation.quotedNightly} is above the cap SGD ${e.accommodation.capNightly} — a justification is required${req.isGroup && e.travellerId ? ` (${EcsIdentity.employee(e.travellerId)?.name})` : ''}.`,
+            travellerId: e.travellerId,
+          });
+        }
       }
     }
   }

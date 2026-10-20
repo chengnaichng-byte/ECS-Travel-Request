@@ -717,9 +717,13 @@ export async function updateAccommodationRate(id: string, expenseId: string, fd:
   const acc = await prisma.accommodationEstimate.findUnique({ where: { expenseId } });
   if (!acc) return;
   const calc = computeAccommodation({ cityCode: acc.city, nights: acc.nights, personalNights: acc.personalNights, quotedNightly: rate, basis: settings.hotelEstimateBasis });
-  await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount } });
+  // §4.5 an above-cap rate carries a mandatory justification (also hard-stopped at submit by the
+  // HOTEL_JUSTIFY policy check). Captured here on the line's note; cleared when at/under cap.
+  const justification = str(fd, 'justification').trim();
+  const overCap = calc.capNightly > 0 && rate > calc.capNightly;
+  await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, notes: justification || null } });
   await prisma.accommodationEstimate.update({ where: { expenseId }, data: { quotedNightly: rate, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome } });
-  await audit(id, 'AMEND', `Hotel nightly rate updated for ${EcsReference.city(acc.city)?.name ?? acc.city} → SGD ${rate.toFixed(0)}/night`);
+  await audit(id, 'AMEND', `Hotel nightly rate updated for ${EcsReference.city(acc.city)?.name ?? acc.city} → SGD ${rate.toFixed(0)}/night${overCap ? (justification ? ' (above cap — justification provided)' : ' (above cap — justification required)') : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
 }
 

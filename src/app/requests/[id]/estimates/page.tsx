@@ -326,18 +326,25 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
 
 // Rate cell for an estimate line. An AUTO hotel line exposes an inline nightly-rate edit (the stay is
 // locked); every other line shows a static per-night / per-day rate, or "—" where rate doesn't apply.
-function RateCell({ id, e, canEdit }: { id: string; e: { id: string; autoDerived: boolean; accommodation: { quotedNightly: number } | null; oda: { dailyRate: number } | null }; canEdit: boolean }) {
+function RateCell({ id, e, canEdit }: { id: string; e: { id: string; autoDerived: boolean; notes: string | null; accommodation: { quotedNightly: number; capNightly: number } | null; oda: { dailyRate: number } | null }; canEdit: boolean }) {
   if (e.accommodation) {
+    const over = e.accommodation.capNightly > 0 && e.accommodation.quotedNightly > e.accommodation.capNightly;
     if (e.autoDerived && canEdit) {
       return (
-        <form action={updateAccommodationRate.bind(null, id, e.id)} className="flex items-center gap-1 justify-end">
-          <span className="text-xs text-[var(--ecs-muted)]">$</span>
-          <input name="quotedNightly" type="number" step="any" defaultValue={e.accommodation.quotedNightly} aria-label="Nightly rate" className="field !w-16 !py-1 !px-1.5 text-xs text-right" />
-          <button className="btn-ghost text-xs" title="Update nightly rate">Set</button>
+        <form action={updateAccommodationRate.bind(null, id, e.id)} className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-1 justify-end">
+            <span className="text-xs text-[var(--ecs-muted)]">$</span>
+            <input name="quotedNightly" type="number" step="any" defaultValue={e.accommodation.quotedNightly} aria-label="Nightly rate" className="field !w-16 !py-1 !px-1.5 text-xs text-right" />
+            <button className="btn-ghost text-xs" title="Update nightly rate">Set</button>
+          </div>
+          {/* Above-cap rates require a justification (enforced at submit); captured inline here. */}
+          <input name="justification" defaultValue={e.notes ?? ''} aria-label="Above-cap justification"
+            placeholder={`Justification if > ${fmtSgd(e.accommodation.capNightly)} cap`}
+            className={`field !py-1 !px-1.5 text-[11px] !w-48 ${over && !(e.notes ?? '').trim() ? '!border-[var(--ecs-red)]' : ''}`} />
         </form>
       );
     }
-    return <span className="text-xs whitespace-nowrap">{fmtSgd(e.accommodation.quotedNightly)}<span className="text-[var(--ecs-muted)]">/n</span></span>;
+    return <span className="text-xs whitespace-nowrap">{fmtSgd(e.accommodation.quotedNightly)}<span className="text-[var(--ecs-muted)]">/n</span>{over && <span className="text-[var(--ecs-red)]" title="Above cap"> ⚠</span>}</span>;
   }
   if (e.oda) return <span className="text-xs whitespace-nowrap">{fmtSgd(e.oda.dailyRate)}<span className="text-[var(--ecs-muted)]">/day</span></span>;
   return <span className="text-xs text-[var(--ecs-muted)]">—</span>;
