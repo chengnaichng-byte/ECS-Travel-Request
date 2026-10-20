@@ -26,7 +26,10 @@ export function PersonaSwitcher({ role, person, roles, peopleByRole }: {
     const fd = new FormData();
     fd.set('roleId', roleKey);
     fd.set('personaId', personId);
-    start(() => setPersona(fd));
+    // Switching persona changes what the ROOT LAYOUT renders (e.g. the RO/DOA Dashboard nav is
+    // approver-only). A soft router refresh does not reliably re-render the layout, so force a
+    // full reload once the persona cookie is set — the whole shell then reflects the new persona.
+    start(async () => { await setPersona(fd); if (typeof window !== 'undefined') window.location.reload(); });
   };
 
   const onRole = (nr: string) => {
