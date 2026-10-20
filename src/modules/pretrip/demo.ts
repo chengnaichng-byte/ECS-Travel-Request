@@ -319,7 +319,7 @@ async function buildMultiCityPendingS22() {
   const req = await prisma.travelRequest.create({ data: {
     requestNumber, requestorId: 'E-TRAV', travellerId: 'E-TRAV',
     entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
-    purposeId: 'TP-TC-ACAD', description: 'Multi-city — Tokyo & Seoul (pending approval, S22)',
+    purposeId: 'TP-TC-ACAD', description: 'Multi-city — Tokyo, Osaka & Seoul (pending approval, S22)',
     tripType: 'MULTI_CITY', destCountry: 'JP', destCity: 'TYO', startDate: day('2026-12-01'), endDate: day('2026-12-07'),
     travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', classBasis: 'Register C20 — Premium Economy for flights ≥ 6h',
     bookingArrangement: 'AUTO', bookingMethod: BOOKING_METHOD.AgentAssisted,
@@ -327,18 +327,19 @@ async function buildMultiCityPendingS22() {
   const id = req.id;
   await audit(id, 'E-TRAV', 'CREATE', `Multi-city draft ${requestNumber} created`);
   const legs = [
-    { seq: 1, o: 'SIN', d: 'HND', dep: '2026-12-01', dur: 7, nights: 3 },
-    { seq: 2, o: 'HND', d: 'ICN', dep: '2026-12-04', dur: 2.5, nights: 3 },
-    { seq: 3, o: 'ICN', d: 'SIN', dep: '2026-12-07', dur: 6, nights: 0 },
+    { seq: 1, o: 'SIN', d: 'HND', dep: '2026-12-01', dur: 7, nights: 2 },   // Tokyo
+    { seq: 2, o: 'HND', d: 'KIX', dep: '2026-12-03', dur: 1.5, nights: 2 }, // Osaka
+    { seq: 3, o: 'KIX', d: 'ICN', dep: '2026-12-05', dur: 2, nights: 2 },   // Seoul
+    { seq: 4, o: 'ICN', d: 'SIN', dep: '2026-12-07', dur: 6, nights: 0 },
   ];
   for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', chosenClassId: 'TC-PEY' } });
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3200, sgdAmount: 3200, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3200 } });
-  for (const [city, nights, rate] of [['TYO', 3, 300], ['SEL', 3, 240]] as [string, number, number][]) {
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400 } });
+  for (const [city, nights, rate] of [['TYO', 2, 300], ['OSA', 2, 300], ['SEL', 2, 240]] as [string, number, number][]) {
     const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
     const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
     await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city, nights, personalNights: 0, quotedNightly: rate, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
   }
-  for (const [country, city, arr, dep] of [['JP', 'TYO', '2026-12-01', '2026-12-04'], ['KR', 'SEL', '2026-12-04', '2026-12-07']] as [string, string, string, string][]) {
+  for (const [country, city, arr, dep] of [['JP', 'TYO', '2026-12-01', '2026-12-05'], ['KR', 'SEL', '2026-12-05', '2026-12-07']] as [string, string, string, string][]) {
     const oda = computeOda({ countryCode: country, arrive: day(arr), depart: day(dep), personalDays: 0 });
     const oe = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: oda.sgdAmount, sgdAmount: oda.sgdAmount, estimateBasis: 'RATE' } });
     await prisma.oDAEstimate.create({ data: { expenseId: oe.id, country, city, arrive: day(arr), depart: day(dep), eligibleDays: oda.eligibleDays, personalDays: 0, dailyRate: oda.dailyRate } });

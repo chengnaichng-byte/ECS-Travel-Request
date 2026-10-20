@@ -13,6 +13,7 @@ import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { ENTITY_NAME } from '@/data/organisation';
 import { Card } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type SummaryRow } from './CostItemsTable';
+import { DestinationList } from './DestinationList';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
@@ -60,6 +61,19 @@ function destinationText(req: FullRequest): string {
   const country = req.destCountry ? EcsReference.country(req.destCountry)?.name : null;
   const text = [city, country].filter(Boolean).join(', ');
   return text || 'Not specified';
+}
+/** Distinct destination city NAMES for a multi-city trip — the places visited, in itinerary
+ *  order, excluding the home origin and the return-home leg. */
+function multiCityDestinationNames(req: FullRequest): string[] {
+  const codes = routeCityCodes(req);
+  const home = codes[0];
+  const out: string[] = [];
+  for (const c of codes.slice(1)) {
+    if (c === home) continue; // the leg back to the home base is not a destination
+    const name = EcsReference.city(c)?.name ?? c;
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
 }
 /** Count of distinct foreign countries on the itinerary (excludes Singapore as the base). */
 function foreignCountryCount(req: FullRequest): number {
@@ -176,9 +190,9 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
 
         <SumTile title="Trip Details" href={`${detailsHref}#sec-trip`}>
           <TileRow label="Trip type">{tripType}</TileRow>
-          <TileRow label={isMultiCity ? 'Route' : 'Destination'}>
+          <TileRow label={isMultiCity ? 'Destinations' : 'Destination'}>
             <div>
-              <div>{destText}</div>
+              <div>{isMultiCity ? <DestinationList cities={multiCityDestinationNames(req)} max={2} /> : destText}</div>
               {isMultiCity && foreignCountries > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">{foreignCountries} countr{foreignCountries === 1 ? 'y' : 'ies'}</div>}
             </div>
           </TileRow>
@@ -279,10 +293,10 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
       <div className="grid md:grid-cols-3 xl:grid-cols-5 gap-4">
         <Field label="Travel Purpose" accent>{purpose}</Field>
         <Field label="Trip Type" accent>{tripTypeLabel(req)}</Field>
-        <Field label={isMulti ? 'Route' : 'Destination'} accent>
+        <Field label={isMulti ? 'Destinations' : 'Destination'} accent>
           {isMulti && routeCodes.length > 1 ? (
             <div>
-              <div>{routeCodes.join(' → ')}</div>
+              <div><DestinationList cities={multiCityDestinationNames(req)} max={4} /></div>
               <span className="pill-navy mt-1">{sharedLegs(req).length} legs · {countryCount} countr{countryCount === 1 ? 'y' : 'ies'}</span>
             </div>
           ) : (
