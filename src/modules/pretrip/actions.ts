@@ -374,6 +374,14 @@ export async function saveTrip(id: string, fd: FormData) {
     ['Booking method', req0?.bookingMethod ?? '—', str(fd, 'bookingMethod') || '—'],
   ]);
   await audit(id, 'AMEND', diffs.length ? `Trip details updated — ${diffs.join('; ')}` : 'Trip details saved (no field changes)');
+  // §4.5 Auto-derive ODA + per-stop hotel lines from the (just-saved) itinerary. A hotel rate edit
+  // is reset to the city cap only when the dates/legs actually changed (a dates change supersedes a
+  // prior rate edit); an unrelated trip edit keeps the edited rate.
+  const legSig = (ls: { destCode: string; nights: number; isPersonal: boolean }[]) =>
+    ls.map((l) => `${l.destCode}:${l.nights}:${l.isPersonal ? 1 : 0}`).join('|');
+  const oldSig = `${req0?.startDate?.getTime() ?? 0}:${req0?.endDate?.getTime() ?? 0}:${legSig((req0?.legs ?? []).filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq))}`;
+  const newSig = `${start?.getTime() ?? 0}:${end?.getTime() ?? 0}:${legSig(newLegs)}`;
+  await syncAutoEstimates(id, oldSig !== newSig);
   if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   revalidatePath(`/requests/${id}/trip`);
   redirect(`/requests/${id}/estimates`);
@@ -606,6 +614,112 @@ export async function addOda(id: string, fd: FormData) {
     });
   }
   await audit(id, 'AMEND', `ODA estimate added (${country}, ${calc.eligibleDays} eligible days)${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
+  revalidatePath(`/requests/${id}/estimates`);
+}
+
+/** §4.5 Auto-derive the POLICY-based estimate lines from the itinerary:
+ *   • ODA — one line per employee traveller (guests get none), computed over the official dates.
+ *   • Accommodation — ONE line per overnight, non-personal stop (excluding the return home),
+ *     per traveller, at the stop city's cap.
+ *  These are re-derived whenever the dates/legs change. `resetRates=true` resets an edited hotel
+ *  nightly rate back to the city cap (a dates change supersedes a prior rate edit); `false` keeps
+ *  an existing auto line's rate (unrelated trip edit). Manual lines (autoDerived=false) are never
+ *  touched. Keyed by (travellerId, legSeq) for hotels and (travellerId) for ODA so the reconcile
+ *  can update in place, add for a new stop/traveller and delete for a removed one. */
+export async function syncAutoEstimates(id: string, resetRates: boolean) {
+  const req = await loadRequest(id);
+  if (!req) return;
+  const settings = await getSettings();
+  const key = (tid: string | null, legSeq: number | null | undefined) => `${tid ?? ''}|${legSeq ?? ''}`;
+  const DAY = 86400000;
+
+  // ---- Per-CITY stops, derived from the itinerary leg DATES (robust — does NOT rely on the stored
+  // per-leg nights, which the trip form may leave at 0). A leg's destination city is a stop unless it
+  // is the home leg (Singapore). From = arrival at that city; To = the next leg's departure onward
+  // (the last stop ends at the trip's end date). Nights = (To − From) in days; ODA days = nights. ----
+  const home = 'SIN';
+  const legs = req.legs.filter((l) => l.travellerId === null && !l.isPersonal).sort((a, b) => a.seq - b.seq);
+  type Stop = { legSeq: number; city: string; country: string; from: Date; to: Date; nights: number };
+  const stops: Stop[] = [];
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    const city = EcsReference.airport(l.destCode)?.cityCode ?? l.destCode;
+    if (!city || city === home) continue; // the return-home leg is not a stop
+    const from = l.arriveDate ?? l.departDate ?? null;
+    const next = legs[i + 1];
+    const to = next?.departDate ?? next?.arriveDate ?? req.endDate ?? null;
+    if (!from || !to) continue;
+    const nights = Math.max(Math.round((to.getTime() - from.getTime()) / DAY), 0);
+    if (nights <= 0) continue;
+    const country = EcsReference.city(city)?.countryCode ?? req.destCountry ?? '';
+    stops.push({ legSeq: l.seq, city, country, from, to, nights });
+  }
+
+  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const hotelTids: (string | null)[] = req.isGroup ? req.travellers.map((t) => t.employeeId) : [null];
+  // §8 ODA is an employee entitlement only — guests get none.
+  const odaTids: (string | null)[] = req.isGroup
+    ? req.travellers.filter((t) => !guestIds.has(t.employeeId)).map((t) => t.employeeId)
+    : (isGuestRequest(req) ? [] : [null]);
+
+  // ---- HOTEL: one line per stop × traveller (city cap × nights; nightly rate editable) ----
+  const autoHotels = req.expenses.filter((e) => e.autoDerived && e.category === EXPENSE_CATEGORY.Accommodation);
+  const wantHotel = new Set<string>();
+  for (const tid of hotelTids) for (const s of stops) {
+    wantHotel.add(key(tid, s.legSeq));
+    const existing = autoHotels.find((e) => (e.travellerId ?? '') === (tid ?? '') && e.accommodation?.legSeq === s.legSeq);
+    const cap = EcsPolicy.hotelCap(s.city) ?? 0;
+    const rate = (!resetRates && existing?.accommodation?.quotedNightly ? existing.accommodation.quotedNightly : cap) || cap;
+    const calc = computeAccommodation({ cityCode: s.city, nights: s.nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
+    const accData = { city: s.city, legSeq: s.legSeq, checkIn: s.from, checkOut: s.to, nights: s.nights, personalNights: 0, quotedNightly: rate, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome };
+    if (existing) {
+      await prisma.estimatedExpense.update({ where: { id: existing.id }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, estimateBasis: settings.hotelEstimateBasis, expectedDate: s.from } });
+      await prisma.accommodationEstimate.update({ where: { expenseId: existing.id }, data: accData });
+    } else {
+      const exp = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount, estimateBasis: settings.hotelEstimateBasis, expectedDate: s.from, autoDerived: true, travellerId: tid } });
+      await prisma.accommodationEstimate.create({ data: { expenseId: exp.id, conferenceHotel: false, ...accData } });
+    }
+  }
+  for (const e of autoHotels) if (!wantHotel.has(key(e.travellerId, e.accommodation?.legSeq))) await prisma.estimatedExpense.delete({ where: { id: e.id } });
+
+  // ---- ODA: one line per stop × employee traveller (country daily rate × nights, FULL day rate, no
+  // proportioning). A country with no configured ODA rate yields no line. ----
+  const autoOda = req.expenses.filter((e) => e.autoDerived && e.category === EXPENSE_CATEGORY.ODA);
+  const wantOda = new Set<string>();
+  for (const tid of odaTids) for (const s of stops) {
+    const dailyRate = EcsPolicy.odaRate(s.country) ?? 0;
+    if (dailyRate <= 0) continue;
+    wantOda.add(key(tid, s.legSeq));
+    const amount = dailyRate * s.nights; // full day rate — no travel-day proportioning (confirmed)
+    const existing = autoOda.find((e) => (e.travellerId ?? '') === (tid ?? '') && e.oda?.legSeq === s.legSeq);
+    const odaData = { country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: s.nights, personalDays: 0, dailyRate, ratePct: 100 };
+    if (existing) {
+      await prisma.estimatedExpense.update({ where: { id: existing.id }, data: { sgdAmount: amount, foreignAmount: amount, expectedDate: s.from } });
+      await prisma.oDAEstimate.update({ where: { expenseId: existing.id }, data: odaData });
+    } else {
+      const exp = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: amount, sgdAmount: amount, estimateBasis: 'RATE', expectedDate: s.from, autoDerived: true, travellerId: tid } });
+      await prisma.oDAEstimate.create({ data: { expenseId: exp.id, ...odaData } });
+    }
+  }
+  for (const e of autoOda) if (!wantOda.has(key(e.travellerId, e.oda?.legSeq))) await prisma.estimatedExpense.delete({ where: { id: e.id } });
+
+  revalidatePath(`/requests/${id}/estimates`);
+}
+
+/** Edit ONLY the nightly rate of an auto hotel line (the stay — nights/dates — is derived from the
+ *  itinerary and stays locked). The line remains auto-derived, so a later dates change re-derives it
+ *  back to policy (resetting this edit) per the agreed behaviour. */
+export async function updateAccommodationRate(id: string, expenseId: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const settings = await getSettings();
+  const rate = num(fd, 'quotedNightly');
+  if (rate <= 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Nightly rate must be greater than 0.')}`);
+  const acc = await prisma.accommodationEstimate.findUnique({ where: { expenseId } });
+  if (!acc) return;
+  const calc = computeAccommodation({ cityCode: acc.city, nights: acc.nights, personalNights: acc.personalNights, quotedNightly: rate, basis: settings.hotelEstimateBasis });
+  await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount } });
+  await prisma.accommodationEstimate.update({ where: { expenseId }, data: { quotedNightly: rate, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome } });
+  await audit(id, 'AMEND', `Hotel nightly rate updated for ${EcsReference.city(acc.city)?.name ?? acc.city} → SGD ${rate.toFixed(0)}/night`);
   revalidatePath(`/requests/${id}/estimates`);
 }
 

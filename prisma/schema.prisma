@@ -237,6 +237,7 @@ model EstimatedExpense {
   sponsorSgd     Float   @default(0)
   estimateBasis  String?                    // QUOTED | CAP | LOWER | RATE
   expectedDate   DateTime?
+  autoDerived    Boolean @default(false)    // policy-seeded line (ODA / per-stop hotel) — re-derived on a dates/itinerary change; not a manual line
   isShared       Boolean @default(false)    // §13.14 shared apportioned line
   shareMap       String?                    // JSON {employeeId: pct}
   chargingCode   String?                    // §17 per-line charging account (LINE cross-charge mode); null = follows request-level split
@@ -260,6 +261,7 @@ model AccommodationEstimate {
   expenseId     String  @unique
   expense       EstimatedExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   city          String
+  legSeq        Int?                         // itinerary leg this auto per-stop hotel line maps to (null = manual line); used to reconcile on re-derive
   checkIn       DateTime?
   checkOut      DateTime?
   nights        Int     @default(0)
@@ -279,6 +281,7 @@ model ODAEstimate {
   expense       EstimatedExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   country       String
   city          String?
+  legSeq        Int?                         // itinerary leg this auto per-city ODA line maps to (null = manual); used to reconcile on re-derive
   arrive        DateTime?
   depart        DateTime?
   eligibleDays  Int     @default(0)

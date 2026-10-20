@@ -12,7 +12,7 @@ import { evaluatePolicies, hasException } from './policy';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
 import { applyMaterialAmendment } from './amend';
-import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsTravelClassRegister } from '@/shared/ecs/services';
+import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsPolicy, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
@@ -93,6 +93,69 @@ async function buildDraft(s: ScenarioInput): Promise<string> {
     await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: c.code, percent: c.pct, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false, isMain: ci === 0 } });
   }
   return id;
+}
+
+/** The scenario seed creates accommodation lines by city + nights without a check-in / check-out,
+ *  so the review & approval "Stay dates" line would show "— → —". This backfills those dates from
+ *  the request's itinerary legs (From = arrival at the city, To = the next leg's departure onward,
+ *  last stop = trip end), the same basis the live auto-estimates use. Lines that already carry a
+ *  check-in (manually entered or auto-derived) are left untouched. */
+async function backfillHotelDates(id: string) {
+  const req = await prisma.travelRequest.findUnique({ where: { id }, include: { legs: { orderBy: { seq: 'asc' } }, expenses: { include: { accommodation: true } } } });
+  if (!req) return;
+  const legs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+  const span: Record<string, { from: Date; to: Date }> = {};
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    const city = EcsReference.airport(l.destCode)?.cityCode ?? l.destCode;
+    if (!city || city === 'SIN') continue;
+    const from = l.arriveDate ?? l.departDate;
+    const to = legs[i + 1]?.departDate ?? legs[i + 1]?.arriveDate ?? req.endDate;
+    if (from && to && !span[city]) span[city] = { from, to };
+  }
+  for (const e of req.expenses) {
+    const a = e.accommodation;
+    if (!a || a.checkIn) continue;
+    const s = span[a.city];
+    const from = s?.from ?? req.startDate;
+    if (!from) continue;
+    const to = s?.to ?? new Date(from.getTime() + a.nights * 86400000);
+    await prisma.accommodationEstimate.update({ where: { id: a.id }, data: { checkIn: from, checkOut: to } });
+  }
+}
+
+/** Rebuild the ODA lines to the latest design: ONE line per city (stop), per employee traveller
+ *  (guests get none), at that country's FULL daily rate × nights (no travel-day proportioning),
+ *  keyed to the leg. Mirrors the live auto-estimates engine so seeded requests match what a real
+ *  create flow produces. Replaces whatever ODA lines the scenario seed created. */
+async function rebuildOda(id: string) {
+  const req = await prisma.travelRequest.findUnique({ where: { id }, include: { legs: { orderBy: { seq: 'asc' } }, travellers: true, expenses: { include: { oda: true } } } });
+  if (!req) return;
+  const DAY = 86400000;
+  const legs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+  type St = { legSeq: number; city: string; country: string; from: Date; to: Date; nights: number };
+  const stops: St[] = [];
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    const city = EcsReference.airport(l.destCode)?.cityCode ?? l.destCode;
+    if (!city || city === 'SIN') continue;
+    const from = l.arriveDate ?? l.departDate;
+    const to = legs[i + 1]?.departDate ?? legs[i + 1]?.arriveDate ?? req.endDate;
+    if (!from || !to) continue;
+    const nights = Math.max(Math.round((to.getTime() - from.getTime()) / DAY), 0);
+    if (nights <= 0) continue;
+    stops.push({ legSeq: l.seq, city, country: EcsReference.city(city)?.countryCode ?? '', from, to, nights });
+  }
+  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const odaTids: (string | null)[] = req.isGroup ? req.travellers.filter((t) => !guestIds.has(t.employeeId)).map((t) => t.employeeId) : (req.travellerType === 'GUEST' ? [] : [null]);
+  for (const e of req.expenses.filter((x) => x.oda)) await prisma.estimatedExpense.delete({ where: { id: e.id } });
+  for (const tid of odaTids) for (const s of stops) {
+    const rate = EcsPolicy.odaRate(s.country) ?? 0;
+    if (rate <= 0) continue;
+    const amount = rate * s.nights;
+    const exp = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: amount, sgdAmount: amount, estimateBasis: 'RATE', expectedDate: s.from, autoDerived: true, travellerId: tid } });
+    await prisma.oDAEstimate.create({ data: { expenseId: exp.id, country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: s.nights, personalDays: 0, dailyRate: rate, ratePct: 100 } });
+  }
 }
 
 async function submit(id: string): Promise<FullRequest> {
@@ -272,6 +335,23 @@ export async function seedDemoScenarios() {
   await buildGuestPendingS21();
   await buildMultiCityPendingS22();
   await buildOneWayPendingS23();
+
+  // Normalise every seeded request's estimate lines to the latest design: hotel stay dates filled
+  // from the itinerary (so "Stay dates" isn't "— → —"), and ODA rebuilt as one full-rate line per
+  // city. Then keep each non-draft request's recorded approved amount in step with its lines.
+  const settings = await getSettings();
+  const allReqs = await prisma.travelRequest.findMany({ select: { id: true, status: true } });
+  for (const r of allReqs) {
+    await backfillHotelDates(r.id);
+    await rebuildOda(r.id);
+    if (r.status !== REQUEST_STATUS.Draft && r.status !== REQUEST_STATUS.SentBack) {
+      const fresh = await loadRequest(r.id);
+      if (fresh) {
+        const sum = computeSummary(fresh.expenses, settings.approvalAmountBasis);
+        await prisma.travelRequest.update({ where: { id: r.id }, data: { approvalAmountSgd: sum.approvalAmount } });
+      }
+    }
+  }
 
   revalidatePath('/dashboard');
 }

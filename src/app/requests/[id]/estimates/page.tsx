@@ -7,13 +7,13 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { addAirfare, addAccommodation, addOda, addOther, deleteExpense } from '@/modules/pretrip/actions';
+import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest } from '@/modules/pretrip/traveller';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
-import { computeSummary, computeOda, fmtSgd } from '@/modules/pretrip/pricing';
-import { countries, cities, airports } from '@/data/locations';
+import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
+import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { hotelCaps, odaRates } from '@/data/policyRates';
 import { currencies } from '@/data/fxRates';
@@ -49,10 +49,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     end: d(req.endDate),
     nights: req.startDate && req.endDate ? String(Math.max(Math.round((req.endDate.getTime() - req.startDate.getTime()) / 86400000), 0)) : '',
   };
-  // Auto-computed ODA preview for this trip (policy rate × eligible days over the official range).
-  const odaPreview = req.destCountry && req.startDate && req.endDate
-    ? computeOda({ countryCode: req.destCountry, arrive: req.startDate, depart: req.endDate, personalDays: 0 })
-    : null;
   const isGroup = req.isGroup;
   // §13.19 entitled class for this itinerary (individual) — the baseline above which the traveller
   // must justify an upgrade on the airfare line.
@@ -71,11 +67,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const provostOptions = guestRequest ? await provostsForSchool(hostSchoolId) : [];
   const economyId = travelClasses.find((c) => /eco/i.test(c.name))?.id ?? 'TC-ECO';
   const guestUpgrading = guestRequest && !!req.travelClassId && req.travelClassId !== economyId;
-  const employeeMembers = req.travellers.filter((t) => !(t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')));
-  const odaTravellers: [string, string][] = [
-    ['__ALL__', `All travellers (${employeeMembers.length}) — one line each`],
-    ...employeeMembers.map((t) => [t.employeeId, memberName(t)] as [string, string]),
-  ];
   // §4.5 hotel cap per city — the accommodation rate defaults to this (editable).
   const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
   const memberLabel = (key: string | null) => {
@@ -112,6 +103,18 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     return order.map((k) => by.get(k)!);
   })();
 
+  // Table-cell helpers — City/Country, From, To, Nights for a line (hotel / ODA / airfare / other).
+  const fmtD2 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : '—');
+  const cityCountryText = (e: (typeof req.expenses)[number]) => {
+    if (e.accommodation) { const c = EcsReference.city(e.accommodation.city); return c ? [c.name, EcsReference.country(c.countryCode)?.name].filter(Boolean).join(', ') : e.accommodation.city; }
+    if (e.oda) { const c = e.oda.city ? EcsReference.city(e.oda.city) : null; return [c?.name, EcsReference.country(e.oda.country)?.name ?? e.oda.country].filter(Boolean).join(', '); }
+    if (e.category === EXPENSE_CATEGORY.Airfare) return `${e.originCode ?? ''} → ${e.destCode ?? ''}`;
+    return '—';
+  };
+  const fromOf = (e: (typeof req.expenses)[number]) => e.accommodation?.checkIn ?? e.oda?.arrive ?? e.expectedDate ?? null;
+  const toOf = (e: (typeof req.expenses)[number]) => e.accommodation?.checkOut ?? e.oda?.depart ?? null;
+  const nightsOf = (e: (typeof req.expenses)[number]) => (e.accommodation ? e.accommodation.nights : e.oda ? e.oda.eligibleDays : null);
+
   return (
     <div>
       <Stepper id={id} active="estimates" requestNumber={req.requestNumber} status={req.status} />
@@ -120,7 +123,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
 
       {/* Existing lines */}
       <Card title={`Estimated Travel Costs (${req.expenses.length})`} className="mb-5">
-        {req.expenses.length === 0 ? <Empty>No estimate lines yet — add airfare, accommodation and ODA below.</Empty> : isGroup ? (
+        {req.expenses.length === 0 ? <Empty>No estimate lines yet — ODA and a hotel line per stop are added automatically once the trip has a destination and dates (set them on the Trip step). Add airfare from your quote below.</Empty> : isGroup ? (
           // §13.14 group: one collapsible row per cost item (expense type); expand to the
           // per-traveller breakdown. A shared/apportioned line shows one row per traveller (each
           // one's apportioned share), so the row count matches the travellers.
@@ -134,25 +137,38 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                     <span className="whitespace-nowrap">{fmtSgd(g.gross)}</span>
                   </summary>
                   <table className="w-full text-sm">
+                    <thead><tr>
+                      <th className="th pl-6">Traveller</th><th className="th">City / Country</th><th className="th">From</th><th className="th">To</th>
+                      <th className="th text-right">Nights</th><th className="th text-right">Rate</th><th className="th text-right">Total (SGD)</th>
+                      <th className="th">Policy</th><th className="th"></th>
+                    </tr></thead>
                     <tbody>
                       {g.lines.flatMap((e) =>
                         e.isShared
                           ? apportion(e).map((a, i) => (
                               <tr key={`${e.id}-${i}`} className="hover:bg-[var(--ecs-panel-2)]">
                                 <td className="td text-xs text-[var(--ecs-navy-2)] pl-6 whitespace-nowrap">▸ {a.name}</td>
-                                <td className="td text-xs text-[var(--ecs-muted)]">{i === 0 ? <><LineDetail e={e} /> <span className="pill-info ml-1">shared · apportioned</span></> : 'apportioned share'}</td>
+                                <td className="td text-xs">{i === 0 ? <>{cityCountryText(e)} <span className="pill-info ml-1">shared</span></> : <span className="text-[var(--ecs-muted)]">apportioned share</span>}</td>
+                                <td className="td text-xs whitespace-nowrap">{i === 0 ? fmtD2(fromOf(e)) : ''}</td>
+                                <td className="td text-xs whitespace-nowrap">{i === 0 ? fmtD2(toOf(e)) : ''}</td>
+                                <td className="td text-right text-xs">{i === 0 ? (nightsOf(e) ?? '—') : ''}</td>
+                                <td className="td text-right">{i === 0 ? <RateCell id={id} e={e} canEdit={canEdit} /> : ''}</td>
                                 <td className="td text-right whitespace-nowrap">{fmtSgd(a.amount)}</td>
                                 <td className="td">{i === 0 && (e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />)}</td>
-                                <td className="td text-right">{i === 0 && canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                                <td className="td text-right">{i === 0 && !e.autoDerived && canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
                               </tr>
                             ))
                           : [
                               <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
-                                <td className="td text-xs text-[var(--ecs-navy-2)] pl-6 whitespace-nowrap">▸ {attribution(e)}</td>
-                                <td className="td text-xs text-[var(--ecs-muted)]"><LineDetail e={e} /></td>
+                                <td className="td text-xs text-[var(--ecs-navy-2)] pl-6 whitespace-nowrap">▸ {attribution(e)}<AutoBadge e={e} /></td>
+                                <td className="td text-xs">{cityCountryText(e)}</td>
+                                <td className="td text-xs whitespace-nowrap">{fmtD2(fromOf(e))}</td>
+                                <td className="td text-xs whitespace-nowrap">{fmtD2(toOf(e))}</td>
+                                <td className="td text-right text-xs">{nightsOf(e) ?? '—'}</td>
+                                <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
                                 <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
                                 <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
-                                <td className="td text-right">{canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                                <td className="td text-right">{!e.autoDerived && canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
                               </tr>,
                             ],
                       )}
@@ -168,20 +184,28 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr><th className="th">Type</th><th className="th">Detail</th><th className="th text-right">Amount (SGD)</th><th className="th">Policy</th><th className="th"></th></tr></thead>
+              <thead><tr>
+                <th className="th">Type</th><th className="th">City / Country</th><th className="th">From</th><th className="th">To</th>
+                <th className="th text-right">Nights</th><th className="th text-right">Rate</th><th className="th text-right">Total (SGD)</th>
+                <th className="th">Policy</th><th className="th"></th>
+              </tr></thead>
               <tbody>
                 {req.expenses.map((e) => (
                   <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
-                    <td className="td font-medium">{EcsReference.expenseType(e.expenseTypeId)?.name}</td>
-                    <td className="td text-xs text-[var(--ecs-muted)]"><LineDetail e={e} /></td>
+                    <td className="td font-medium whitespace-nowrap">{EcsReference.expenseType(e.expenseTypeId)?.name}<AutoBadge e={e} /></td>
+                    <td className="td text-xs">{cityCountryText(e)}</td>
+                    <td className="td text-xs whitespace-nowrap">{fmtD2(fromOf(e))}</td>
+                    <td className="td text-xs whitespace-nowrap">{fmtD2(toOf(e))}</td>
+                    <td className="td text-right text-xs">{nightsOf(e) ?? '—'}</td>
+                    <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
                     <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
                     <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
-                    <td className="td text-right">{canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                    <td className="td text-right">{!e.autoDerived && canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="font-semibold"><td className="td" colSpan={2}>Gross estimate</td><td className="td text-right">{fmtSgd(summary.gross)}</td><td className="td" colSpan={2}></td></tr>
+                <tr className="font-semibold"><td className="td" colSpan={6}>Gross estimate</td><td className="td text-right">{fmtSgd(summary.gross)}</td><td className="td" colSpan={2}></td></tr>
               </tfoot>
             </table>
           </div>
@@ -189,9 +213,12 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
       </Card>
 
       {canEdit && <div className="grid md:grid-cols-2 gap-5">
-        {/* Airfare (TR-06) */}
-        <Card title="Add Airfare (TR-06)">
-          <form action={addAirfare.bind(null, id)} className="space-y-3">
+        {/* Airfare (TR-06) — manual: a quoted fare, not policy-derived. */}
+        <Card title="Airfare (TR-06)">
+          <p className="text-xs text-[var(--ecs-muted)] mb-2">Airfare is a <b>quoted fare</b> (not policy-derived) — add it from your quote.</p>
+          <details>
+            <summary className="btn-primary inline-flex items-center gap-1 cursor-pointer select-none list-none w-max [&::-webkit-details-marker]:hidden">＋ Add airfare</summary>
+          <form action={addAirfare.bind(null, id)} className="space-y-3 mt-3">
             <div className="grid grid-cols-2 gap-3">
               <Select name="originCode" label="Origin" defaultValue={tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
               <Select name="destCode" label="Destination" defaultValue={tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
@@ -225,13 +252,17 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 <p className="text-xs text-[var(--ecs-muted)] mt-1">A guest flies <strong>Economy</strong> by default. Selecting a higher proposed class requires a justification <em>and</em> a Provost from the host school&apos;s list; approval routes to the Provost before the host DOA.{guestUpgrading && !req.provostId && <span className="text-[var(--ecs-red)]"> This guest is above Economy — select a Provost.</span>}</p>
               </div>
             )}
-            <button className="btn-secondary w-full">Add airfare estimate</button>
+            <button className="btn-primary w-full">Add airfare estimate</button>
           </form>
+          </details>
         </Card>
 
-        {/* Accommodation (TR-07) */}
-        <Card title="Add Accommodation (TR-07)">
-          <form action={addAccommodation.bind(null, id)} className="space-y-3">
+        {/* Accommodation (TR-07) — auto per stop; a manual extra line can still be added. */}
+        <Card title="Accommodation (TR-07)">
+          <p className="text-xs text-[var(--ecs-muted)] mb-2">A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</p>
+          <details>
+            <summary className="btn-primary inline-flex items-center gap-1 cursor-pointer select-none list-none w-max [&::-webkit-details-marker]:hidden">＋ Add accommodation (extra)</summary>
+          <form action={addAccommodation.bind(null, id)} className="space-y-3 mt-3">
             <div className="grid grid-cols-2 gap-3">
               <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={tripDefaults.destCity} />
               <Input name="nights" label="Nights" type="number" defaultValue={tripDefaults.nights} />
@@ -244,8 +275,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             {isGroup && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
             {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
             <p className="text-xs text-[var(--ecs-muted)]">Basis: {settings.hotelEstimateBasis}. The rate <b>defaults to the selected city&apos;s cap</b> and is editable. Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
-            <button className="btn-secondary w-full">Add accommodation estimate</button>
+            <button className="btn-primary w-full">Add accommodation estimate</button>
           </form>
+          </details>
         </Card>
 
         {/* ODA (TR-08) — §8 not available to guests */}
@@ -254,29 +286,18 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             <p className="text-sm text-[var(--ecs-muted)]">ODA (overseas daily allowance) does not apply to a guest — it is not a guest entitlement and is settled centrally (§8). Guest cost is airfare and accommodation only.</p>
           </Card>
         ) : (
-        <Card title="Add ODA (TR-08)">
-          <form action={addOda.bind(null, id)} className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Select name="country" label="Country" defaultValue={tripDefaults.destCountry} opts={countries.filter((c) => c.code !== 'SG').map((c) => [c.code, c.name])} />
-              <Select name="city" label="City" defaultValue={tripDefaults.destCity} opts={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} />
-              <Input name="arrive" label="Arrival" type="date" defaultValue={tripDefaults.start} />
-              <Input name="depart" label="Departure" type="date" defaultValue={tripDefaults.end} />
-              <Input name="personalDays" label="Personal days" type="number" defaultValue="0" />
-              {isGroup && <Select name="travellerId" label="Traveller (individual)" opts={odaTravellers} />}
-            </div>
-            {odaPreview && odaPreview.dailyRate > 0 && (
-              <p className="text-xs text-[var(--ecs-navy-2)]">Auto-computed for this trip: <strong>{fmtSgd(odaPreview.sgdAmount)}</strong> ({odaPreview.eligibleDays} eligible days @ {fmtSgd(odaPreview.dailyRate)}/day over {tripDefaults.start} → {tripDefaults.end}). Adjust dates/personal days to recompute.</p>
-            )}
-            <p className="text-xs text-[var(--ecs-muted)]">Indicative estimate; excludes personal days. Rates — {odaRates.map((o) => `${o.countryCode} ${fmtSgd(o.dailyRateSgd)}/day`).join(', ')}.</p>
-            <button className="btn-secondary w-full">Add ODA estimate</button>
-          </form>
+        <Card title="ODA (TR-08) — automatic">
+          <p className="text-sm text-[var(--ecs-muted)]">ODA (overseas daily allowance) is <b>policy-based</b> and added <b>automatically</b> — <b>one line per city</b>, at that country&apos;s <b>full daily rate</b> × nights — for {isGroup ? 'each employee traveller' : 'the traveller'}, from the itinerary. It is <b>not edited here</b>; change the dates or stops on the <b>Trip</b> step to adjust it.</p>
+          <p className="text-xs text-[var(--ecs-muted)] mt-2">Rates — {odaRates.map((o) => `${o.countryCode} ${fmtSgd(o.dailyRateSgd)}/day`).join(', ')}.</p>
         </Card>
         )}
 
         {/* Incidental (only when expense scope = ALL) */}
         {allowIncidental && (
-          <Card title="Add Other / Conference Fee">
-            <form action={addOther.bind(null, id)} className="space-y-3">
+          <Card title="Other / Conference Fee">
+            <details>
+            <summary className="btn-primary inline-flex items-center gap-1 cursor-pointer select-none list-none w-max [&::-webkit-details-marker]:hidden">＋ Add other / conference fee</summary>
+            <form action={addOther.bind(null, id)} className="space-y-3 mt-3">
               <div className="grid grid-cols-2 gap-3">
                 <Select name="expenseTypeId" label="Expense type" opts={expenseTypes.filter((t) => !t.isMajorCost).map((t) => [t.id, t.name])} />
                 <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
@@ -285,8 +306,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 {isGroup && <Select name="travellerId" label="Traveller (if individual)" opts={gTravellers} />}
                 {isGroup && <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion</label>}
               </div>
-              <button className="btn-secondary w-full">Add incidental estimate</button>
+              <button className="btn-primary w-full">Add incidental estimate</button>
             </form>
+            </details>
           </Card>
         )}
       </div>}
@@ -302,21 +324,26 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   );
 }
 
-type ExpenseRow = {
-  category: string; originCode: string | null; destCode: string | null; proposedClassId: string | null;
-  accommodation: { city: string; nights: number; quotedNightly: number; capNightly: number } | null;
-  oda: { country: string; eligibleDays: number; dailyRate: number } | null;
-  notes: string | null;
-};
-function LineDetail({ e }: { e: ExpenseRow }) {
-  return (
-    <>
-      {e.category === EXPENSE_CATEGORY.Airfare && `${e.originCode ?? ''} → ${e.destCode ?? ''} · ${EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? ''}`}
-      {e.accommodation && `${EcsReference.city(e.accommodation.city)?.name ?? e.accommodation.city} · ${e.accommodation.nights}n · quoted ${fmtSgd(e.accommodation.quotedNightly)}/n vs cap ${fmtSgd(e.accommodation.capNightly)}/n`}
-      {e.oda && `${EcsReference.country(e.oda.country)?.name} · ${e.oda.eligibleDays} eligible days @ ${fmtSgd(e.oda.dailyRate)}/day`}
-      {(e.category === EXPENSE_CATEGORY.Other || e.category === EXPENSE_CATEGORY.Conference) ? (e.notes ?? '') : ''}
-    </>
-  );
+// Rate cell for an estimate line. An AUTO hotel line exposes an inline nightly-rate edit (the stay is
+// locked); every other line shows a static per-night / per-day rate, or "—" where rate doesn't apply.
+function RateCell({ id, e, canEdit }: { id: string; e: { id: string; autoDerived: boolean; accommodation: { quotedNightly: number } | null; oda: { dailyRate: number } | null }; canEdit: boolean }) {
+  if (e.accommodation) {
+    if (e.autoDerived && canEdit) {
+      return (
+        <form action={updateAccommodationRate.bind(null, id, e.id)} className="flex items-center gap-1 justify-end">
+          <span className="text-xs text-[var(--ecs-muted)]">$</span>
+          <input name="quotedNightly" type="number" step="any" defaultValue={e.accommodation.quotedNightly} aria-label="Nightly rate" className="field !w-16 !py-1 !px-1.5 text-xs text-right" />
+          <button className="btn-ghost text-xs" title="Update nightly rate">Set</button>
+        </form>
+      );
+    }
+    return <span className="text-xs whitespace-nowrap">{fmtSgd(e.accommodation.quotedNightly)}<span className="text-[var(--ecs-muted)]">/n</span></span>;
+  }
+  if (e.oda) return <span className="text-xs whitespace-nowrap">{fmtSgd(e.oda.dailyRate)}<span className="text-[var(--ecs-muted)]">/day</span></span>;
+  return <span className="text-xs text-[var(--ecs-muted)]">—</span>;
+}
+function AutoBadge({ e }: { e: { autoDerived: boolean } }) {
+  return e.autoDerived ? <span className="pill-info ml-1" title="Policy-derived from the itinerary — re-derived if you change the travel dates">Auto</span> : null;
 }
 function Input({ name, label, type = 'text', defaultValue }: { name: string; label: string; type?: string; defaultValue?: string }) {
   return <div><label className="label">{label}</label><input name={name} type={type} step="any" defaultValue={defaultValue} className="field" /></div>;
