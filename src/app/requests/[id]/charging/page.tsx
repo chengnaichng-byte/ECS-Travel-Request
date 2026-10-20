@@ -104,7 +104,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
 
   return (
     <div>
-      <Stepper id={id} active="charging" />
+      <Stepper id={id} active="charging" requestNumber={req.requestNumber} status={req.status} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s charging.</div>}
 
       <Card title={`Estimated Cost Lines (${req.expenses.length})`} className="mb-5">

@@ -27,7 +27,7 @@ export default async function PolicyStep({ params }: { params: Promise<{ id: str
 
   return (
     <div>
-      <Stepper id={id} active="policy" />
+      <Stepper id={id} active="policy" requestNumber={req.requestNumber} status={req.status} />
       <div className="flex justify-end mb-3">
         <form action={runPolicy.bind(null, id)}><button className="btn-secondary">Re-run checks</button></form>
       </div>

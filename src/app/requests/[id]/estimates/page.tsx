@@ -114,7 +114,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
 
   return (
     <div>
-      <Stepper id={id} active="estimates" />
+      <Stepper id={id} active="estimates" requestNumber={req.requestNumber} status={req.status} />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request's estimates.</div>}
 

@@ -49,10 +49,19 @@ const STEPS = [
   { key: 'review', label: 'Submit' },
 ];
 
-export function Stepper({ id, active }: { id: string; active: string }) {
+export function Stepper({ id, active, requestNumber, status }: { id: string; active: string; requestNumber?: string; status?: string }) {
   const activeIdx = STEPS.findIndex((s) => s.key === active);
+  const tag = status === 'Sent Back' ? 'Sent back' : status === 'Draft' ? 'Draft' : null;
   return (
-    <ol className="flex items-center gap-1 mb-5 flex-wrap">
+    <>
+      {requestNumber && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-sm text-[var(--ecs-muted)]">Travel Request</span>
+          <span className="font-mono font-semibold text-[var(--ecs-navy)]">{requestNumber}</span>
+          {tag && <span className="pill-warn">{tag}</span>}
+        </div>
+      )}
+      <ol className="flex items-center gap-1 mb-5 flex-wrap">
       {STEPS.map((s, i) => {
         const done = i < activeIdx;
         const isActive = i === activeIdx;
@@ -77,6 +86,7 @@ export function Stepper({ id, active }: { id: string; active: string }) {
         );
       })}
     </ol>
+    </>
   );
 }
 

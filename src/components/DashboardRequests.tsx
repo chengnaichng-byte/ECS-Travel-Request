@@ -7,9 +7,9 @@ import Link from 'next/link';
 import { StatusPill } from '@/components/StatusPill';
 
 export interface DashRow {
-  id: string; requestNumber: string; type: 'S' | 'E';
-  traveller: string; purpose: string; dest: string; dates: string; ntu: string;
-  isGroup: boolean; isGuest: boolean; exceptions: number; status: string; bookingStatus: string;
+  id: string; requestNumber: string; type: 'S' | 'E'; kind: 'IND' | 'GRP' | 'GST';
+  ba: string; traveller: string; requestor: string; purpose: string; dest: string; dates: string; ntu: string;
+  exceptions: number; status: string; bookingStatus: string;
 }
 
 export function DashboardRequests({ rows }: { rows: DashRow[] }) {
@@ -35,6 +35,10 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
   const TypePill = ({ t }: { t: 'S' | 'E' }) => t === 'E'
     ? <span className="pill-exc" title="Emergency — book first, raise/approve later (DD-23)">E</span>
     : <span className="pill-info" title="Standard">S</span>;
+  const KindPill = ({ k }: { k: 'IND' | 'GRP' | 'GST' }) => {
+    const label = k === 'GRP' ? 'Group booking' : k === 'GST' ? 'Guest booking' : 'Individual booking';
+    return <span className="pill-navy" title={label}>{k}</span>;
+  };
 
   return (
     <div>
@@ -64,13 +68,13 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
         )}
       </div>
 
-      <div className="text-xs text-[var(--ecs-muted)] mb-2">Showing {filtered.length} of {rows.length}. <span className="ml-2">Type: <span className="pill-info">S</span> Standard · <span className="pill-exc">E</span> Emergency (book first, raise later).</span></div>
+      <div className="text-xs text-[var(--ecs-muted)] mb-2">Showing {filtered.length} of {rows.length}. <span className="ml-2">Type: <span className="pill-info">S</span> Standard · <span className="pill-exc">E</span> Emergency · Booking: <span className="pill-navy">IND</span> Individual · <span className="pill-navy">GRP</span> Group · <span className="pill-navy">GST</span> Guest.</span></div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr>
-              <th className="th">Request</th><th className="th">Type</th><th className="th">Traveller</th><th className="th">Purpose</th>
+              <th className="th">Request</th><th className="th">Business area</th><th className="th">Traveller</th><th className="th">Requestor</th><th className="th">Purpose</th>
               <th className="th">Destination</th><th className="th">Travel dates</th>
               <th className="th text-right">Est. NTU cost</th><th className="th">Exc.</th>
               <th className="th">Status</th><th className="th">Booking</th>
@@ -82,12 +86,15 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
                 <td className="td font-medium">
                   {/* A draft / sent-back request opens straight into the editing wizard so the
                       traveller can continue editing; everything else opens the read view. */}
-                  <Link href={r.status === 'Draft' || r.status === 'Sent Back' ? `/requests/${r.id}/trip` : `/requests/${r.id}/details`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
-                  {(r.status === 'Draft' || r.status === 'Sent Back') && <span className="pill-warn ml-1">Edit</span>}
-                  {r.isGroup && <span className="pill-navy ml-1">Group</span>}
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Link href={r.status === 'Draft' || r.status === 'Sent Back' ? `/requests/${r.id}/trip` : `/requests/${r.id}/details`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
+                    <TypePill t={r.type} /><KindPill k={r.kind} />
+                    {(r.status === 'Draft' || r.status === 'Sent Back') && <span className="pill-warn">Edit</span>}
+                  </div>
                 </td>
-                <td className="td"><TypePill t={r.type} /></td>
-                <td className="td">{r.traveller}{r.isGuest && <span className="pill-info ml-1">Guest</span>}</td>
+                <td className="td">{r.ba}</td>
+                <td className="td">{r.traveller}</td>
+                <td className="td">{r.requestor}</td>
                 <td className="td">{r.purpose}</td>
                 <td className="td">{r.dest}</td>
                 <td className="td whitespace-nowrap">{r.dates}</td>
@@ -97,7 +104,7 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
                 <td className="td text-xs text-[var(--ecs-muted)]">{r.bookingStatus}</td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td className="td text-[var(--ecs-muted)]" colSpan={10}>No requests match the filters.</td></tr>}
+            {filtered.length === 0 && <tr><td className="td text-[var(--ecs-muted)]" colSpan={11}>No requests match the filters.</td></tr>}
           </tbody>
         </table>
       </div>

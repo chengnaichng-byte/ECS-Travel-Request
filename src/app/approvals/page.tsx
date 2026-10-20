@@ -96,8 +96,8 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr>
-                  <th className="th">Submitted</th><th className="th">Business area</th><th className="th">Request</th>
-                  <th className="th">Purpose</th><th className="th">Traveller(s)</th><th className="th">Requestor</th>
+                  <th className="th">Submitted</th><th className="th">Request</th><th className="th">Business area</th>
+                  <th className="th">Traveller(s)</th><th className="th">Requestor</th><th className="th">Purpose</th>
                   <th className="th">Destination</th><th className="th">Dates</th><th className="th text-right">Est. NTU (SGD)</th>
                   <th className="th">Exc.</th><th className="th">Status</th><th className="th"></th>
                 </tr></thead>
@@ -105,15 +105,17 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                   {mine.map((r) => {
                     const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
                     const ba = EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—';
+                    const kind = r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND';
+                    const kindTitle = kind === 'GRP' ? 'Group booking' : kind === 'GST' ? 'Guest booking' : 'Individual booking';
                     const exc = r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length;
                     return (
                       <tr key={r.id} className={rowCls(exc > 0)}>
                         <td className="td whitespace-nowrap">{fmtDate(r.versions.at(-1)?.createdAt ?? r.updatedAt)}</td>
+                        <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}</span></span></td>
                         <td className="td">{ba}</td>
-                        <td className="td font-medium">{r.requestNumber}{r.isEmergency && <span className="pill-exc ml-1" title="Emergency — book first, raise later (DD-23)">E</span>}</td>
-                        <td className="td">{EcsReference.travelPurpose(r.purposeId ?? '')?.name}</td>
                         <td className="td">{EcsIdentity.employee(r.travellerId)?.name}{r.isGroup ? ` +${r.travellers.length - 1}` : ''}</td>
                         <td className="td">{EcsIdentity.employee(r.requestorId)?.name}</td>
+                        <td className="td">{EcsReference.travelPurpose(r.purposeId ?? '')?.name}</td>
                         <td className="td">{EcsReference.city(r.destCity ?? '')?.name}</td>
                         <td className="td whitespace-nowrap">{fmtDate(r.startDate)} → {fmtDate(r.endDate)}</td>
                         <td className="td text-right">{fmtSgd(summary.ntuFunded)}</td>

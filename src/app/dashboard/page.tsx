@@ -4,7 +4,7 @@
 // (Emergency: book first, raise later).
 import Link from 'next/link';
 import { listRequests } from '@/modules/pretrip/queries';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
@@ -29,12 +29,14 @@ export default async function Dashboard() {
     const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
     return {
       id: r.id, requestNumber: r.requestNumber, type: r.isEmergency ? 'E' : 'S',
+      kind: r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND',
+      ba: EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—',
       traveller: travellerName(r),
+      requestor: EcsIdentity.employee(r.requestorId)?.name ?? '—',
       purpose: EcsReference.travelPurpose(r.purposeId ?? '')?.name ?? '—',
       dest: EcsReference.city(r.destCity ?? '')?.name ?? '—',
       dates: `${fmtDate(r.startDate)} → ${fmtDate(r.endDate)}`,
       ntu: fmtSgd(summary.ntuFunded),
-      isGroup: r.isGroup, isGuest: r.travellerType === 'GUEST',
       exceptions: r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length,
       status: r.status, bookingStatus: r.bookingStatus,
     };

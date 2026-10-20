@@ -94,7 +94,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
 
   return (
     <div>
-      <Stepper id={id} active="review" />
+      <Stepper id={id} active="review" requestNumber={req.requestNumber} status={req.status} />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
       {dupBlocking.length > 0 && (
         <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">
