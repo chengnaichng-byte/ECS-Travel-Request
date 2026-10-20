@@ -2,7 +2,7 @@
 // TR-01 dashboard request list with live filters (search · type · status). Type is shown as a
 // one-letter code — S (Standard) / E (Emergency: book first, raise later). Rows are passed in
 // already scoped to the viewer (their own requests, or all for an administrator).
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { StatusPill } from '@/components/StatusPill';
 
@@ -16,6 +16,10 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
   const [q, setQ] = useState('');
   const [type, setType] = useState<'ALL' | 'S' | 'E'>('ALL');
   const [status, setStatus] = useState('ALL');
+  // The filters only work once this client component has hydrated. Until then, disable them so a
+  // user can't change an inert control and think it is broken (noticeable only on a slow first load).
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
 
   const statuses = useMemo(() => [...new Set(rows.map((r) => r.status))].sort(), [rows]);
   const filtered = useMemo(() => {
@@ -34,15 +38,15 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
 
   return (
     <div>
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 mb-3">
+      {/* Filters — disabled until the component is interactive (hydrated). */}
+      <div className={`flex flex-wrap items-end gap-3 mb-3 ${ready ? '' : 'opacity-60'}`}>
         <div className="flex-1 min-w-[12rem]">
           <label className="label">Search</label>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Request no., traveller, destination, purpose…" className="field" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} disabled={!ready} placeholder={ready ? 'Request no., traveller, destination, purpose…' : 'Loading filters…'} className="field disabled:cursor-not-allowed" />
         </div>
         <div>
           <label className="label">Type</label>
-          <select value={type} onChange={(e) => setType(e.target.value as 'ALL' | 'S' | 'E')} className="field w-40">
+          <select value={type} onChange={(e) => setType(e.target.value as 'ALL' | 'S' | 'E')} disabled={!ready} className="field w-40 disabled:cursor-not-allowed">
             <option value="ALL">All types</option>
             <option value="S">S · Standard</option>
             <option value="E">E · Emergency</option>
@@ -50,12 +54,12 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
         </div>
         <div>
           <label className="label">Status</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className="field w-56">
+          <select value={status} onChange={(e) => setStatus(e.target.value)} disabled={!ready} className="field w-56 disabled:cursor-not-allowed">
             <option value="ALL">All statuses</option>
             {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-        {(q || type !== 'ALL' || status !== 'ALL') && (
+        {ready && (q || type !== 'ALL' || status !== 'ALL') && (
           <button type="button" onClick={() => { setQ(''); setType('ALL'); setStatus('ALL'); }} className="btn-ghost text-xs">Clear</button>
         )}
       </div>
