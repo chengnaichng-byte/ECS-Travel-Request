@@ -43,11 +43,11 @@ export function CostItemsTable({ rows, group, summaryRows = [] }: { rows: CostRo
                 <tr className="bg-[var(--ecs-panel-2)]">
                   <td className="td"></td>
                   <td className="td" colSpan={8}>
-                    <div className="grid md:grid-cols-2 gap-3 py-1">
+                    <div className="grid gap-3 py-1">
                       {r.breakdown.map((b, j) => (
                         <div key={j} className="bg-white border border-[var(--ecs-border)] rounded p-3">
                           <div className="text-xs font-semibold text-[var(--ecs-navy)] mb-1">{b.heading}</div>
-                          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-2">
+                          <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 text-xs mb-2">
                             {b.kv.map(([k, v], m) => (
                               <div key={m} className="flex justify-between gap-2"><dt className="text-[var(--ecs-muted)]">{k}</dt><dd className="text-right whitespace-nowrap">{v}</dd></div>
                             ))}
