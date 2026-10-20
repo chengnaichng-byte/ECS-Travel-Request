@@ -50,17 +50,33 @@ export function isApproverPersona(persona: string): boolean {
 export function creatableTravellerIds(personaId: string): Set<string> {
   const persona = EcsIdentity.employee(personaId);
   const set = new Set<string>();
-  if (persona?.isTraveller) set.add(persona.id);
+  if (!persona) return set;
+  // A traveller may raise for themselves; a delegate for their principals; a PA/Requestor for
+  // travellers in their department.
+  if (persona.isTraveller) set.add(persona.id);
   EcsDelegation.canCreateTravelRequestFor(personaId).forEach((id) => set.add(id));
-  if (persona?.roles.includes(ROLE.TravelRequestor)) {
+  if (persona.roles.includes(ROLE.TravelRequestor)) {
     employees.filter((e) => e.isTraveller && e.departmentId === persona.departmentId).forEach((e) => set.add(e.id));
   }
-  if (set.size === 0) employees.filter((e) => e.isTraveller).forEach((e) => set.add(e.id));
+  // §8.3 the Travel Administrator raises agent-assisted requests on behalf of any traveller.
+  if (persona.roles.includes(ROLE.TravelAdmin)) {
+    employees.filter((e) => e.isTraveller).forEach((e) => set.add(e.id));
+  }
+  // Separation of duties (DD-24): there is deliberately NO catch-all fallback. A persona with no
+  // creation remit — an approver-only role (DOA / Research DOA / Exception), System Administrator or
+  // Finance viewer — gets an empty set and cannot originate a request it might later approve.
   return set;
 }
 
 export function canCreateFor(personaId: string, travellerId: string): boolean {
   return creatableTravellerIds(personaId).has(travellerId);
+}
+
+/** Separation of duties: may this persona originate a travel request at all? True only for a
+ * traveller, a delegate, a PA/Requestor or the Travel Administrator — never an approver-only
+ * persona (so a DOA cannot raise, then approve, its own request). */
+export function canCreateTravelRequest(personaId: string): boolean {
+  return creatableTravellerIds(personaId).size > 0;
 }
 
 /** May the persona EDIT this request's draft (trip, estimates, charging, submit)? The

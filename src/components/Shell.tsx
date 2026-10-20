@@ -7,6 +7,7 @@ import { PersonaSwitcher } from './PersonaSwitcher';
 import { NavLinks, type NavItem } from './NavLinks';
 import { currentPersona, currentRoleId } from '@/shared/session';
 import { PERSONA_ROLES, peopleByRole, defaultRoleFor } from '@/data/personaRoles';
+import { canCreateTravelRequest } from '@/modules/pretrip/guards';
 import { ROLE } from '@/shared/enums';
 
 const NAV: NavItem[] = [
@@ -32,7 +33,10 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   // Separation of duties: the RO / DOA Dashboard is only for personas that hold an approver role.
   // A Travel/System Administrator (not also an approver) does not see the approval surface.
   const isApprover = ([ROLE.RO, ROLE.DOA, ROLE.ResearchDOA, ROLE.ExceptionApprover] as string[]).some((r) => persona.roles.includes(r as never));
-  const nav = isApprover ? NAV : NAV.filter((n) => n.href !== '/approvals');
+  // Separation of duties (DD-24): only a persona with a creation remit (traveller / delegate / PA /
+  // Travel Administrator) sees "Create Travel Request"; an approver-only persona (e.g. a DOA) does not.
+  const canCreate = canCreateTravelRequest(persona.id);
+  const nav = NAV.filter((n) => (n.href !== '/approvals' || isApprover) && (n.href !== '/requests/new' || canCreate));
   const initials = persona.name.split(' ').map((w) => w[0]).slice(-2).join('');
 
   return (

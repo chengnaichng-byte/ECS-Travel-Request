@@ -39,6 +39,31 @@ export function isResearchRequest(req: FullRequest): boolean {
   return req.allocations.some((a) => EcsCharging.code(a.chargingCode)?.isResearch) || req.isResearch;
 }
 
+/** §13.5 self-approval set — the people who must NOT appear as an approver on this request: every
+ *  traveller on it AND the requestor who raised it. A dual-role persona (e.g. an RO or DOA who is
+ *  also the traveller, or a delegate who raised the request and also holds an approver role) is
+ *  therefore routed past their own step to an alternate approver. (Approver-only personas are
+ *  already blocked from originating a request at all — see guards.canCreateTravelRequest.) */
+export function selfApprovalSet(req: FullRequest): Set<string> {
+  const ids = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
+  return new Set<string>([...ids, req.requestorId]);
+}
+
+/** Walk up the reporting line from the traveller to the first Reporting Officer who is not in the
+ *  self-approval set. Returns null if the chain is exhausted (no eligible RO). */
+function resolveRoStep(travellerId: string, excluded: Set<string>): { id: string | null; escalated: boolean } {
+  let current = EcsIdentity.employee(travellerId);
+  let escalated = false;
+  for (let i = 0; i < 12 && current?.reportingOfficerId; i++) {
+    const ro = EcsIdentity.employee(current.reportingOfficerId);
+    if (!ro) break;
+    if (!excluded.has(ro.id)) return { id: ro.id, escalated };
+    current = ro;
+    escalated = true;
+  }
+  return { id: null, escalated };
+}
+
 /** §13.14 Eligible DOA candidates for a request — the highest-charging department's DOA
  *  line (research line for research routes) from the amount-band tier upward (the required
  *  tier plus any higher authority), excluding travellers. The DOA "system" may return more
@@ -47,19 +72,20 @@ export function doaCandidatesFor(req: FullRequest, opts: { approvalAmount: numbe
   const dept = EcsIdentity.department(highestChargingDept(req));
   const research = isResearchRequest(req) && !opts.sameRouteResearch;
   const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
-  const travellerIds = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
+  const excluded = selfApprovalSet(req);
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
   const tier = Math.min(band.doaTierIndex, Math.max(line.length - 1, 0));
-  return line.slice(tier).filter((eid) => !travellerIds.includes(eid)).map((eid, i) => ({
+  return line.slice(tier).filter((eid) => !excluded.has(eid)).map((eid, i) => ({
     id: eid, name: EcsIdentity.employee(eid)?.name ?? eid,
     note: i === 0 ? band.label : 'Higher authority (can approve this amount)',
   }));
 }
 
-/** Walk a DOA line and pick the tier, escalating past any holder who is a traveller. */
-function pickDoa(line: string[], tierIndex: number, travellerIds: string[]): { id: string | null; note?: string } {
+/** Walk a DOA line and pick the tier, escalating past any holder in the self-approval set
+ *  (a traveller on, or the requestor of, this request). */
+function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id: string | null; note?: string } {
   let idx = Math.min(tierIndex, line.length - 1);
-  while (idx < line.length && travellerIds.includes(line[idx])) idx++; // §13.5 self-approval prevention
+  while (idx < line.length && excluded.has(line[idx])) idx++; // §13.5 self-approval prevention
   if (idx >= line.length) return { id: line[line.length - 1] ?? null, note: 'Escalated — no higher DOA tier available' };
   const note = idx !== Math.min(tierIndex, line.length - 1) ? 'Escalated to next-higher DOA (self-approval prevention)' : undefined;
   return { id: line[idx], note };
@@ -70,7 +96,10 @@ export function buildRoute(
   opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; emergency?: { authoriserId: string | null; retrospective: boolean } },
 ): RouteStep[] {
   const steps: RouteStep[] = [];
-  const travellerIds = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
+  // §13.5 no one may approve a request they are travelling on OR raised — every step below routes
+  // past anyone in this set (escalating up the line where a single-holder step would otherwise land
+  // on them). Approver-only personas can't reach here at all (guards.canCreateTravelRequest).
+  const excluded = selfApprovalSet(req);
   const deptId = highestChargingDept(req);
   const dept = EcsIdentity.department(deptId);
   const research = isResearchRequest(req) && !opts.sameRouteResearch;
@@ -90,25 +119,25 @@ export function buildRoute(
   // the traveller — any AD person) → (Exception Approver when configured) → DOA. No RO step.
   // The Additional Approver is only inserted if one was selected and is not the traveller
   // (self-approval guard, §48).
-  if (req.additionalApproverId && !travellerIds.includes(req.additionalApproverId)) {
+  if (req.additionalApproverId && !excluded.has(req.additionalApproverId)) {
     steps.push({ seq: seq++, roleType: APPROVER_ROLE.AdditionalApprover, approverId: req.additionalApproverId, note: 'Additional approver added by requestor' });
   }
 
   // RO decision point (configurable — §51 workflow configuration): ALWAYS, INDIVIDUAL_ONLY
-  // (present for individual requests, dropped for a group request), or NEVER. Resolved as
-  // the traveller's Reporting Officer; skipped when the RO is a traveller on the request
-  // (self-approval guard) or cannot be resolved.
+  // (present for individual requests, dropped for a group request), or NEVER. Resolved as the
+  // traveller's Reporting Officer; when that RO is the traveller or the requestor, it escalates up
+  // the reporting line to the next eligible officer (self-approval re-route, §13.5).
   const roNeeded = opts.roRequirement === 'ALWAYS' || (opts.roRequirement === 'INDIVIDUAL_ONLY' && !req.isGroup);
   if (roNeeded) {
-    const ro = EcsIdentity.reportingOfficer(req.travellerId);
-    if (ro && !travellerIds.includes(ro.id)) {
-      steps.push({ seq: seq++, roleType: APPROVER_ROLE.RO, approverId: ro.id, note: 'Reporting Officer' });
+    const ro = resolveRoStep(req.travellerId, excluded);
+    if (ro.id) {
+      steps.push({ seq: seq++, roleType: APPROVER_ROLE.RO, approverId: ro.id, note: ro.escalated ? 'Reporting Officer (escalated — self-approval prevention)' : 'Reporting Officer' });
     }
   }
 
   // Funding Owner for cross-charge requiring owner approval (§6.2).
   const crossCharge = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.crossCharge && c.fundingOwnerId);
-  if (crossCharge?.fundingOwnerId && !travellerIds.includes(crossCharge.fundingOwnerId)) {
+  if (crossCharge?.fundingOwnerId && !excluded.has(crossCharge.fundingOwnerId)) {
     steps.push({ seq: seq++, roleType: APPROVER_ROLE.FundingOwner, approverId: crossCharge.fundingOwnerId, note: 'Cross-charge funding owner concurrence' });
   }
 
@@ -127,9 +156,11 @@ export function buildRoute(
       if (baAmount <= opts.crossBaThresholdSgd) continue;
       const code = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.businessArea === ba);
       const baDept = code?.departmentId ? EcsIdentity.department(code.departmentId) : undefined;
-      const approver = code?.fundingOwnerId ?? baDept?.doaLine?.[0] ?? null;
-      // Skip when this approver is a traveller or already on the route (e.g. a cross-charge owner).
-      if (approver && !travellerIds.includes(approver) && !steps.some((s) => s.approverId === approver)) {
+      // Candidate concurring approver: the BA's funding owner, else its DOA line. Pick the first who
+      // is not in the self-approval set and not already on the route (§13.5 re-route).
+      const candidates = [code?.fundingOwnerId, ...(baDept?.doaLine ?? [])].filter(Boolean) as string[];
+      const approver = candidates.find((a) => !excluded.has(a) && !steps.some((s) => s.approverId === a)) ?? null;
+      if (approver) {
         steps.push({ seq: seq++, roleType: APPROVER_ROLE.FundingOwner, approverId: approver, note: `Cross-BA concurrence — ${ba} share SGD ${baAmount.toFixed(0)} over SGD ${opts.crossBaThresholdSgd} threshold` });
       }
     }
@@ -138,26 +169,27 @@ export function buildRoute(
   // Exception approver inserted before DOA when a policy exception exists AND the
   // exception-routing setting is on; otherwise the exception is surfaced to the DOA (§26).
   if (opts.hasException && opts.exceptionApproverRequired) {
-    const exc = EcsRoles.employeesWithRole(ROLE.ExceptionApprover)[0];
+    // Pick the first exception approver who is not the traveller/requestor (§13.5 re-route).
+    const exc = EcsRoles.employeesWithRole(ROLE.ExceptionApprover).find((e) => !excluded.has(e.id));
     if (exc) steps.push({ seq: seq++, roleType: APPROVER_ROLE.Exception, approverId: exc.id, note: 'Policy exception review' });
   }
 
   // §8 / DD-25 Guest travel-class upgrade — the selected Provost authorises the upgrade ahead of
   // the host DOA (the DOA still owns the cost). Inserted only for a guest upgrade with a chosen
   // Provost; the policy hard-stop guarantees a Provost is selected before submission.
-  if (opts.guestUpgradeProvostId && !travellerIds.includes(opts.guestUpgradeProvostId)) {
+  if (opts.guestUpgradeProvostId && !excluded.has(opts.guestUpgradeProvostId)) {
     steps.push({ seq: seq++, roleType: APPROVER_ROLE.Provost, approverId: opts.guestUpgradeProvostId, note: 'Guest travel-class upgrade — Provost authorisation (§8 / DD-25)' });
   }
 
   // DOA step — tier from amount band, line depends on research route.
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
   const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
-  // §13.14 use the traveller's selected DOA when set (and not a traveller); else auto-pick the tier.
+  // §13.14 use the traveller's selected DOA when set (and not the traveller/requestor); else auto-pick.
   let doaId: string | null; let doaNote: string;
-  if (req.selectedDoaId && !travellerIds.includes(req.selectedDoaId)) {
+  if (req.selectedDoaId && !excluded.has(req.selectedDoaId)) {
     doaId = req.selectedDoaId; doaNote = `${band.label} · traveller-selected`;
   } else {
-    const d = pickDoa(line, band.doaTierIndex, travellerIds); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · ');
+    const d = pickDoa(line, band.doaTierIndex, excluded); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · ');
   }
   steps.push({ seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: doaId, note: doaNote });
 

@@ -34,7 +34,7 @@ import { resolveChargingRows } from './chargingRollup';
 import { tmcProvider } from '@/data/tmcProviders';
 import { getContractSettings, tmcEnabledSet, getGuardSettings, evaluateFlow } from './integration';
 import { CONTRACT_VERSION } from '@/config/integrationContracts';
-import { actionAllowed, canActOnStep, canCreateFor, canEditRequest } from './guards';
+import { actionAllowed, canActOnStep, canCreateFor, canCreateTravelRequest, canEditRequest } from './guards';
 
 const yr = () => new Date().getFullYear(); // §13.3 numbering year derived from the clock
 
@@ -180,6 +180,8 @@ export async function createDraft(fd: FormData) {
 export async function createGuestDraft(fd: FormData) {
   const requestorId = await currentPersonaId();
   const host = EcsIdentity.employee(requestorId);
+  // §13.13 / DD-24 separation of duties — an approver-only persona may not originate a request.
+  if (!canCreateTravelRequest(requestorId)) return;
   const guestName = str(fd, 'guestName');
   if (!guestName) return; // a guest must at least be named
   const requestNumber = await nextRequestNumber(yr());
@@ -1352,6 +1354,8 @@ export async function copyToNewRequest(id: string) {
 /** Create a group draft: a requestor (who may not be a traveller) names travellers. */
 export async function createGroupDraft(fd: FormData) {
   const requestorId = await currentPersonaId();
+  // §13.13 / DD-24 separation of duties — an approver-only persona may not originate a request.
+  if (!canCreateTravelRequest(requestorId)) redirect(`/requests/new?error=${encodeURIComponent('You do not have authority to raise a travel request.')}`);
   const travellerIds = (fd.getAll('travellerIds') as string[]).map((s) => s.trim()).filter(Boolean);
   // §8 a group may also include guest members (non-employees), captured inline.
   let guests: { name: string; email?: string; org?: string }[] = [];
