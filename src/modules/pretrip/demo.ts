@@ -262,7 +262,27 @@ export async function seedDemoScenarios() {
   // S18 — DD-23 emergency book-first lane: urgent agent-assisted trip to Seoul.
   await buildEmergencyS18();
 
+  // S19 — a DRAFT left unsubmitted, so the traveller can retrieve it from the dashboard and
+  // continue editing (demonstrates the draft → edit → submit flow).
+  await buildDraftS19();
+
   revalidatePath('/dashboard');
+}
+
+/** S19 — a draft travel request that is NOT submitted, so it sits in the traveller's
+ *  "Drafts & sent back" bucket and can be reopened and edited. */
+async function buildDraftS19() {
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'OSA', destAirport: 'KIX', start: '2026-12-14', end: '2026-12-18',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1400, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'OSA', nights: 4, quotedNightly: 300 },
+    oda: { country: 'JP', city: 'OSA', arrive: '2026-12-14', depart: '2026-12-18' },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { description: 'Draft — Osaka research workshop (continue editing)' } });
+  // Deliberately NOT submitted — stays in Draft so the traveller can retrieve and edit it.
 }
 
 /** S18 — §13.x / DD-23 emergency (book-first) lane: an urgent agent-assisted trip to Seoul,

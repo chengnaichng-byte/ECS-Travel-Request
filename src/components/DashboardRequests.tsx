@@ -76,7 +76,10 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
             {filtered.map((r) => (
               <tr key={r.id} className={r.exceptions > 0 ? 'bg-[#fff8ec] hover:bg-[#ffeedd]' : 'hover:bg-[var(--ecs-panel-2)]'}>
                 <td className="td font-medium">
-                  <Link href={`/requests/${r.id}/details`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
+                  {/* A draft / sent-back request opens straight into the editing wizard so the
+                      traveller can continue editing; everything else opens the read view. */}
+                  <Link href={r.status === 'Draft' || r.status === 'Sent Back' ? `/requests/${r.id}/trip` : `/requests/${r.id}/details`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
+                  {(r.status === 'Draft' || r.status === 'Sent Back') && <span className="pill-warn ml-1">Edit</span>}
                   {r.isGroup && <span className="pill-navy ml-1">Group</span>}
                 </td>
                 <td className="td"><TypePill t={r.type} /></td>
