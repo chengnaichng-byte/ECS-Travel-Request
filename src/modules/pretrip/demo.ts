@@ -335,6 +335,7 @@ export async function seedDemoScenarios() {
   // S19 — a DRAFT left unsubmitted, so the traveller can retrieve it from the dashboard and
   // continue editing (demonstrates the draft → edit → submit flow).
   await buildDraftS19();
+  await buildEmergencyEligibleDraftS27();
 
   // S20–S23 — additional requests left at a PENDING-approval stage, across trip types, so the
   // approver queue shows a group, a guest, a multi-city and a one-way request awaiting approval.
@@ -536,6 +537,25 @@ async function buildDraftS19() {
   });
   await prisma.travelRequest.update({ where: { id }, data: { description: 'Draft — Osaka research workshop (continue editing)' } });
   // Deliberately NOT submitted — stays in Draft so the traveller can retrieve and edit it.
+}
+
+/** S27 — a complete DRAFT that qualifies for the emergency lane, parked at the submit stage (not
+ *  submitted). The booking method is TMC agent-assisted and departure is within the lead-time
+ *  window, so the Review & Submit step offers the emergency lane (named authoriser + justification +
+ *  authorising e-mail). Open it from the dashboard and go to Submit to see the lane available. */
+async function buildEmergencyEligibleDraftS27() {
+  const id = await buildDraft({
+    requestorId: 'E-TRAV4', travellerId: 'E-TRAV4', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: '2026-10-28', end: '2026-11-01',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+    airfare: { amount: 1250, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'SEL', nights: 4, quotedNightly: 240 },
+    oda: { country: 'KR', city: 'SEL', arrive: '2026-10-28', depart: '2026-11-01' },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  // Agent-assisted booking + departure inside the lead-time window ⇒ the emergency lane is AVAILABLE
+  // at Submit. Left in Draft (not submitted) so it sits at the submit stage.
+  await prisma.travelRequest.update({ where: { id }, data: { bookingArrangement: 'AUTO', description: 'Draft — urgent Seoul trip, agent-assisted (emergency lane available; not yet submitted, S27)' } });
 }
 
 /** S18 — §13.x / DD-23 emergency (book-first) lane: an urgent agent-assisted trip to Seoul,
