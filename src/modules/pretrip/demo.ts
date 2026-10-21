@@ -8,7 +8,7 @@ import { loadRequest, type FullRequest } from './queries';
 import { getSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber, nextClaimNumber } from './numbering';
 import { computeAccommodation, computeOda, computeOdaTiered, computeSummary } from './pricing';
-import { evaluatePolicies, hasException } from './policy';
+import { evaluatePolicies, hasException, hasHardStop } from './policy';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
 import { applyMaterialAmendment } from './amend';
@@ -165,6 +165,12 @@ async function submit(id: string): Promise<FullRequest> {
   let req = await loadRequest(id);
   if (!req) throw new Error('missing');
   const checks = evaluatePolicies(req, settings.approvalAmountBasis);
+  // Mirror the live submit guard: a scenario must not submit with an unresolved hard stop (e.g. an
+  // above-cap hotel or class upgrade with no justification) — fail loudly so bad seed data is caught.
+  if (hasHardStop(checks)) {
+    const blockers = checks.filter((c) => c.outcome === POLICY_OUTCOME.HardStop).map((c) => `${c.code} — ${c.detail}`);
+    throw new Error(`Seed scenario ${req.requestNumber} cannot submit — unresolved hard stop(s): ${blockers.join('; ')}`);
+  }
   await prisma.policyCheck.deleteMany({ where: { requestId: id } });
   for (const c of checks) await prisma.policyCheck.create({ data: { requestId: id, code: c.code, label: c.label, outcome: c.outcome, detail: c.detail, travellerId: c.travellerId ?? null } });
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
@@ -542,7 +548,7 @@ async function buildEmergencyS18() {
     destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: '2026-10-26', end: '2026-10-29',
     travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
     airfare: { amount: 1600, currency: 'SGD', classId: 'TC-ECO' },
-    hotel: { city: 'SEL', nights: 3, quotedNightly: 280 },
+    hotel: { city: 'SEL', nights: 3, quotedNightly: 280, note: 'Only hotel with same-day availability next to the funder meeting venue; cheaper options were fully booked at short notice (emergency booking).' },
     oda: { country: 'KR', city: 'SEL', arrive: '2026-10-26', depart: '2026-10-29' },
     charging: [{ code: 'CC-1000', pct: 100 }],
   });
