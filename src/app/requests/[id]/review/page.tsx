@@ -15,6 +15,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { isHighRisk } from '@/modules/pretrip/risk';
 import { findDuplicateRequests } from '@/modules/pretrip/duplicates';
+import { bookingsForAuthorisation, legPnrMap } from '@/modules/pretrip/tmcRetrieval';
 import { bookingSummaryText, isTmcArrangement } from '@/modules/pretrip/booking';
 import { CostItems } from '@/components/ReviewSections';
 import { ReviewRoute } from '@/components/ReviewRoute';
@@ -91,6 +92,10 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   const showItinerary = req.tripType === 'MULTI_CITY' || sharedLegs.some((l) => l.isPersonal);
   const routeText = sharedLegs.length ? [sharedLegs[0].originCode, ...sharedLegs.map((l) => l.destCode)].join(' → ') : '';
+  // DD-17 PNR provenance on the TR: the TA-keyed booking set (all PNRs under this authorisation)
+  // plus the per-leg PNR mapping, shown once the request is booked.
+  const bookingSet = bookingsForAuthorisation(req);
+  const legPnr = legPnrMap(req);
 
   return (
     <div>
@@ -154,6 +159,24 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
                       {l.departDate ? ` · ${fmtDate(l.departDate)}` : ''}
                       {l.nights ? ` · ${l.nights} night${l.nights > 1 ? 's' : ''}` : ''}
                       {l.isPersonal ? <span className="ml-1 pill-navy">Personal</span> : ''}
+                      {legPnr[l.id] ? <span className="ml-1 pill-info" title="Ticketed on this PNR">{legPnr[l.id]}</span> : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {/* DD-17 Booking reference(s) — TR-level provenance (one TR → N PNRs). */}
+            {bookingSet.pnrCount > 0 && (
+              <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
+                <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Booking reference{bookingSet.pnrCount > 1 ? `s · ${bookingSet.pnrCount} PNRs` : ''}</div>
+                <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
+                  {bookingSet.bookings.map((b, i) => (
+                    <li key={i}>
+                      <span className="font-mono text-[var(--ecs-navy)]">{b.pnr ?? '—'}</span>
+                      {b.ticketNo ? ` · ${b.ticketNo}` : ''}
+                      {req.isGroup && b.travellerId ? ` · ${EcsIdentity.employee(b.travellerId)?.name ?? b.travellerId}` : ''}
+                      {` · ${b.status}`}
+                      {b.totalSgd ? ` · ${fmtSgd(b.totalSgd)}` : ''}
                     </li>
                   ))}
                 </ul>
