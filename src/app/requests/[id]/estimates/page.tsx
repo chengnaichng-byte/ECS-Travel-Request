@@ -12,6 +12,7 @@ import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest } from '@/modules/pretrip/traveller';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
+import { AddEstimatePanel } from '@/components/AddEstimatePanel';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
@@ -216,9 +217,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         {/* Airfare (TR-06) — manual: a quoted fare, not policy-derived. */}
         <Card title="Airfare (TR-06)">
           <p className="text-xs text-[var(--ecs-muted)] mb-2">Airfare is a <b>quoted fare</b> (not policy-derived) — add it from your quote.</p>
-          <details>
-            <summary className="btn-primary inline-flex items-center gap-1 cursor-pointer select-none list-none w-max [&::-webkit-details-marker]:hidden">＋ Add airfare</summary>
-          <form action={addAirfare.bind(null, id)} className="space-y-3 mt-3">
+          <AddEstimatePanel action={addAirfare.bind(null, id)} label="Add airfare">
             <div className="grid grid-cols-2 gap-3">
               <Select name="originCode" label="Origin" defaultValue={tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
               <Select name="destCode" label="Destination" defaultValue={tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
@@ -253,16 +252,13 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               </div>
             )}
             <button className="btn-primary w-full">Add airfare estimate</button>
-          </form>
-          </details>
+          </AddEstimatePanel>
         </Card>
 
         {/* Accommodation (TR-07) — auto per stop; a manual extra line can still be added. */}
         <Card title="Accommodation (TR-07)">
           <p className="text-xs text-[var(--ecs-muted)] mb-2">A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</p>
-          <details>
-            <summary className="btn-primary inline-flex items-center gap-1 cursor-pointer select-none list-none w-max [&::-webkit-details-marker]:hidden">＋ Add accommodation (extra)</summary>
-          <form action={addAccommodation.bind(null, id)} className="space-y-3 mt-3">
+          <AddEstimatePanel action={addAccommodation.bind(null, id)} label="Add accommodation (extra)">
             <div className="grid grid-cols-2 gap-3">
               <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={tripDefaults.destCity} />
               <Input name="nights" label="Nights" type="number" defaultValue={tripDefaults.nights} />
@@ -276,8 +272,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
             <p className="text-xs text-[var(--ecs-muted)]">The rate <b>defaults to the selected city&apos;s cap</b> and is editable; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
             <button className="btn-primary w-full">Add accommodation estimate</button>
-          </form>
-          </details>
+          </AddEstimatePanel>
         </Card>
 
         {/* ODA (TR-08) — §8 not available to guests */}
@@ -295,9 +290,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         {/* Incidental (only when expense scope = ALL) */}
         {allowIncidental && (
           <Card title="Other / Conference Fee">
-            <details>
-            <summary className="btn-primary inline-flex items-center gap-1 cursor-pointer select-none list-none w-max [&::-webkit-details-marker]:hidden">＋ Add other / conference fee</summary>
-            <form action={addOther.bind(null, id)} className="space-y-3 mt-3">
+            <AddEstimatePanel action={addOther.bind(null, id)} label="Add other / conference fee">
               <div className="grid grid-cols-2 gap-3">
                 <Select name="expenseTypeId" label="Expense type" opts={expenseTypes.filter((t) => !t.isMajorCost).map((t) => [t.id, t.name])} />
                 <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
@@ -307,8 +300,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 {isGroup && <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion</label>}
               </div>
               <button className="btn-primary w-full">Add incidental estimate</button>
-            </form>
-            </details>
+            </AddEstimatePanel>
           </Card>
         )}
       </div>}
