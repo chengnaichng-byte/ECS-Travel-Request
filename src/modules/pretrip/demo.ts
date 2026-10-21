@@ -164,7 +164,11 @@ async function submit(id: string): Promise<FullRequest> {
   const settings = await getSettings();
   let req = await loadRequest(id);
   if (!req) throw new Error('missing');
-  const checks = evaluatePolicies(req, settings.approvalAmountBasis);
+  // Seed fixtures are historical: several scenarios are completed trips dated in the past (so they
+  // can be Approved/Booked/Claimed for the demo). The DATE_PAST rule (a NEW request can't be raised
+  // for a trip that already started) does not apply to these fixtures, so it is exempt here — the
+  // live submit (submitRequest / policy.ts) still enforces it in full.
+  const checks = evaluatePolicies(req, settings.approvalAmountBasis).filter((c) => c.code !== 'DATE_PAST');
   // Mirror the live submit guard: a scenario must not submit with an unresolved hard stop (e.g. an
   // above-cap hotel or class upgrade with no justification) — fail loudly so bad seed data is caught.
   if (hasHardStop(checks)) {
@@ -346,6 +350,7 @@ export async function seedDemoScenarios() {
   await buildLongTermPendingS24();
   await buildGuestSeoulPendingS25();
   await buildGuestLondonBookedS26();
+  await buildMultiCityBookedS28();
 
   // Normalise every seeded request's estimate lines to the latest design: hotel stay dates filled
   // from the itinerary (so "Stay dates" isn't "— → —"), and ODA rebuilt as one full-rate line per
@@ -482,6 +487,53 @@ async function buildMultiCityPendingS22() {
   await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
   await submit(id);
   await advanceTo(id, APPROVER_ROLE.DOA);
+}
+
+/** S28 — multi-city, APPROVED & BOOKED across TWO PNRs (DD-17). Demonstrates PNR provenance on the
+ *  TR: SIN→HND→KIX ticketed on PNR-A, KIX→ICN→SIN on PNR-B, so the Review itinerary tags each leg
+ *  to its PNR. Booked segments carry their dates so the per-leg join matches precisely. */
+async function buildMultiCityBookedS28() {
+  const settings = await getSettings();
+  const requestNumber = await nextRequestNumber(YEAR);
+  const req0 = await prisma.travelRequest.create({ data: {
+    requestNumber, requestorId: 'E-TRAV', travellerId: 'E-TRAV',
+    entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+    purposeId: 'TP-TC-ACAD', description: 'Multi-city — Tokyo, Osaka & Seoul (approved & booked, 2 PNRs, S28)',
+    tripType: 'MULTI_CITY', destCountry: 'JP', destCity: 'TYO', startDate: day('2026-11-16'), endDate: day('2026-11-22'),
+    travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', classBasis: 'Register C20 — Premium Economy for flights ≥ 6h',
+    bookingArrangement: 'AUTO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+  } });
+  const id = req0.id;
+  await audit(id, 'E-TRAV', 'CREATE', `Multi-city draft ${requestNumber} created`);
+  const legs = [
+    { seq: 1, o: 'SIN', d: 'HND', dep: '2026-11-16', dur: 7, nights: 2 },   // Tokyo
+    { seq: 2, o: 'HND', d: 'KIX', dep: '2026-11-18', dur: 1.5, nights: 2 }, // Osaka
+    { seq: 3, o: 'KIX', d: 'ICN', dep: '2026-11-20', dur: 2, nights: 2 },   // Seoul
+    { seq: 4, o: 'ICN', d: 'SIN', dep: '2026-11-22', dur: 6, nights: 0 },
+  ];
+  for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', chosenClassId: 'TC-PEY' } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400 } });
+  for (const [city, nights, rate] of [['TYO', 2, 300], ['OSA', 2, 300], ['SEL', 2, 240]] as [string, number, number][]) {
+    const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
+    const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+    await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city, nights, personalNights: 0, quotedNightly: rate, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
+  }
+  const master = EcsCharging.code('CC-1000');
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
+  await submit(id);
+  await approveAll(id);
+  // Book across TWO PNRs (DD-17): the TMC splits the multi-city journey for competitive fares.
+  const booked = await loadRequest(id);
+  const seed = (booked!.authorisationNo ?? '').replace(/\D/g, '').slice(-4) || '0028';
+  const mkPnr = async (tag: string, sel: typeof legs, air: { fare: number; taxes: number; fees: number }, hotels: [string, number][]) => {
+    const b = await prisma.travelBooking.create({ data: { requestId: id, pnr: `PNR${seed}-${tag}`, ticketNo: `TKT-${seed}-${tag}`, channel: 'TMC', fare: air.fare, taxes: air.taxes, fees: air.fees, hotelRate: hotels[0]?.[1] ?? null, status: BOOKING_STATUS.Booked } });
+    for (const l of sel) await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'AIR', originCode: l.o, destCode: l.d, bookedClassId: 'TC-PEY', departDate: day(l.dep), arriveDate: day(l.dep), amount: Math.round(air.fare / sel.length) } });
+    for (const [, rate] of hotels) await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'HOTEL', amount: rate } });
+  };
+  await mkPnr('A', legs.slice(0, 2), { fare: 1700, taxes: 204, fees: 30 }, [['TYO', 300], ['OSA', 300]]);
+  await mkPnr('B', legs.slice(2, 4), { fare: 1700, taxes: 204, fees: 30 }, [['SEL', 240]]);
+  await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
+  await audit(id, 'E-SYS', 'INTEGRATION', `Inbound received — 2 PNRs (PNR${seed}-A, PNR${seed}-B)`);
 }
 
 /** S23 — one-way trip (single leg) left at Pending RO. */
