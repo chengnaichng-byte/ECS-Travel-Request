@@ -5,7 +5,9 @@
 import { Fragment, useState } from 'react';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 
-export interface BreakLine { heading: string; computation: string; kv: [string, string][] }
+export type BreakField = [string, string] | [string, string, string]; // [label, value, caption?]
+export interface BreakGroup { title: string; fields: BreakField[] }
+export interface BreakLine { heading: string; total?: number; computation: string; groups: BreakGroup[] }
 export interface CostRow {
   typeName: string; detail: string; basis: string;
   gross: number; sponsor: number; ntu: number;
@@ -45,14 +47,32 @@ export function CostItemsTable({ rows, group, summaryRows = [] }: { rows: CostRo
                   <td className="td" colSpan={8}>
                     <div className="grid gap-3 py-1">
                       {r.breakdown.map((b, j) => (
-                        <div key={j} className="bg-white border border-[var(--ecs-border)] rounded p-3">
-                          <div className="text-xs font-semibold text-[var(--ecs-navy)] mb-1">{b.heading}</div>
-                          <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 text-xs mb-2">
-                            {b.kv.map(([k, v], m) => (
-                              <div key={m} className="flex justify-between gap-2"><dt className="text-[var(--ecs-muted)]">{k}</dt><dd className="text-right whitespace-nowrap">{v}</dd></div>
+                        <div key={j} className="bg-white border border-[var(--ecs-border)] rounded-lg p-3.5">
+                          {/* header — who/where on the left, the line total on the right */}
+                          <div className="flex items-baseline justify-between gap-3 border-b border-[var(--ecs-border)] pb-2 mb-2.5">
+                            <span className="text-sm font-semibold text-[var(--ecs-navy)]">{b.heading}</span>
+                            {b.total != null && <span className="text-sm font-semibold text-[var(--ecs-navy)] whitespace-nowrap">{fmtSgd(b.total)}</span>}
+                          </div>
+                          {/* two labelled groups — e.g. Stay | Rate */}
+                          <div className="grid sm:grid-cols-2 gap-x-10 gap-y-3">
+                            {b.groups.map((g, gi) => (
+                              <div key={gi}>
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--ecs-muted)] mb-1.5">{g.title}</div>
+                                <dl className="space-y-1.5">
+                                  {g.fields.map((f, fi) => (
+                                    <div key={fi} className="flex items-baseline justify-between gap-4 text-xs">
+                                      <dt className="text-[var(--ecs-muted)] shrink-0">{f[0]}</dt>
+                                      <dd className="text-right">
+                                        <span className="font-medium text-[var(--ecs-text)]">{f[1]}</span>
+                                        {f[2] && <div className="text-[10px] font-normal text-[var(--ecs-muted)] leading-tight">{f[2]}</div>}
+                                      </dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              </div>
                             ))}
-                          </dl>
-                          <div className="text-xs italic text-[var(--ecs-muted)]">{b.computation}</div>
+                          </div>
+                          <div className="text-[11px] italic text-[var(--ecs-muted)] mt-3 pt-2 border-t border-[var(--ecs-border)]">{b.computation}</div>
                         </div>
                       ))}
                     </div>
