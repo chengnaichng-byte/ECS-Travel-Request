@@ -7,7 +7,7 @@ import { prisma } from '@/shared/db';
 import { loadRequest, type FullRequest } from './queries';
 import { getSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber, nextClaimNumber } from './numbering';
-import { computeAccommodation, computeOda, computeSummary } from './pricing';
+import { computeAccommodation, computeOda, computeOdaTiered, computeSummary } from './pricing';
 import { evaluatePolicies, hasException } from './policy';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
@@ -152,9 +152,11 @@ async function rebuildOda(id: string) {
   for (const tid of odaTids) for (const s of stops) {
     const rate = EcsPolicy.odaRate(s.country) ?? 0;
     if (rate <= 0) continue;
-    const amount = rate * s.nights;
+    const calc = computeOdaTiered({ days: s.nights, dailyRate: rate, monthlyRate: EcsPolicy.odaMonthlyRate(s.country) ?? 0 });
+    const amount = calc.sgdAmount;
+    const ratePct = s.nights > 0 ? Math.round((amount / (s.nights * rate)) * 100) : 100;
     const exp = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: amount, sgdAmount: amount, estimateBasis: 'RATE', expectedDate: s.from, autoDerived: true, travellerId: tid } });
-    await prisma.oDAEstimate.create({ data: { expenseId: exp.id, country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: s.nights, personalDays: 0, dailyRate: rate, ratePct: 100 } });
+    await prisma.oDAEstimate.create({ data: { expenseId: exp.id, country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: s.nights, personalDays: 0, dailyRate: rate, ratePct } });
   }
 }
 

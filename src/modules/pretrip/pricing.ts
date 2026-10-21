@@ -92,6 +92,24 @@ export function computeOda(input: {
   return { dailyRate, totalDays, eligibleDays, sgdAmount };
 }
 
+/** ECS tiered ODA by trip duration (the "Setting For Travel Periods Up To 31 Days" + Monthly
+ *  allowance Rate config): days 1–15 at 100% of the daily rate, days 16–31 at 75%, and days 32+
+ *  at the country's monthly allowance rate pro-rated per day (monthly ÷ 30). A short trip (≤ 15
+ *  days) is unaffected. Returns the per-tier day counts/amounts so the breakdown can explain it. */
+export function computeOdaTiered(input: { days: number; dailyRate: number; monthlyRate: number }) {
+  const days = Math.max(0, Math.round(input.days));
+  const t1End = EcsPolicy.odaTier1EndDay, t2End = EcsPolicy.odaTier2EndDay;
+  const perMonth = EcsPolicy.odaMonthlyDays || 30;
+  const t1 = Math.min(days, t1End);                        // days 1..tier1End  (100%)
+  const t2 = Math.max(0, Math.min(days, t2End) - t1End);   // days tier1End+1..tier2End (75%)
+  const t3 = Math.max(0, days - t2End);                    // days tier2End+1..  (monthly basis)
+  const t1Amt = t1 * input.dailyRate * (EcsPolicy.odaTier1Pct / 100);
+  const t2Amt = t2 * input.dailyRate * (EcsPolicy.odaTier2Pct / 100);
+  const t3Amt = t3 * (input.monthlyRate / perMonth);
+  const sgdAmount = Math.round((t1Amt + t2Amt + t3Amt) * 100) / 100;
+  return { days, t1, t2, t3, t1Amt, t2Amt, t3Amt, sgdAmount, dailyRate: input.dailyRate, monthlyRate: input.monthlyRate };
+}
+
 export function fmtSgd(n: number): string {
   return new Intl.NumberFormat('en-SG', { style: 'currency', currency: 'SGD', maximumFractionDigits: 2 }).format(n || 0);
 }

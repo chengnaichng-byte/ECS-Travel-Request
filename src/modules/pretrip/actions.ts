@@ -10,7 +10,7 @@ import { currentPersonaId } from '@/shared/session';
 import { loadRequest, overlappingTripsFor, type FullRequest } from './queries';
 import { getSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
-import { computeSummary, computeAccommodation, computeOda } from './pricing';
+import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor } from './route';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
@@ -690,9 +690,13 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
     const dailyRate = EcsPolicy.odaRate(s.country) ?? 0;
     if (dailyRate <= 0) continue;
     wantOda.add(key(tid, s.legSeq));
-    const amount = dailyRate * s.nights; // full day rate — no travel-day proportioning (confirmed)
+    // §13.7 ECS duration tiers: days 1–15 @ 100%, 16–31 @ 75%, 32+ at the monthly allowance rate.
+    const monthlyRate = EcsPolicy.odaMonthlyRate(s.country) ?? 0;
+    const calc = computeOdaTiered({ days: s.nights, dailyRate, monthlyRate });
+    const amount = calc.sgdAmount;
+    const ratePct = s.nights > 0 ? Math.round((amount / (s.nights * dailyRate)) * 100) : 100;
     const existing = autoOda.find((e) => (e.travellerId ?? '') === (tid ?? '') && e.oda?.legSeq === s.legSeq);
-    const odaData = { country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: s.nights, personalDays: 0, dailyRate, ratePct: 100 };
+    const odaData = { country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: s.nights, personalDays: 0, dailyRate, ratePct };
     if (existing) {
       await prisma.estimatedExpense.update({ where: { id: existing.id }, data: { sgdAmount: amount, foreignAmount: amount, expectedDate: s.from } });
       await prisma.oDAEstimate.update({ where: { expenseId: existing.id }, data: odaData });

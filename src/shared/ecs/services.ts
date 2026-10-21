@@ -9,7 +9,7 @@ import { departments, type Department, ENTITY_ID, ENTITY_NAME } from '@/data/org
 import { expenseTypes } from '@/data/expenseTypes';
 import { travelPurposes } from '@/data/travelPurposes';
 import { countries, cities, airports, flightHoursFromSIN } from '@/data/locations';
-import { hotelCaps, hotelCapsByCountry, odaRates, ODA_TRAVEL_DAY_PCT, ODA_FULL_DAY_PCT, ODA_TRAVEL_DAYS } from '@/data/policyRates';
+import { hotelCaps, hotelCapsByCountry, odaRates, ODA_TRAVEL_DAY_PCT, ODA_FULL_DAY_PCT, ODA_TRAVEL_DAYS, ODA_TIER1_END_DAY, ODA_TIER1_PCT, ODA_TIER2_END_DAY, ODA_TIER2_PCT, ODA_MONTHLY_DAYS } from '@/data/policyRates';
 import { travelClasses } from '@/data/travelClass';
 import { travelClassRegister, type TravelClassRegisterEntry } from '@/data/travelClassRegister';
 import { chargingCodes, type ChargingCode } from '@/data/charging';
@@ -93,10 +93,16 @@ export const EcsPolicy = {
   },
   hotelCapsByCountry: () => hotelCapsByCountry,
   odaRate: (countryCode: string) => odaRates.find((o) => o.countryCode === countryCode)?.dailyRateSgd,
+  odaMonthlyRate: (countryCode: string) => odaRates.find((o) => o.countryCode === countryCode)?.monthlyRateSgd,
   tolerances: () => tolerances,
   odaTravelDayPct: ODA_TRAVEL_DAY_PCT,
   odaFullDayPct: ODA_FULL_DAY_PCT,
   odaTravelDays: ODA_TRAVEL_DAYS,
+  odaTier1EndDay: ODA_TIER1_END_DAY,
+  odaTier1Pct: ODA_TIER1_PCT,
+  odaTier2EndDay: ODA_TIER2_END_DAY,
+  odaTier2Pct: ODA_TIER2_PCT,
+  odaMonthlyDays: ODA_MONTHLY_DAYS,
 };
 
 /* ------------------------------------------- Travel Class register (§13.19) */

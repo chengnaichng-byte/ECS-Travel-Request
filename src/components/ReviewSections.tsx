@@ -2,8 +2,8 @@
 // individual / multi-leg / group travel requests. Section letters are assigned by the
 // page (dynamic, no gaps). Read-oriented; interactive group editing lives in
 // GroupTravellers (collapsible workbench on the detail page).
-import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
-import { fmtSgd, type CostSummary } from '@/modules/pretrip/pricing';
+import { EcsIdentity, EcsReference, EcsCharging, EcsPolicy } from '@/shared/ecs/services';
+import { fmtSgd, computeOdaTiered, type CostSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNightsAtCity } from '@/modules/pretrip/group';
 import { guestSettlements } from '@/modules/pretrip/settlement';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember } from '@/modules/pretrip/traveller';
@@ -712,20 +712,35 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
       for (const e of r.lines) {
         const o = e.oda; if (!o) continue;
         const odaWhere = EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.country;
+        const monthly = EcsPolicy.odaMonthlyRate(o.country) ?? 0;
+        const tc = computeOdaTiered({ days: o.eligibleDays, dailyRate: o.dailyRate, monthlyRate: monthly });
+        const tiered = tc.t2 > 0 || tc.t3 > 0; // step-downs only apply beyond 15 days
         const tripFields: BreakField[] = [
           ['Country', EcsReference.country(o.country)?.name ?? o.country],
           ['Dates', `${fmtD(o.arrive)} → ${fmtD(o.depart)}`],
           ['Eligible days', `${o.eligibleDays}`],
         ];
         if (o.personalDays > 0) tripFields.push(['Personal extension', `Yes · ${o.personalDays} personal day${o.personalDays > 1 ? 's' : ''}`]);
+        const rateFields: BreakField[] = [['Daily rate', `${fmtSgd(o.dailyRate)}/day`]];
+        if (tc.t3 > 0) rateFields.push(['Monthly rate', `${fmtSgd(monthly)}`, 'days 32+ at monthly ÷ 30']);
+        // Tiered computation text for a longer trip; a short trip keeps the plain line.
+        let computation: string;
+        if (!tiered) {
+          computation = `${tc.t1} days × ${fmtSgd(o.dailyRate)}/day = ${fmtSgd(e.sgdAmount)}.`;
+        } else {
+          const parts: string[] = [`${tc.t1} × ${fmtSgd(o.dailyRate)} (100%) = ${fmtSgd(tc.t1Amt)}`];
+          if (tc.t2 > 0) parts.push(`${tc.t2} × ${fmtSgd(o.dailyRate)} × 75% = ${fmtSgd(tc.t2Amt)}`);
+          if (tc.t3 > 0) parts.push(`${tc.t3} × ${fmtSgd(monthly)} ÷ 30 = ${fmtSgd(tc.t3Amt)}`);
+          computation = `Tiered: ${parts.join('  +  ')}  =  ${fmtSgd(e.sgdAmount)}.`;
+        }
         breakdown.push({
           heading: req.isGroup ? `${empName(e.travellerId)} · ${odaWhere}` : `${EcsReference.country(o.country)?.name} ODA`,
           total: e.sgdAmount,
           groups: [
             { title: 'Trip', fields: tripFields },
-            { title: 'Rate', fields: [['Daily rate', `${fmtSgd(o.dailyRate)}/day`]] },
+            { title: 'Rate', fields: rateFields },
           ],
-          computation: `${o.eligibleDays} days × ${fmtSgd(o.dailyRate)}/day (full daily rate) = ${fmtSgd(e.sgdAmount)}.`,
+          computation,
         });
       }
     } else {
