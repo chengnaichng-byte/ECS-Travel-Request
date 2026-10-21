@@ -337,6 +337,7 @@ export async function seedDemoScenarios() {
   await buildGuestPendingS21();
   await buildMultiCityPendingS22();
   await buildOneWayPendingS23();
+  await buildLongTermPendingS24();
 
   // Normalise every seeded request's estimate lines to the latest design: hotel stay dates filled
   // from the itinerary (so "Stay dates" isn't "— → —"), and ODA rebuilt as one full-rate line per
@@ -433,6 +434,24 @@ async function buildMultiCityPendingS22() {
 }
 
 /** S23 — one-way trip (single leg) left at Pending RO. */
+/** S24 — long-term secondment (45 nights, Tokyo): a trip long enough to exercise the ODA duration
+ *  tiers (days 1–15 @ 100%, 16–31 @ 75%, 32+ at the country's monthly allowance rate). Left at
+ *  Pending DOA. The end-of-seed pass re-derives its ODA with the tiered calc. */
+async function buildLongTermPendingS24() {
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-OB-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: '2026-11-02', end: '2026-12-17',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1600, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'TYO', nights: 45, quotedNightly: 300 },
+    oda: { country: 'JP', city: 'TYO', arrive: '2026-11-02', depart: '2026-12-17' },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { description: 'Long-term secondment — 45 nights, Tokyo (ODA duration tiers, S24)' } });
+  await submit(id);
+  await advanceTo(id, APPROVER_ROLE.DOA);
+}
+
 async function buildOneWayPendingS23() {
   const start = '2026-11-16';
   const requestNumber = await nextRequestNumber(YEAR);
