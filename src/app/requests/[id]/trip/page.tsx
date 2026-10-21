@@ -14,6 +14,7 @@ import { TripPlanner } from '@/components/TripPlanner';
 import { isTmcArrangement } from '@/modules/pretrip/booking';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { Card, Stepper } from '@/components/ui';
+import { DuplicateWarning } from '@/components/DuplicateWarning';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
     <div>
       <Stepper id={id} active="trip" requestNumber={req.requestNumber} status={req.status} />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
+      <DuplicateWarning req={req} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s trip details.</div>}
       <form action={saveTrip.bind(null, id)} className="space-y-5">
         <Card title="Trip Purpose & Justification">

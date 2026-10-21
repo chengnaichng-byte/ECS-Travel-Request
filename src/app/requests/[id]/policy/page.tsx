@@ -7,6 +7,7 @@ import { runPolicy } from '@/modules/pretrip/actions';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { POLICY_OUTCOME } from '@/shared/enums';
 import { Card, Stepper, Empty } from '@/components/ui';
+import { DuplicateWarning } from '@/components/DuplicateWarning';
 import { OutcomePill } from '@/components/StatusPill';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,7 @@ export default async function PolicyStep({ params }: { params: Promise<{ id: str
   return (
     <div>
       <Stepper id={id} active="policy" requestNumber={req.requestNumber} status={req.status} />
+      <DuplicateWarning req={req} />
       <div className="flex justify-end mb-3">
         <form action={runPolicy.bind(null, id)}><button className="btn-secondary">Re-run checks</button></form>
       </div>

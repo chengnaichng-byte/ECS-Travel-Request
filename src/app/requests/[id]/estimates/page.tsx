@@ -21,6 +21,7 @@ import { currencies } from '@/data/fxRates';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import { Card, Stepper, Empty } from '@/components/ui';
+import { DuplicateWarning } from '@/components/DuplicateWarning';
 import { OutcomePill } from '@/components/StatusPill';
 
 export const dynamic = 'force-dynamic';
@@ -120,6 +121,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     <div>
       <Stepper id={id} active="estimates" requestNumber={req.requestNumber} status={req.status} />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
+      <DuplicateWarning req={req} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request's estimates.</div>}
 
       {/* Existing lines */}

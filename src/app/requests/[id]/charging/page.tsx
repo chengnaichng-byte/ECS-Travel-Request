@@ -18,6 +18,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { Card, Stepper, Empty } from '@/components/ui';
+import { DuplicateWarning } from '@/components/DuplicateWarning';
 
 export const dynamic = 'force-dynamic';
 
@@ -106,6 +107,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
     <div>
       <Stepper id={id} active="charging" requestNumber={req.requestNumber} status={req.status} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s charging.</div>}
+      <DuplicateWarning req={req} />
 
       <Card title={`Estimated Cost Lines (${req.expenses.length})`} className="mb-5">
         {req.expenses.length === 0 ? <Empty>No estimate lines yet — add airfare, accommodation and ODA on the Estimates step.</Empty> : (
