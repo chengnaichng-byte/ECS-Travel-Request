@@ -10,6 +10,7 @@ import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { fullInclude } from '@/modules/pretrip/queries';
 import { isApproverPersona } from '@/modules/pretrip/guards';
+import { travellerName } from '@/modules/pretrip/traveller';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { StatusPill } from '@/components/StatusPill';
 import { REQUEST_STATUS } from '@/shared/enums';
@@ -113,7 +114,7 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                         <td className="td whitespace-nowrap">{fmtDate(r.versions.at(-1)?.createdAt ?? r.updatedAt)}</td>
                         <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}</span></span></td>
                         <td className="td">{ba}</td>
-                        <td className="td">{EcsIdentity.employee(r.travellerId)?.name}{r.isGroup ? ` +${r.travellers.length - 1}` : ''}</td>
+                        <td className="td">{travellerName(r)}{r.isGroup ? ` +${r.travellers.length - 1}` : ''}</td>
                         <td className="td">{EcsIdentity.employee(r.requestorId)?.name}</td>
                         <td className="td">{EcsReference.travelPurpose(r.purposeId ?? '')?.name}</td>
                         <td className="td">{EcsReference.city(r.destCity ?? '')?.name}</td>
