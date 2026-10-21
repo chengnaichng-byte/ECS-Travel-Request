@@ -311,9 +311,8 @@ export async function seedDemoScenarios() {
   // S12 — group amendment: an approved group loses a traveller → reapproval (§13.16).
   await buildGroupS12();
 
-  // S17 — mixed group with an external guest speaker (§8): two staff + one guest to Seoul;
-  // guest flies Economy, charged to the host department, settled centrally (no guest claim).
-  await buildMixedGroupS17();
+  // (Groups are employees-only — a guest is never mixed into a group; guests use their own
+  // single-guest request. The former mixed-group scenario was removed; guest bookings are S21/S25/S26.)
 
   // S14 — multi-leg trip (§13.20): SIN → Tokyo (5n) → Osaka (3n) → SIN, 1 personal day.
   await buildS14();
@@ -338,6 +337,8 @@ export async function seedDemoScenarios() {
   await buildMultiCityPendingS22();
   await buildOneWayPendingS23();
   await buildLongTermPendingS24();
+  await buildGuestSeoulPendingS25();
+  await buildGuestLondonBookedS26();
 
   // Normalise every seeded request's estimate lines to the latest design: hotel stay dates filled
   // from the itinerary (so "Stay dates" isn't "— → —"), and ODA rebuilt as one full-rate line per
@@ -393,6 +394,49 @@ async function buildGuestPendingS21() {
   await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
   await submit(id);
   await advanceTo(id, APPROVER_ROLE.DOA);
+}
+
+/** Build a SINGLE-guest travel request (§8: one guest per booking; a guest is never part of a
+ *  group — groups are employees-only). Guest estimate is airfare + accommodation only (no ODA —
+ *  guests file no claim). Returns the request id (unsubmitted). */
+async function seedGuestRequest(o: { guestName: string; guestEmail: string; guestOrg: string; purposeId: string; destCountry: string; destCity: string; destAirport: string; start: string; end: string; nights: number; durationHours: number; airfare: number; nightly: number; descr: string }): Promise<string> {
+  const settings = await getSettings();
+  const requestNumber = await nextRequestNumber(YEAR);
+  const req = await prisma.travelRequest.create({ data: {
+    requestNumber, requestorId: 'E-PA', travellerId: 'GUEST', travellerType: 'GUEST',
+    guestName: o.guestName, guestEmail: o.guestEmail, guestOrg: o.guestOrg,
+    entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+    purposeId: o.purposeId, description: o.descr,
+    destCountry: o.destCountry, destCity: o.destCity, startDate: day(o.start), endDate: day(o.end),
+    travelClassId: 'TC-ECO', entitledClassId: 'TC-ECO', classBasis: 'Guest default — Economy (§8)',
+    bookingArrangement: 'AUTO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+  } });
+  const id = req.id;
+  await audit(id, 'E-PA', 'CREATE', `Guest travel draft ${requestNumber} created for ${o.guestName} (${o.guestOrg})`);
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: o.destAirport, departDate: day(o.start), durationHours: o.durationHours, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: o.destAirport, destCode: 'SIN', departDate: day(o.end), durationHours: 0, travelClassId: 'TC-ECO' } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: o.airfare, sgdAmount: o.airfare, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: o.destAirport, proposedClassId: 'TC-ECO', fareCeiling: o.airfare } });
+  const hcalc = computeAccommodation({ cityCode: o.destCity, nights: o.nights, personalNights: 0, quotedNightly: o.nightly, basis: settings.hotelEstimateBasis });
+  const he = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: hcalc.sgdAmount, sgdAmount: hcalc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+  await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: o.destCity, nights: o.nights, personalNights: 0, quotedNightly: o.nightly, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
+  const master = EcsCharging.code('CC-1000');
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
+  return id;
+}
+
+/** S25 — single guest keynote speaker (Prof Maria Santos, MIT) to Seoul; left Pending DOA. */
+async function buildGuestSeoulPendingS25() {
+  const id = await seedGuestRequest({ guestName: 'Prof Maria Santos', guestEmail: 'maria.santos@mit.edu', guestOrg: 'MIT', purposeId: 'TP-TC-ACAD', destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: '2026-11-23', end: '2026-11-27', nights: 4, durationHours: 6, airfare: 1450, nightly: 240, descr: 'Guest keynote speaker — Seoul symposium (pending approval, S25)' });
+  await submit(id);
+  await advanceTo(id, APPROVER_ROLE.DOA);
+}
+
+/** S26 — single guest external examiner (Prof Eleanor Vance, Cambridge) to London; approved & booked. */
+async function buildGuestLondonBookedS26() {
+  const id = await seedGuestRequest({ guestName: 'Prof Eleanor Vance', guestEmail: 'e.vance@cam.ac.uk', guestOrg: 'University of Cambridge', purposeId: 'TP-OB-ACAD', destCountry: 'GB', destCity: 'LON', destAirport: 'LHR', start: '2026-12-01', end: '2026-12-05', nights: 4, durationHours: 13, airfare: 1850, nightly: 260, descr: 'Guest external examiner — London (approved & booked, S26)' });
+  await submit(id);
+  await approveAll(id);
+  await bookViaTmc(id);
 }
 
 /** S22 — multi-city itinerary (SIN → Tokyo → Seoul → SIN) left at Pending DOA. */
@@ -686,80 +730,6 @@ async function buildGroupDraft(desc: string, start: string, end: string): Promis
   return id;
 }
 
-/** S17 — mixed group with a guest (§8/§13.14): two NTU staff + one external guest speaker
- *  to Seoul. The guest flies Economy, is charged to the host (requestor) department and is
- *  settled centrally (no guest claim). Charging is derived from each member's home
- *  department, with the guest's share rolled into the host cost centre. */
-async function buildMixedGroupS17(): Promise<string> {
-  const start = '2026-11-23', end = '2026-11-27';
-  const HOST_CC = EcsIdentity.employee('E-PA')?.defaultChargingCode ?? 'CC-1000'; // host (requestor) dept
-  const employeeIds = ['E-TRAV', 'E-TRAV3']; // SCH-CS faculty + RI-AI research
-  const guestId = 'G-demo-s17';
-  const guest = { employeeId: guestId, travellerType: 'GUEST', guestName: 'Prof Maria Santos', guestEmail: 'maria.santos@mit.edu', guestOrg: 'MIT', confirmed: true };
-  const members = [...employeeIds, guestId];
-  const sharePct = Math.round((100 / members.length) * 100) / 100;
-  const requestNumber = await nextRequestNumber(YEAR);
-  const req = await prisma.travelRequest.create({
-    data: {
-      requestNumber, requestorId: 'E-PA', travellerId: 'E-TRAV', isGroup: true,
-      entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
-      purposeId: 'TP-TC-ACAD', description: 'Mixed group with guest speaker — Seoul symposium (S17)',
-      destCountry: 'KR', destCity: 'SEL', startDate: day(start), endDate: day(end),
-      travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
-      travellers: { create: [
-        ...employeeIds.map((eid) => ({ employeeId: eid, isRequestor: false, confirmed: false, sharePct })),
-        { ...guest, isRequestor: false, sharePct },
-      ] },
-    },
-  });
-  const id = req.id;
-  await audit(id, 'E-PA', 'CREATE', `Group draft ${requestNumber} created for ${members.length} travellers (incl. 1 guest)`);
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: 'ICN', departDate: day(start), durationHours: 6, travelClassId: 'TC-ECO' } });
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: 'ICN', destCode: 'SIN', departDate: day(end), durationHours: 0, travelClassId: 'TC-ECO' } });
-  // §13.14 employees book at their OWN entitled class; §8 the guest defaults to Economy.
-  for (const eid of employeeIds) {
-    const ent = EcsTravelClassRegister.entitledForItinerary(eid, [{ durationHours: 6, destCode: 'SEL' }], day(start));
-    await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId: eid }, data: { entitledClassId: ent.classId, chosenClassId: ent.classId } });
-  }
-  await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId: guestId }, data: { entitledClassId: 'TC-ECO', chosenClassId: 'TC-ECO' } });
-
-  const settings = await getSettings();
-  for (const tid of members) {
-    const classId = employeeIds.includes(tid)
-      ? EcsTravelClassRegister.entitledForItinerary(tid, [{ durationHours: 6, destCode: 'SEL' }], day(start)).classId
-      : 'TC-ECO';
-    await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 820, sgdAmount: 820, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'ICN', proposedClassId: classId, fareCeiling: 820 } });
-    // §8 guests get no ODA — a per-diem is not host direct-billable and guests file no claim.
-    if (employeeIds.includes(tid)) {
-      const oda = computeOda({ countryCode: 'KR', arrive: day(start), depart: day(end), personalDays: 0 });
-      const oe = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.ODA, expenseTypeId: 'ET-ODA', currency: 'SGD', foreignAmount: oda.sgdAmount, sgdAmount: oda.sgdAmount, estimateBasis: 'RATE' } });
-      await prisma.oDAEstimate.create({ data: { expenseId: oe.id, country: 'KR', city: 'SEL', arrive: day(start), depart: day(end), eligibleDays: oda.eligibleDays, personalDays: 0, dailyRate: oda.dailyRate } });
-    }
-    const hcalc = computeAccommodation({ cityCode: 'SEL', nights: 4, personalNights: 0, quotedNightly: 240, basis: settings.hotelEstimateBasis });
-    const he = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: tid, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: hcalc.sgdAmount, sgdAmount: hcalc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
-    await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: 'SEL', nights: 4, personalNights: 0, quotedNightly: 240, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
-  }
-
-  // §17 charging derived from each member's home department; the guest's share settles on
-  // the host (requestor) department cost centre.
-  const byCode = new Map<string, number>();
-  for (const tid of members) {
-    const cc = employeeIds.includes(tid) ? (EcsIdentity.employee(tid)?.defaultChargingCode ?? HOST_CC) : HOST_CC;
-    byCode.set(cc, (byCode.get(cc) ?? 0) + sharePct);
-  }
-  const rows = [...byCode.entries()];
-  await prisma.travelRequest.update({ where: { id }, data: { chargingMode: 'CLAIM' } });
-  for (const [code, pct] of rows) {
-    const master = EcsCharging.code(code);
-    await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: code, percent: Math.round(pct * 10) / 10, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false, isMain: code === HOST_CC } });
-  }
-  await submit(id);
-  await approveAll(id);
-  return id;
-}
-
-// S11 — group conference trip: approved by the 60%-department DOA, then held Pending
-// Traveller Confirmation until all three confirm (§13.13).
 async function buildGroupS11() {
   const id = await buildGroupDraft('Group conference trip — three travellers (S11)', '2026-11-09', '2026-11-13');
   await submit(id);
