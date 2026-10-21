@@ -31,7 +31,7 @@ export default async function Dashboard() {
       id: r.id, requestNumber: r.requestNumber, type: r.isEmergency ? 'E' : 'S',
       kind: r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND',
       ba: EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—',
-      traveller: travellerName(r),
+      traveller: travellerName(r) + (r.isGroup ? ` +${r.travellers.length - 1}` : ''),
       requestor: EcsIdentity.employee(r.requestorId)?.name ?? '—',
       purpose: EcsReference.travelPurpose(r.purposeId ?? '')?.name ?? '—',
       dest: EcsReference.city(r.destCity ?? '')?.name ?? '—',
