@@ -29,7 +29,7 @@ export function buildOutbound(req: {
   eventEndDate?: Date | null;
   approvalValidUntil?: Date | null;
   legs: { originCode: string; destCode: string; departDate: Date | null; travelClassId: string | null }[];
-  accommodation: { city: string; nights: number; cappedNightlySgd: number }[];
+  accommodation: { city: string; nights: number; cappedNightlySgd: number; billTo?: 'CTA' | 'TRAVELLER' }[];
   charging?: { code: string; type: string; businessArea?: string | null; companyCode?: string | null; percent: number; isResearch: boolean; primary: boolean }[];
   approvals?: { role: string; approver: string; decidedAt: string | null }[];
   travellerCategory?: string;
@@ -59,6 +59,7 @@ export function buildOutbound(req: {
         city: a.city,
         nights: a.nights,
         cappedNightlySgd: a.cappedNightlySgd,
+        billTo: a.billTo ?? 'TRAVELLER',   // DD-19 CTA (central-billed) vs TRAVELLER (employee pays & claims)
       })) : []),
     ],
   };

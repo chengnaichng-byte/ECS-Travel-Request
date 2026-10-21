@@ -5,8 +5,9 @@
 // new policy exception and no new expense type, and keeps the same charging DOA. The
 // configuration is the shared ECS Module Settings (reused, not a separate engine).
 import { EcsIdentity, EcsRoles, EcsWorkflow, EcsCharging } from '@/shared/ecs/services';
-import { APPROVER_ROLE, ROLE, REQUEST_STATUS } from '@/shared/enums';
+import { APPROVER_ROLE, ROLE, REQUEST_STATUS, TE_TREATMENT } from '@/shared/enums';
 import { highestChargingDept, isResearchRequest } from '@/modules/pretrip/route';
+import { isReimbursable } from '@/modules/pretrip/settlement';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
 export interface ClaimLike {
@@ -14,7 +15,7 @@ export interface ClaimLike {
   lessCorpCard: number;
   lessPersonal: number;
   chargingMainCode: string | null;
-  lines: { expenseTypeId: string; actualSgd: number; sponsorSgd: number; receiptType: string }[];
+  lines: { expenseTypeId: string; actualSgd: number; sponsorSgd: number; receiptType: string; treatment?: string }[];
 }
 
 export interface ClaimWfOpts {
@@ -27,15 +28,20 @@ export interface ClaimWfOpts {
 
 export interface ClaimStep { seq: number; roleType: string; approverId: string | null; autoGranted?: boolean; note?: string }
 
-/** Total reimbursable claimed amount. */
+/** Total REIMBURSABLE claimed amount — excludes Reference lines (DD-19: central CTA/TMC-billed
+ *  airfare and CTA hotel are shown for comparison but never reimbursed to the employee). A line
+ *  with no treatment set defaults to reimbursable. */
 export function claimTotal(claim: ClaimLike): number {
-  const gross = claim.lines.reduce((s, l) => s + l.actualSgd, 0);
+  const gross = claim.lines.filter((l) => l.treatment !== TE_TREATMENT.Reference).reduce((s, l) => s + l.actualSgd, 0);
   return Math.max(gross - claim.lessCorpCard - claim.lessPersonal, 0);
 }
 
-/** The approved amount the DOA signed off on the Travel Request. */
+/** The approved REIMBURSABLE baseline the DD-08 tolerance compares against — employee-settled
+ *  lines only, so it is like-for-like with the (reimbursable) claim total. Central lines (TMC
+ *  airfare, CTA hotel) are excluded from BOTH sides. This is deliberately NOT req.approvalAmountSgd:
+ *  that is the FULL committed spend (airfare + hotel + ODA) used for routing/bands and is unchanged. */
 export function approvedAmount(req: FullRequest): number {
-  return req.approvalAmountSgd ?? req.expenses.reduce((s, e) => s + (e.sgdAmount - e.sponsorSgd), 0);
+  return req.expenses.filter((e) => isReimbursable(req, e.category)).reduce((s, e) => s + (e.sgdAmount - e.sponsorSgd), 0);
 }
 
 /** A claim expense type the Travel Request did not estimate. */

@@ -58,7 +58,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const claimLike: ClaimLike = {
     claimantId: claim.claimantId, lessCorpCard: claim.lessCorpCard, lessPersonal: claim.lessPersonal,
     chargingMainCode: claim.chargingMainCode,
-    lines: claim.lines.map((l) => ({ expenseTypeId: l.expenseTypeId, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType })),
+    lines: claim.lines.map((l) => ({ expenseTypeId: l.expenseTypeId, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, treatment: l.treatment })),
   };
   const chargeCtx = claimChargingContext(claimLike, req, { sameRouteResearch: settings.sameRouteResearch });
   const newDoaDeptName = EcsIdentity.department(chargeCtx.dept)?.name ?? chargeCtx.dept;

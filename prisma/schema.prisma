@@ -122,6 +122,7 @@ model TravelRequest {
   bookingArrangement String?  @default("AUTO")       // §2.2 AUTO | TMC-<id> | SELF_BOOKED | HOST_ARRANGED | NO_BOOKING
   bookingMethod     String?                         // §2.2 TMC channel sub-method (TMC_ONLINE | AGENT_ASSISTED | OFFLINE), only when arranged via a TMC
   chargingMode      String   @default("REQUEST")    // §17 REQUEST (whole-request split) | LINE (cross-charge per cost line)
+  hotelSettlement   String   @default("INDIVIDUAL")  // DD-19 hotel payment channel: INDIVIDUAL (employee pays & claims) | CTA (central-billed, reference-only). Requestor choice, gated to TMC arrangements. Airfare is always central; this covers hotel only.
 
   // Derived approval routing snapshot
   approvalAmountSgd  Float?                         // amount basis result (SGD, §13.4)

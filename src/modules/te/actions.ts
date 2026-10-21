@@ -23,7 +23,7 @@ const claimWfOpts = (s: Awaited<ReturnType<typeof getSettings>>) => ({
   teAutoGrantTolerancePct: s.teAutoGrantTolerancePct,
   teAutoGrantToleranceAbsSgd: s.teAutoGrantToleranceAbsSgd,
 });
-const asClaimLike = (claim: { claimantId: string; lessCorpCard: number; lessPersonal: number; chargingMainCode: string | null; lines: { expenseTypeId: string; actualSgd: number; sponsorSgd: number; receiptType: string }[] }): ClaimLike => claim;
+const asClaimLike = (claim: { claimantId: string; lessCorpCard: number; lessPersonal: number; chargingMainCode: string | null; lines: { expenseTypeId: string; actualSgd: number; sponsorSgd: number; receiptType: string; treatment?: string }[] }): ClaimLike => claim;
 
 /** §13.8 Create a draft TE claim pre-populated from an approved Travel Request. */
 export async function createClaimFromRequest(requestId: string) {

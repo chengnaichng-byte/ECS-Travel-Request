@@ -11,7 +11,7 @@ import type { OutboundMeta, CanonicalOutbound } from '@/integrations/tmc/contrac
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShares, hasPersonalExtension } from './group';
 import { isGuestRequest, travellerName, isGuestMember, memberName } from './traveller';
-import { hostCostObject } from './settlement';
+import { hostCostObject, lineSettlement } from './settlement';
 import { isEmergencyBookFirst } from './emergency';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import type { FullRequest } from './queries';
@@ -63,9 +63,12 @@ function requestPersonal(req: FullRequest): boolean {
 
 /** Single canonical outbound (individual request, or the Integration-Contract preview). */
 export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?: OutboundMeta): CanonicalOutbound {
+  // DD-19 hotel payment channel — CTA (central-billed) vs TRAVELLER (employee pays & claims).
+  // Airfare is always TMC/central; this flag tells the TMC who to bill for the room.
+  const hotelBillTo: 'CTA' | 'TRAVELLER' = lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL' ? 'CTA' : 'TRAVELLER';
   const acc = req.expenses
     .filter((e) => e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation)
-    .map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly }));
+    .map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly, billTo: hotelBillTo }));
   const ceiling = req.expenses
     .filter((e) => e.category === EXPENSE_CATEGORY.Airfare || e.category === EXPENSE_CATEGORY.Accommodation)
     .reduce((s, e) => s + e.sgdAmount, 0);
@@ -118,6 +121,8 @@ export function assembleOutboundInstructions(
   const count = req.travellers.length;
   const charging = chargingBlock(req);
   const approvals = approvalsBlock(req);
+  // DD-19 hotel payment channel (request-level, applies to every group traveller's room).
+  const hotelBillTo: 'CTA' | 'TRAVELLER' = lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL' ? 'CTA' : 'TRAVELLER';
 
   const instructions = req.travellers.map((t, i) => {
     const legs = effectiveLegs(req, t.employeeId).filter((l) => l.transportMode === 'AIR');
@@ -128,11 +133,11 @@ export function assembleOutboundInstructions(
     // accommodation line attributed directly to them.
     const sharedAcc = req.expenses
       .filter((e) => e.isShared && e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation)
-      .map((e) => ({ city: e.accommodation!.city, nights: travellerNightsAtCity(req, t.employeeId, e.accommodation!.city), cappedNightlySgd: e.accommodation!.budgetedNightly }))
+      .map((e) => ({ city: e.accommodation!.city, nights: travellerNightsAtCity(req, t.employeeId, e.accommodation!.city), cappedNightlySgd: e.accommodation!.budgetedNightly, billTo: hotelBillTo }))
       .filter((a) => a.nights > 0);
     const ownAcc = req.expenses
       .filter((e) => !e.isShared && e.travellerId === t.employeeId && e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation)
-      .map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly }));
+      .map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly, billTo: hotelBillTo }));
     const acc = [...sharedAcc, ...ownAcc];
     const share = shares.find((s) => s.employeeId === t.employeeId);
 

@@ -6,7 +6,57 @@
 import { EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { isGuestMember, memberName, isGuestRequest, travellerName } from './traveller';
+import { isTmcArrangement } from './booking';
 import type { FullRequest } from './queries';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DD-19 Settlement channel — the SINGLE SOURCE OF TRUTH for "who fronts the money",
+// and therefore whether a cost line is reimbursable to the employee or reference-only.
+//
+//   • CENTRAL  — paid centrally (CTA / TMC-billed). Shown in the claim for the full cost
+//                picture and estimate-to-actual, but NOT reimbursable (the employee never
+//                fronted it; reimbursing would double-pay).
+//   • EMPLOYEE — the employee pays and claims it back. Reimbursable.
+//
+// Rules (settlement-driven, not category-driven):
+//   AIRFARE        → CENTRAL when the trip is a TMC arrangement (CTA); EMPLOYEE when self-booked.
+//   ACCOMMODATION  → CENTRAL when the requestor chose CTA (req.hotelSettlement); else EMPLOYEE.
+//   ODA / OTHER /  → always EMPLOYEE.
+//   CONFERENCE
+//
+// This helper is read by the TMC payload (billTo), the TE claim-line treatment, and the DD-08
+// reimbursable-scope — so settlement is decided in exactly one place. It does NOT affect the
+// approval amount, routing, or charging allocation (settlement ≠ authorisation ≠ cost ownership).
+export type LineSettlement = 'CENTRAL' | 'EMPLOYEE';
+
+export const HOTEL_SETTLEMENT = { Cta: 'CTA', Individual: 'INDIVIDUAL' } as const;
+
+/** Whether CTA (central) hotel settlement is offerable — only when the trip routes via a TMC
+ *  (you cannot central-bill a room the traveller self-arranges). */
+export function hotelCtaAvailable(req: { bookingArrangement?: string | null }): boolean {
+  return isTmcArrangement(req.bookingArrangement);
+}
+
+/** The settlement channel for a cost category on this request. */
+export function lineSettlement(
+  req: { bookingArrangement?: string | null; hotelSettlement?: string | null },
+  category: string,
+): LineSettlement {
+  if (category === EXPENSE_CATEGORY.Airfare) return isTmcArrangement(req.bookingArrangement) ? 'CENTRAL' : 'EMPLOYEE';
+  if (category === EXPENSE_CATEGORY.Accommodation) {
+    return hotelCtaAvailable(req) && req.hotelSettlement === HOTEL_SETTLEMENT.Cta ? 'CENTRAL' : 'EMPLOYEE';
+  }
+  return 'EMPLOYEE';
+}
+
+/** Reimbursable to the employee iff the line is employee-settled. Central (CTA/TMC-billed)
+ *  lines are reference-only. */
+export function isReimbursable(
+  req: { bookingArrangement?: string | null; hotelSettlement?: string | null },
+  category: string,
+): boolean {
+  return lineSettlement(req, category) === 'EMPLOYEE';
+}
 
 const hotelOf = (segs: { type: string; amount?: number | null }[] | undefined) =>
   (segs ?? []).filter((s) => s.type === 'HOTEL').reduce((h, s) => h + (s.amount ?? 0), 0);

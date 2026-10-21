@@ -67,6 +67,7 @@ export interface CanonicalOutbound {
     city?: string;
     nights?: number;
     cappedNightlySgd?: number;
+    billTo?: 'CTA' | 'TRAVELLER';   // DD-19 hotel payment channel (HOTEL segments): central CTA vs employee-paid
   }[];
 }
 

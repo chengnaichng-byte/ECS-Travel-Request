@@ -7,9 +7,10 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate } from '@/modules/pretrip/actions';
+import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest } from '@/modules/pretrip/traveller';
+import { isTmcArrangement } from '@/modules/pretrip/booking';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { AddEstimatePanel } from '@/components/AddEstimatePanel';
@@ -260,6 +261,19 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         {/* Accommodation (TR-07) — auto per stop; a manual extra line can still be added. */}
         <Card title="Accommodation (TR-07)">
           <p className="text-xs text-[var(--ecs-muted)] mb-2">A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</p>
+          {/* DD-19 hotel payment channel — CTA (central) only when the trip is a TMC arrangement. */}
+          <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-2.5 mb-3">
+            <form action={setHotelSettlement.bind(null, id)} className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-[var(--ecs-muted)]">Hotel paid by:</span>
+              <button name="hotelSettlement" value="INDIVIDUAL" className={`text-xs ${req.hotelSettlement === 'CTA' ? 'btn-secondary' : 'btn-primary'}`}>Individual (claim)</button>
+              {isTmcArrangement(req.bookingArrangement)
+                ? <button name="hotelSettlement" value="CTA" className={`text-xs ${req.hotelSettlement === 'CTA' ? 'btn-primary' : 'btn-secondary'}`}>Central Travel Account (CTA)</button>
+                : <span className="text-xs text-[var(--ecs-muted)] italic">CTA is available only for a TMC-arranged trip</span>}
+            </form>
+            <p className="text-xs text-[var(--ecs-muted)] mt-1.5">{req.hotelSettlement === 'CTA'
+              ? 'Hotel is centrally billed to the CTA — shown in the expense claim for reference only, not reimbursed to the traveller.'
+              : 'Hotel is paid by the traveller and claimed back (reimbursable). Airfare is always on the CTA; ODA is always claimed.'}</p>
+          </div>
           <AddEstimatePanel action={addAccommodation.bind(null, id)} label="Add accommodation (extra)">
             <div className="grid grid-cols-2 gap-3">
               <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={tripDefaults.destCity} />

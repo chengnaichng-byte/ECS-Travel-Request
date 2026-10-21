@@ -7,6 +7,7 @@ import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { TE_TREATMENT, EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { travellerNightsAtCity } from '@/modules/pretrip/group';
+import { isReimbursable } from '@/modules/pretrip/settlement';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
 export interface HeaderField { label: string; value: string; treatment: string; }
@@ -104,12 +105,15 @@ export function prepopulateClaim(
 
   const rawLines: PrepopLine[] = myExpenses.map((e) => {
     const type = EcsReference.expenseType(e.expenseTypeId);
-    // Default treatment: airfare follows the Airfare-treatment setting; others Editable.
-    let treatment: string = TE_TREATMENT.Editable;
-    if (e.category === EXPENSE_CATEGORY.Airfare) {
-      treatment = airfareTreatment === 'DIRECT_SAP' || airfareTreatment === 'REFERENCE' ? TE_TREATMENT.Reference : TE_TREATMENT.Editable;
-    }
-    // Admin Integration-Contract override for this category (may exclude the line).
+    // DD-19 settlement is the SINGLE SOURCE OF TRUTH for reimbursable-vs-reference: an
+    // EMPLOYEE-settled line is Editable (claimable); a CENTRAL line (TMC/CTA-billed airfare or
+    // a CTA hotel) is Reference-only (shown for comparison, not reimbursed). This supersedes the
+    // old airfare-only rule. `airfareTreatment` (DIRECT_SAP | IN_TE | REFERENCE) now governs only
+    // HOW a central airfare line posts (direct-to-SAP vs shown-in-claim) — it can no longer make a
+    // TMC-booked airfare an editable/reimbursable line (IN_TE is honoured only for self-booked
+    // airfare, which the helper already classifies as EMPLOYEE).
+    let treatment: string = isReimbursable(req, e.category) ? TE_TREATMENT.Editable : TE_TREATMENT.Reference;
+    // Admin Integration-Contract override for this category (may exclude the line) still wins.
     const override = contract?.line?.[e.category];
     if (override) treatment = override;
     // §13.14/§13.20 shared line — accommodation is date-aware (nightly rate × the

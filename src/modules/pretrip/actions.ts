@@ -720,6 +720,21 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   revalidatePath(`/requests/${id}/estimates`);
 }
 
+/** DD-19 Set the hotel payment channel: CTA (central-billed, reference-only in the claim) vs
+ *  INDIVIDUAL (employee pays & claims). CTA is only accepted for a TMC arrangement — a self-
+ *  arranged room cannot be central-billed — otherwise it is forced to INDIVIDUAL. Airfare is
+ *  always central; ODA is always individual; this toggle covers the hotel only. Applies to
+ *  individual and group bookings alike (whole-trip, all hotel lines). */
+export async function setHotelSettlement(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const req = await loadRequest(id);
+  if (!req) return;
+  const value = str(fd, 'hotelSettlement') === 'CTA' && isTmcArrangement(req.bookingArrangement) ? 'CTA' : 'INDIVIDUAL';
+  await prisma.travelRequest.update({ where: { id }, data: { hotelSettlement: value } });
+  await audit(id, 'AMEND', `Hotel payment channel set to ${value === 'CTA' ? 'Central Travel Account (CTA)' : 'Individual (employee claim)'}`);
+  revalidatePath(`/requests/${id}/estimates`);
+}
+
 /** Edit ONLY the nightly rate of an auto hotel line (the stay — nights/dates — is derived from the
  *  itinerary and stays locked). The line remains auto-derived, so a later dates change re-derives it
  *  back to policy (resetting this edit) per the agreed behaviour. */
