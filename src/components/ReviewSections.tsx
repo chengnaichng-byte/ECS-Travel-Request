@@ -597,6 +597,17 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
   );
 }
 
+/** Plain-language explanation of how the budgeted nightly rate was arrived at, instead of the raw
+ *  basis code. The LOWER basis budgets at the lower of the quoted rate and the cap. */
+function budgetBasisPhrase(a: { quotedNightly: number; capNightly: number }, basis: string | null): string {
+  if (basis === 'QUOTED') return 'actual quoted rate';
+  if (basis === 'CAP') return 'city cap';
+  // LOWER (default): the lower of the quoted rate and the cap.
+  if (a.capNightly > 0 && a.quotedNightly > a.capNightly) return 'capped at the city cap';
+  if (a.capNightly > 0 && a.quotedNightly < a.capNightly) return 'actual quote, under cap';
+  return 'quote at the cap';
+}
+
 /* --------------------------------------- Estimated Cost Items (+ merged summary) */
 export function CostItems({ req, summary, basis, letter }: { req: FullRequest; summary: CostSummary; basis: string; letter?: string }) {
   const legs = sharedLegs(req);
@@ -662,7 +673,7 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
           }
         } else {
           const chargeable = Math.max(a.nights - a.personalNights, 0);
-          breakdown.push({ heading: req.isGroup ? `${empName(e.travellerId)} · ${city}` : city, kv: [['Stay dates', `${fmtD(a.checkIn)} → ${fmtD(a.checkOut)}`], ['Personal extension', a.personalNights ? `Yes · ${a.personalNights} personal night${a.personalNights > 1 ? 's' : ''}` : personalText], ['Quoted / night', fmtSgd(a.quotedNightly)], ['Cap / night', fmtSgd(a.capNightly)], ['Budgeted / night', `${fmtSgd(a.budgetedNightly)} (${e.estimateBasis})`], ['Nights', `${a.nights}${a.personalNights ? ` (−${a.personalNights} personal)` : ''}`], ['Chargeable nights', `${chargeable}`], ['Cap variance', a.capVariance ? fmtSgd(a.capVariance) : '—']], computation: `${chargeable} nights × ${fmtSgd(a.budgetedNightly)} (${e.estimateBasis}) = ${fmtSgd(e.sgdAmount)}.${a.capVariance ? ` Quoted ${fmtSgd(a.quotedNightly)}/night exceeds cap ${fmtSgd(a.capNightly)}/night → variance ${fmtSgd(a.capVariance)} (exception).` : ''}` });
+          breakdown.push({ heading: req.isGroup ? `${empName(e.travellerId)} · ${city}` : city, kv: [['Stay dates', `${fmtD(a.checkIn)} → ${fmtD(a.checkOut)}`], ['Personal extension', a.personalNights ? `Yes · ${a.personalNights} personal night${a.personalNights > 1 ? 's' : ''}` : personalText], ['Quoted / night', fmtSgd(a.quotedNightly)], ['Cap / night', fmtSgd(a.capNightly)], ['Budgeted / night', `${fmtSgd(a.budgetedNightly)} — ${budgetBasisPhrase(a, e.estimateBasis)}`], ['Nights', `${a.nights}${a.personalNights ? ` (−${a.personalNights} personal)` : ''}`], ['Chargeable nights', `${chargeable}`], ['Cap variance', a.capVariance ? fmtSgd(a.capVariance) : '—']], computation: `${chargeable} nights × ${fmtSgd(a.budgetedNightly)} (${budgetBasisPhrase(a, e.estimateBasis)}) = ${fmtSgd(e.sgdAmount)}.${a.capVariance ? ` Quoted ${fmtSgd(a.quotedNightly)}/night exceeds cap ${fmtSgd(a.capNightly)}/night → variance ${fmtSgd(a.capVariance)} (exception).` : ''}` });
         }
       }
     } else if (r.category === EXPENSE_CATEGORY.ODA) {

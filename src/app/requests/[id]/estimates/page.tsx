@@ -274,7 +274,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" /> Conference hotel</label>
             {isGroup && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
             {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
-            <p className="text-xs text-[var(--ecs-muted)]">Basis: {settings.hotelEstimateBasis}. The rate <b>defaults to the selected city&apos;s cap</b> and is editable. Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
+            <p className="text-xs text-[var(--ecs-muted)]">The rate <b>defaults to the selected city&apos;s cap</b> and is editable; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
             <button className="btn-primary w-full">Add accommodation estimate</button>
           </form>
           </details>
