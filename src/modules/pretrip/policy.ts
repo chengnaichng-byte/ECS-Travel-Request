@@ -32,6 +32,29 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string):
     checks.push({ code: 'DATES', label: 'Official travel dates', outcome: POLICY_OUTCOME.Pass, detail: 'Dates are valid.' });
   }
 
+  // A pre-trip request cannot be raised for a trip that has already started — catches a mis-keyed
+  // year/month that the short-lead (LEAD) check lets through (it guards leadDays >= 0). Compared at
+  // start-of-today so a same-day departure is not flagged. Drafts are exempt at the save/submit gate.
+  if (ruleActive('DATE_PAST', now) && req.startDate) {
+    const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
+    if (req.startDate < today0) {
+      checks.push({ code: 'DATE_PAST', label: 'Departure date is in the past', outcome: POLICY_OUTCOME.HardStop, detail: `The official start date ${req.startDate.toISOString().slice(0, 10)} is in the past — correct the travel dates on the Trip step.` });
+    }
+  }
+
+  // Itinerary overlap (hard stop) — a leg cannot depart a city before the previous leg arrives
+  // there. Enforced only when the previous leg's arrival date is present (arrival dates are often
+  // left blank; the Trip-step depart-order guard remains the floor). Shared/ordered legs only.
+  if (ruleActive('LEG_OVERLAP', now)) {
+    const ordered = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+    for (let i = 1; i < ordered.length; i++) {
+      const prevArrive = ordered[i - 1].arriveDate, dep = ordered[i].departDate;
+      if (prevArrive && dep && dep < prevArrive) {
+        checks.push({ code: 'LEG_OVERLAP', label: 'Itinerary legs overlap', outcome: POLICY_OUTCOME.HardStop, detail: `Leg ${i + 1} departs ${dep.toISOString().slice(0, 10)} but you do not arrive on leg ${i} until ${prevArrive.toISOString().slice(0, 10)} — fix the itinerary dates.` });
+      }
+    }
+  }
+
   const allocTotal = req.allocations.reduce((s, a) => s + a.percent, 0);
   if (req.allocations.length === 0) {
     checks.push({ code: 'ALLOC', label: 'Charging allocation', outcome: POLICY_OUTCOME.HardStop, detail: 'No charging allocation entered.' });
@@ -139,6 +162,23 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string):
   const summary = computeSummary(req.expenses, approvalAmountBasis);
   if (ruleActive('HIGH', now) && summary.approvalAmount > PT.highEstimateSgd) {
     checks.push({ code: 'HIGH', label: 'High estimate', outcome: POLICY_OUTCOME.Warning, detail: `Approval amount SGD ${summary.approvalAmount.toFixed(0)} is above SGD ${PT.highEstimateSgd.toLocaleString('en-SG')}.` });
+  }
+
+  // Itinerary route continuity (advisory) — each leg should depart from where the previous leg
+  // arrived; a mismatch (e.g. land in Tokyo, next leg leaves from Osaka) is usually a data-entry
+  // slip, but a self-arranged ground hop is legitimate, so this is a WARNING not a block. Evaluated
+  // on the shared/ordered itinerary (travellerId null), consistent with the other leg logic.
+  if (ruleActive('ROUTE_GAP', now)) {
+    const ordered = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+    for (let i = 1; i < ordered.length; i++) {
+      const prev = ordered[i - 1], cur = ordered[i];
+      if (prev.destCode && cur.originCode && prev.destCode !== cur.originCode) {
+        checks.push({
+          code: 'ROUTE_GAP', label: 'Itinerary route is not connected', outcome: POLICY_OUTCOME.Warning,
+          detail: `Leg ${i + 1} departs ${cur.originCode} but leg ${i} arrived in ${prev.destCode} — check for a missing connection.`,
+        });
+      }
+    }
   }
 
   // §4.8 high-risk destination — surface the advisory; traveller + approver acknowledgements

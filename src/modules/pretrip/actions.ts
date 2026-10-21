@@ -246,6 +246,10 @@ export async function saveTrip(id: string, fd: FormData) {
   const parse = (s: string) => (s ? new Date(s) : null);
   const invalid: string[] = [];
   if (start && end && end < start) invalid.push('the official end date is before the official start date');
+  // A pre-trip request cannot be raised for a trip that has already started (a mis-keyed year/month);
+  // compared at start-of-today so a same-day departure is fine. Drafts are exempt (checked below).
+  const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+  if (start && start < today0) invalid.push('the official start date is in the past — correct the travel dates');
   if (evStart && evEnd && evEnd < evStart) invalid.push('the event end is before the event start');
   // §10 the event is a segment within the official travel window.
   if (start && end && evStart && (evStart < start || evStart > end)) invalid.push('the event start is outside the official travel dates');
@@ -258,12 +262,18 @@ export async function saveTrip(id: string, fd: FormData) {
   const winStart = pStart && start && pStart < start ? pStart : start;
   const winEnd = pEnd && end && pEnd > end ? pEnd : end;
   let prevDepart: Date | null = null;
+  let prevArrive: Date | null = null;
   formLegs.forEach((l, i) => {
     const dDep = parse(l.departDate), dArr = parse(l.arriveDate);
     if (dDep && dArr && dArr < dDep) invalid.push(`leg ${i + 1}'s arrival is before its departure`);
     if (dDep && winStart && winEnd && (dDep < winStart || dDep > winEnd)) invalid.push(`leg ${i + 1} departs outside the travel window`);
     if (dDep && prevDepart && dDep < prevDepart) invalid.push(`leg ${i + 1} departs before the previous leg`);
+    // Overlap: a leg cannot depart a city before the previous leg arrives there (being in two
+    // places at once). Only enforced when the previous leg's arrival date is present — arrival
+    // dates are often left blank, in which case the depart-order check above remains the floor.
+    if (dDep && prevArrive && dDep < prevArrive) invalid.push(`leg ${i + 1} departs before you arrive on the previous leg`);
     if (dDep) prevDepart = dDep;
+    prevArrive = dArr; // immediately-previous leg's arrival only (null when blank → overlap check no-ops)
   });
   if (!draft && invalid.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please fix the dates: ' + invalid.join('; ') + '.')}`);
   // §13.19 entitlement is derived across the WHOLE itinerary — each flown leg's duration gives
