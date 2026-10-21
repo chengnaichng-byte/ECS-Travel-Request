@@ -29,6 +29,7 @@ import { adapterFor } from '@/integrations/tmc/adapter';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { resolveTmcProvider } from './tmcRouting';
+import { bookingsForAuthorisation } from './tmcRetrieval';
 import { assessHandoffRouting, channelLabel } from './handoffRouting';
 import { resolveChargingRows } from './chargingRollup';
 import { tmcProvider } from '@/data/tmcProviders';
@@ -1300,7 +1301,7 @@ export async function receiveBooking(id: string, fd: FormData) {
         },
       });
       for (const s of inbound.segments) {
-        await tx.bookingSegment.create({ data: { bookingId: booking.id, type: s.type, originCode: s.origin, destCode: s.destination, bookedClassId: s.bookedClass, departDate: s.departDate ? new Date(s.departDate) : null, amount: s.amountSgd ?? s.roomRateSgd } });
+        await tx.bookingSegment.create({ data: { bookingId: booking.id, type: s.type, originCode: s.origin, destCode: s.destination, bookedClassId: s.bookedClass, departDate: s.departDate ? new Date(s.departDate) : null, arriveDate: s.arriveDate ? new Date(s.arriveDate) : (s.departDate ? new Date(s.departDate) : null), amount: s.amountSgd ?? s.roomRateSgd } });
       }
     }
     if (deviation) await tx.bookingDeviation.create({ data: { requestId: id, field: 'Airfare', approvedValue: approvedAir.toFixed(0), bookedValue: bookedAir.toFixed(0), material: true, action: 'Reapproval' } });
@@ -1311,6 +1312,26 @@ export async function receiveBooking(id: string, fd: FormData) {
     : inbounds.length > 1
       ? `Inbound received — ${inbounds.length} PNRs (${inbounds.map((b) => b.inbound.pnr).join(', ')})`
       : `Inbound booking received — PNR ${inbounds[0].inbound.pnr}`);
+  revalidatePath(`/requests/${id}/booking`);
+}
+
+/** DD-17 / §13.9 TA-keyed pull: re-fetch the latest bookings from the TMC for this request's
+ *  Travel Authorisation (the "bookings by TA number" retrieval). Push (receiveBooking) is the
+ *  primary feed; this is the fallback refresh for the freshest actuals. Idempotent — an
+ *  already-received booking is not duplicated (receiveBooking no-ops once Booked). */
+export async function refreshBookingsFromTmc(id: string) {
+  const req = await loadRequest(id);
+  if (!req) return;
+  if (!req.authorisationNo) {
+    await audit(id, 'INTEGRATION', 'Refresh from TMC skipped — no Travel Authorisation yet');
+    revalidatePath(`/requests/${id}/booking`);
+    return;
+  }
+  // Re-ingest any in-flight booking for this TA (idempotent). A self-booked or already-booked
+  // request simply returns the current set without creating duplicates.
+  await receiveBooking(id, new FormData());
+  const set = bookingsForAuthorisation((await loadRequest(id))!);
+  await audit(id, 'INTEGRATION', `Refreshed bookings from TMC by ${req.authorisationNo} — ${set.pnrCount} PNR(s) retrieved`);
   revalidatePath(`/requests/${id}/booking`);
 }
 

@@ -62,6 +62,7 @@ export interface CanonicalOutbound {
     origin?: string;
     destination?: string;
     departDate?: string | null;
+    arriveDate?: string | null;     // DD-17 booked arrival date — carried so the inbound can persist it
     returnDate?: string | null;
     approvedClass?: string;
     city?: string;
@@ -105,6 +106,7 @@ export interface CanonicalInbound {
     destination?: string;
     bookedClass?: string;
     departDate?: string | null;
+    arriveDate?: string | null;     // DD-17 booked arrival date (persisted on BookingSegment)
     city?: string;
     roomRateSgd?: number;
     amountSgd?: number;

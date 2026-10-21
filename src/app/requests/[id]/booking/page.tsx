@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, amendAfterFailedBooking, cancelRequest, receiveCancellation } from '@/modules/pretrip/actions';
+import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, amendAfterFailedBooking, cancelRequest, receiveCancellation, refreshBookingsFromTmc } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
@@ -204,6 +204,12 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
                 );
               })}
             </div>
+          )}
+          {req.authorisationNo && (
+            <form action={refreshBookingsFromTmc.bind(null, id)} className="mt-3">
+              <button className="btn-secondary text-xs">↻ Refresh from TMC</button>
+              <span className="ml-2 text-xs text-[var(--ecs-muted)]">Re-fetch bookings by {req.authorisationNo} (all PNRs under this authorisation).</span>
+            </form>
           )}
         </Card>
 

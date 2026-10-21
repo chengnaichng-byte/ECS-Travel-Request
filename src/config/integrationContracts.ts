@@ -162,7 +162,7 @@ export const CONTRACT_GUARDS: ContractGuard[] = [
     value: [BOOKING_STATUS.SentToTMC, BOOKING_STATUS.ReceivedByTMC, BOOKING_STATUS.InProgress, BOOKING_STATUS.TravellerActionRequired, BOOKING_STATUS.PartiallyBooked],
     note: 'Only process a response for a request in flight with the TMC (§30/§39 lifecycle).' },
   { key: 'in.authorised', flow: 'INBOUND', label: 'Travel Authorisation issued', param: 'authorisationNo', op: 'isSet',
-    note: 'Reject responses that do not carry a valid TA.' },
+    note: 'DD-17: the inbound is keyed by the Travel Authorisation (TA/TR), not the PNR — retrieval returns the FULL set of PNRs under the TA (one TR → N PNRs). Reject responses that do not carry a valid TA.' },
   // ---- Sync to ECS Expense Claim (TE): only pre-populate a claim when ALL of these hold ----
   { key: 'te.claimable', flow: 'TE_SYNC', label: 'Request is claimable', param: 'status', op: 'in',
     value: [REQUEST_STATUS.Approved, REQUEST_STATUS.Closed], note: 'Only create / sync a TE claim from a request in these statuses.' },

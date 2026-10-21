@@ -28,7 +28,7 @@ export function buildOutbound(req: {
   eventStartDate?: Date | null;
   eventEndDate?: Date | null;
   approvalValidUntil?: Date | null;
-  legs: { originCode: string; destCode: string; departDate: Date | null; travelClassId: string | null }[];
+  legs: { originCode: string; destCode: string; departDate: Date | null; arriveDate?: Date | null; travelClassId: string | null }[];
   accommodation: { city: string; nights: number; cappedNightlySgd: number; billTo?: 'CTA' | 'TRAVELLER' }[];
   charging?: { code: string; type: string; businessArea?: string | null; companyCode?: string | null; percent: number; isResearch: boolean; primary: boolean }[];
   approvals?: { role: string; approver: string; decidedAt: string | null }[];
@@ -52,6 +52,7 @@ export function buildOutbound(req: {
         origin: l.originCode,
         destination: l.destCode,
         departDate: l.departDate ? l.departDate.toISOString().slice(0, 10) : null,
+        arriveDate: l.arriveDate ? l.arriveDate.toISOString().slice(0, 10) : (l.departDate ? l.departDate.toISOString().slice(0, 10) : null),
         approvedClass: on('airApprovedClass') ? EcsReference.travelClass(l.travelClassId ?? '')?.name : undefined,
       })) : []),
       ...(on('hotelSegments') ? req.accommodation.map((a) => ({
@@ -105,7 +106,7 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
     taxesSgd: Math.round(baseFare * 0.12),
     feesSgd: 30,
     segments: [
-      ...air.map((s) => ({ type: 'AIR' as const, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, departDate: s.departDate })),
+      ...air.map((s) => ({ type: 'AIR' as const, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, departDate: s.departDate, arriveDate: s.arriveDate ?? s.departDate })),
       ...hotel.map((s) => ({ type: 'HOTEL' as const, city: s.city, roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0) })),
     ],
   };
