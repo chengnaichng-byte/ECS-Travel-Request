@@ -1,0 +1,215 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AO Worksheet</title>
+<meta name="description" content="Line-itemised OutSystems Application Object sizing worksheet for the NTU ECS Pre-Trip module.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#f6f7f9;--surface:#fff;--surface-2:#eef1f5;--ink:#15202b;--ink-2:#44515f;--muted:#6b7886;--line:#d8dee6;--line-2:#e7ebf0;--navy:#1a2b4a;--navy-2:#2d4575;--red:#c8102e;--good:#0f7a52;--good-bg:#e4f4ec;--warn-bg:#fdf1d8;--mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color-scheme:light;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c121c;--surface:#121a26;--surface-2:#182334;--ink:#e7edf5;--ink-2:#b4c0cf;--muted:#8595a8;--line:#273243;--line-2:#1d2838;--navy:#9db4e0;--navy-2:#b9cbec;--red:#ff7085;--good:#4cc795;--good-bg:#10271f;--warn-bg:#2a2010;color-scheme:dark;}}
+:root[data-theme="dark"]{--bg:#0c121c;--surface:#121a26;--surface-2:#182334;--ink:#e7edf5;--ink-2:#b4c0cf;--muted:#8595a8;--line:#273243;--line-2:#1d2838;--navy:#9db4e0;--navy-2:#b9cbec;--red:#ff7085;--good:#4cc795;--good-bg:#10271f;--warn-bg:#2a2010;color-scheme:dark;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:68rem;margin:0 auto;padding:1.6rem clamp(16px,4vw,2rem) 4rem}
+.kicker{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;color:var(--red);text-transform:uppercase}
+h1{font-size:clamp(1.4rem,3.5vw,1.9rem);color:var(--navy);margin:.25rem 0 .3rem;font-weight:600}
+.lead{color:var(--ink-2);max-width:70ch;margin:.2rem 0 1.2rem}
+.cards{display:flex;flex-wrap:wrap;gap:.7rem;margin:1rem 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.7rem 1rem;min-width:9rem}
+.card .n{font-size:1.7rem;font-weight:600;color:var(--navy);line-height:1.1;font-family:var(--mono)}
+.card.big .n{color:var(--red)}
+.card .l{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:.1rem}
+.controls{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.6rem 0 1rem}
+button{font-family:var(--sans);font-size:.82rem;cursor:pointer;border-radius:7px;padding:.4rem .8rem;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+button.primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+button:hover{filter:brightness(1.05)}
+.controls .sp{flex:1}
+table{border-collapse:collapse;width:100%;font-size:.84rem;margin:.3rem 0 0}
+th,td{text-align:left;padding:.4rem .55rem;border-bottom:1px solid var(--line-2);vertical-align:top}
+thead th{background:var(--surface-2);font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink);font-weight:600;position:sticky;top:0}
+td.c,th.c{text-align:center;white-space:nowrap}
+td.obj{font-family:var(--mono);font-size:.82em;color:var(--navy-2)}
+tr.grp td{background:var(--surface-2);font-weight:600;color:var(--navy);font-size:.78rem;text-transform:uppercase;letter-spacing:.03em}
+tr.sub td{font-weight:600;color:var(--ink-2);background:transparent;border-top:1px solid var(--line)}
+.pill{display:inline-block;font-family:var(--mono);font-size:.66rem;font-weight:600;padding:.1em .45em;border-radius:999px}
+.p-new{background:var(--warn-bg);color:#9a6a00}.p-reuse{background:var(--good-bg);color:var(--good)}
+.ao-1{font-weight:600;color:var(--navy);font-family:var(--mono)}.ao-0{color:var(--muted);font-family:var(--mono)}
+h2{font-size:1.1rem;color:var(--navy);margin:2rem 0 .4rem;font-weight:600}
+.muted{color:var(--muted);font-size:.82rem}
+.legend{font-size:.78rem;color:var(--muted);margin:.6rem 0}
+.tbl-box{border:1px solid var(--line);border-radius:10px;overflow:auto;background:var(--surface);max-height:none}
+footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line);color:var(--muted);font-size:.76rem}
+@media(max-width:620px){.card{min-width:7rem}}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="kicker">NTU ECS · Pre-Trip Travel Request · RFP sizing</div>
+  <h1>OutSystems Application Object — Sizing Worksheet</h1>
+  <p class="lead">One row per entity and integration method. Toggle <b>Reuse (ECS core)</b> on a line to exclude it from the billable count — a reused object belongs to its owning ECS application and adds 0 AOs here. The <b>Billable AOs</b> total updates live. Screens, blocks, server/client actions, structures, roles and timers are <b>not</b> AOs (they drive effort — see the inventory at the foot). Your toggles are remembered on this device.</p>
+
+  <div class="cards">
+    <div class="card"><div class="n" id="tTotal">–</div><div class="l">Objects listed</div></div>
+    <div class="card"><div class="n" id="tReuse">–</div><div class="l">Reused (0 AO)</div></div>
+    <div class="card big"><div class="n" id="tAO">–</div><div class="l">Billable AOs</div></div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" onclick="scenario('reuse')">Reuse-heavy preset</button>
+    <button onclick="scenario('standalone')">Standalone preset</button>
+    <button onclick="scenario('clear')">All reuse off</button>
+    <span class="sp"></span>
+    <button id="csvBtn" onclick="exportCsv()">⬇ Export CSV</button>
+  </div>
+  <p class="legend"><span class="pill p-new">NEW</span> owned by this module (billable) · <span class="pill p-reuse">REUSE?</span> candidate for reuse from ECS core (toggle to exclude). Presets set the reuse-candidate lines; you can override any line.</p>
+
+  <div class="tbl-box">
+  <table id="grid"><thead><tr>
+    <th>Object</th><th>AO type</th><th>Basis / note</th><th class="c">Reuse (ECS core)</th><th class="c">AO</th>
+  </tr></thead><tbody id="rows"></tbody></table>
+  </div>
+
+  <h2>Development-object inventory (effort basis — NOT AOs)</h2>
+  <p class="muted">These counts are not Application Objects; they size the build effort. Derive effort from these using the vendor's OutSystems delivery velocity.</p>
+  <div class="tbl-box"><table>
+    <thead><tr><th>Object type</th><th class="c">Estimate</th><th>Basis</th></tr></thead>
+    <tbody>
+      <tr><td>Entities</td><td class="c">~34</td><td>24 transactional + ~8–14 reference/static</td></tr>
+      <tr><td>Reactive Web Screens</td><td class="c">~23</td><td>Route catalogue (6 wizard + queue/admin/finance/claim)</td></tr>
+      <tr><td>Web Blocks (reusable)</td><td class="c">~18–25</td><td>Stepper, duplicate banner, itinerary builder, charging splitter, cost table, route preview, PNR display, add-estimate panels, approval summary</td></tr>
+      <tr><td>Server Actions</td><td class="c">~90–130</td><td>~49 action endpoints + decomposed domain logic (policy, routing, pricing+tiers, settlement, duplicates, entitlement, roll-up, auto-estimates, claim workflow, TMC assemble/parse)</td></tr>
+      <tr><td>Client Actions</td><td class="c">~50–80</td><td>Screen interactivity + live validation</td></tr>
+      <tr><td>Structures</td><td class="c">~25–35</td><td>Canonical TMC payloads, DTOs, read models</td></tr>
+      <tr><td>Roles</td><td class="c">9</td><td>Traveller, Requestor, RO, DOA, Research DOA, Exception, Travel Admin, System Admin, Finance Viewer</td></tr>
+      <tr><td>Timers / BPT processes</td><td class="c">~4–6</td><td>Visa batch, TA expiry, booking deadline, TMC reconcile</td></tr>
+    </tbody>
+  </table></div>
+
+  <footer>Planning estimate derived from the ECS Pre-Trip Technical Reference (prototype object inventory); it is not a formal AO audit — the authoritative count is produced in Service Studio against the real factory. The 24 transactional entities are firm; reference entities and integration methods are the swing factors. Confirm which ECS core modules are reusable (O-S1) — this sets the total.</footer>
+</div>
+
+<script>
+// Line items: {g:group, obj, type, basis, flag:'NEW'|'REUSE', reuse:defaultChecked}
+var ITEMS=[
+ {g:'Transactional entities (owned by this module)'},
+ {obj:'TravelRequest',type:'Entity',basis:'Header & lifecycle',flag:'NEW',reuse:false},
+ {obj:'TravelRequestTraveller',type:'Entity',basis:'Group members',flag:'NEW',reuse:false},
+ {obj:'TravelRequestVersion',type:'Entity',basis:'Immutable snapshots',flag:'NEW',reuse:false},
+ {obj:'ItineraryLeg',type:'Entity',basis:'Multi-leg itinerary',flag:'NEW',reuse:false},
+ {obj:'EstimatedExpense',type:'Entity',basis:'Cost estimate lines',flag:'NEW',reuse:false},
+ {obj:'AccommodationEstimate',type:'Entity',basis:'Hotel + cap result',flag:'NEW',reuse:false},
+ {obj:'ODAEstimate',type:'Entity',basis:'ODA by city/dates',flag:'NEW',reuse:false},
+ {obj:'ChargingAllocation',type:'Entity',basis:'Funding split',flag:'NEW',reuse:false},
+ {obj:'PolicyCheck',type:'Entity',basis:'Policy engine output',flag:'NEW',reuse:false},
+ {obj:'ApprovalStep',type:'Entity',basis:'Approval route',flag:'NEW',reuse:false},
+ {obj:'TravelBooking',type:'Entity',basis:'Booking header (PNR)',flag:'NEW',reuse:false},
+ {obj:'BookingSegment',type:'Entity',basis:'Air/hotel segments',flag:'NEW',reuse:false},
+ {obj:'BookingDeviation',type:'Entity',basis:'Approval-to-booking variance',flag:'NEW',reuse:false},
+ {obj:'TravelExpenseClaim',type:'Entity',basis:'Seeded TE claim',flag:'NEW',reuse:false},
+ {obj:'ClaimApprovalStep',type:'Entity',basis:'Claim route',flag:'NEW',reuse:false},
+ {obj:'TEExpenseLine',type:'Entity',basis:'Claim lines',flag:'NEW',reuse:false},
+ {obj:'TravelExpenseLink',type:'Entity',basis:'TR↔claim link',flag:'NEW',reuse:false},
+ {obj:'IntegrationMessage',type:'Entity',basis:'TMC payload log',flag:'NEW',reuse:false},
+ {obj:'AuditEvent',type:'Entity',basis:'Append-only audit',flag:'NEW',reuse:false},
+ {obj:'Attachment',type:'Entity',basis:'Evidence metadata',flag:'NEW',reuse:false},
+ {obj:'Provost',type:'Entity',basis:'Guest-upgrade authority',flag:'NEW',reuse:false},
+ {obj:'ModuleSettings',type:'Entity',basis:'Runtime config',flag:'NEW',reuse:false},
+ {obj:'IntegrationFieldSetting',type:'Entity',basis:'Contract field override',flag:'NEW',reuse:false},
+ {obj:'IntegrationGuardSetting',type:'Entity',basis:'Contract guard override',flag:'NEW',reuse:false},
+
+ {g:'Reference / static entities (reuse candidates)'},
+ {obj:'Employee',type:'Entity',basis:'HR identity / appointments',flag:'REUSE',reuse:true},
+ {obj:'Department',type:'Entity',basis:'Org + DOA line',flag:'REUSE',reuse:true},
+ {obj:'ChargingCode',type:'Entity',basis:'CC/WBS master',flag:'REUSE',reuse:true},
+ {obj:'ExpenseType',type:'Entity',basis:'TE expense-type master',flag:'REUSE',reuse:true},
+ {obj:'GstCode / GLAccount',type:'Entity',basis:'Finance master',flag:'REUSE',reuse:true},
+ {obj:'FxRate',type:'Entity',basis:'FX master',flag:'REUSE',reuse:true},
+ {obj:'WorkflowBand',type:'Entity',basis:'Amount→DOA tier bands',flag:'REUSE',reuse:true},
+ {obj:'TravelClass',type:'Entity',basis:'Class master',flag:'REUSE',reuse:true},
+ {obj:'Delegation',type:'Entity',basis:'Delegation master',flag:'REUSE',reuse:true},
+ {obj:'RejectionReason',type:'Entity',basis:'Send-back reasons',flag:'REUSE',reuse:true},
+ {obj:'Country',type:'Entity',basis:'Location master',flag:'REUSE',reuse:true},
+ {obj:'City',type:'Entity',basis:'Location master',flag:'REUSE',reuse:true},
+ {obj:'Airport',type:'Entity',basis:'IATA master (GDS sync)',flag:'REUSE',reuse:true},
+ {obj:'TravelPurpose',type:'Entity',basis:'Travel-specific',flag:'NEW',reuse:false},
+ {obj:'HotelCap (city)',type:'Entity',basis:'Travel policy cap',flag:'NEW',reuse:false},
+ {obj:'HotelCap (country)',type:'Entity',basis:'Travel policy cap',flag:'NEW',reuse:false},
+ {obj:'OdaRate',type:'Entity',basis:'ODA daily + monthly',flag:'NEW',reuse:false},
+ {obj:'TravelClassRegister',type:'Entity',basis:'Class entitlement register',flag:'NEW',reuse:false},
+ {obj:'HighRiskDestination',type:'Entity',basis:'Risk advisory master',flag:'NEW',reuse:false},
+ {obj:'TmcProvider',type:'Entity',basis:'TMC provider master',flag:'NEW',reuse:false},
+
+ {g:'Integration methods (REST/SOAP)'},
+ {obj:'TMC — Send booking instruction',type:'REST',basis:'Outbound hand-off',flag:'NEW',reuse:false},
+ {obj:'TMC — Retrieve bookings by TA',type:'REST',basis:'TA-keyed inbound (all PNRs)',flag:'NEW',reuse:false},
+ {obj:'TMC — Booking status callback',type:'REST',basis:'Status webhook',flag:'NEW',reuse:false},
+ {obj:'TMC — Cancellation request',type:'REST',basis:'Cancel (two-way)',flag:'NEW',reuse:false},
+ {obj:'SAP — Airfare direct posting',type:'REST',basis:'DIRECT_SAP posting',flag:'NEW',reuse:false},
+ {obj:'SAP — Allocation → GL posting',type:'REST',basis:'Finance posting',flag:'REUSE',reuse:true},
+ {obj:'SAP — Charging account read',type:'REST',basis:'CC/WBS read',flag:'REUSE',reuse:true},
+ {obj:'HR/Workday — Employee & appointment',type:'REST',basis:'Identity read',flag:'REUSE',reuse:true},
+ {obj:'HR/Workday — Reporting line',type:'REST',basis:'RO read',flag:'REUSE',reuse:true},
+ {obj:'HR/Workday — Home-dept cost object',type:'REST',basis:'Auto-allocate read',flag:'REUSE',reuse:true},
+ {obj:'DOA — Line + amount band',type:'REST',basis:'DOA candidates read',flag:'REUSE',reuse:true},
+ {obj:'FX — Rate read',type:'REST',basis:'Effective-dated FX',flag:'REUSE',reuse:true},
+ {obj:'Immigration — Visa-letter batch',type:'REST',basis:'Outbound daily batch',flag:'NEW',reuse:false},
+ {obj:'Notifications — Send',type:'REST',basis:'Approval/booking alerts',flag:'REUSE',reuse:true},
+ {obj:'Location/GDS — Airport sync',type:'REST',basis:'Airport feed sync',flag:'REUSE',reuse:true},
+
+ {g:'Extensions'},
+ {obj:'SFTP / file adapter (TMC workbook)',type:'Extension',basis:'File transport (if file-based)',flag:'NEW',reuse:false},
+ {obj:'PDF generator (approval pack)',type:'Extension',basis:'Forge component candidate',flag:'REUSE',reuse:true},
+];
+var KEY='ecs-ao-worksheet-v1';
+var lines=ITEMS.filter(function(x){return x.obj;});
+function load(){try{var s=JSON.parse(localStorage.getItem(KEY)||'{}');lines.forEach(function(l){if(l.obj in s)l.reuse=!!s[l.obj];});}catch(e){}}
+function save(){try{var s={};lines.forEach(function(l){s[l.obj]=l.reuse;});localStorage.setItem(KEY,JSON.stringify(s));}catch(e){}}
+function render(){
+  var tb=document.getElementById('rows');tb.innerHTML='';
+  var grpAO=0,grpTot=0,grpName='';
+  function flushSub(){if(grpName){var tr=document.createElement('tr');tr.className='sub';tr.innerHTML='<td colspan="4" style="text-align:right">Subtotal — '+grpName+'</td><td class="c ao-1">'+grpAO+'</td>';tb.appendChild(tr);}grpAO=0;grpTot=0;}
+  ITEMS.forEach(function(x){
+    if(x.g){flushSub();grpName=x.g;var tr=document.createElement('tr');tr.className='grp';tr.innerHTML='<td colspan="5">'+x.g+'</td>';tb.appendChild(tr);return;}
+    grpTot++;var ao=x.reuse?0:1;grpAO+=ao;
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td class="obj">'+x.obj+'</td><td class="c">'+x.type+'</td><td>'+x.basis+' <span class="pill '+(x.flag==='NEW'?'p-new':'p-reuse')+'">'+x.flag+'</span></td>'+
+      '<td class="c"><input type="checkbox" '+(x.reuse?'checked':'')+' aria-label="Reuse '+x.obj+'"></td>'+
+      '<td class="c '+(ao?'ao-1':'ao-0')+'">'+ao+'</td>';
+    var cb=tr.querySelector('input');
+    cb.addEventListener('change',function(){x.reuse=cb.checked;save();render();});
+    tb.appendChild(tr);
+  });
+  flushSub();
+  var tot=lines.length,reused=lines.filter(function(l){return l.reuse;}).length;
+  document.getElementById('tTotal').textContent=tot;
+  document.getElementById('tReuse').textContent=reused;
+  document.getElementById('tAO').textContent=tot-reused;
+}
+function scenario(k){
+  lines.forEach(function(l){
+    if(k==='clear')l.reuse=false;
+    else if(k==='standalone')l.reuse=false;           // everything owned → maximum AO
+    else if(k==='reuse')l.reuse=(l.flag==='REUSE');    // reuse every candidate
+  });save();render();
+}
+function buildCsv(){
+  var rows=[['Group','Object','AO type','Basis','Flag','Reuse (ECS core)','Billable AO']];
+  var g='';
+  ITEMS.forEach(function(x){if(x.g){g=x.g;return;}rows.push([g,x.obj,x.type,x.basis,x.flag,x.reuse?'YES':'NO',x.reuse?0:1]);});
+  var tot=lines.length,reused=lines.filter(function(l){return l.reuse;}).length;
+  rows.push([]);rows.push(['','TOTALS','','','','Objects '+tot+' | Reused '+reused,'Billable AOs '+(tot-reused)]);
+  return rows.map(function(r){return r.map(function(c){c=String(c);return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c;}).join(',');}).join('\r\n');
+}
+// Download via the artifact `downloads` capability (the viewer confirms the save).
+var DL=null;
+async function initDownloads(){
+  try{ if(window.claude&&window.claude.use){ DL=await window.claude.use('downloads'); } }catch(e){ DL=null; }
+  if(!DL){ var b=document.getElementById('csvBtn'); if(b) b.style.display='none'; }
+}
+async function exportCsv(){
+  if(!DL) return;
+  try{ await DL.save({filename:'ecs-pretrip-ao-worksheet.csv',data:buildCsv()}); }
+  catch(e){ /* viewer declined / unavailable — no retry */ }
+}
+load();render();initDownloads();
+</script>
+</body></html>

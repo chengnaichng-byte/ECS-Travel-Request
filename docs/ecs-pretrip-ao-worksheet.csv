@@ -1,0 +1,64 @@
+Group,Object,AO type,Basis,Flag,Reuse (ECS core),Billable AO
+Transactional entities (owned by this module),TravelRequest,Entity,Header & lifecycle,NEW,NO,1
+Transactional entities (owned by this module),TravelRequestTraveller,Entity,Group members,NEW,NO,1
+Transactional entities (owned by this module),TravelRequestVersion,Entity,Immutable snapshots,NEW,NO,1
+Transactional entities (owned by this module),ItineraryLeg,Entity,Multi-leg itinerary,NEW,NO,1
+Transactional entities (owned by this module),EstimatedExpense,Entity,Cost estimate lines,NEW,NO,1
+Transactional entities (owned by this module),AccommodationEstimate,Entity,Hotel + cap result,NEW,NO,1
+Transactional entities (owned by this module),ODAEstimate,Entity,ODA by city/dates,NEW,NO,1
+Transactional entities (owned by this module),ChargingAllocation,Entity,Funding split,NEW,NO,1
+Transactional entities (owned by this module),PolicyCheck,Entity,Policy engine output,NEW,NO,1
+Transactional entities (owned by this module),ApprovalStep,Entity,Approval route,NEW,NO,1
+Transactional entities (owned by this module),TravelBooking,Entity,Booking header (PNR),NEW,NO,1
+Transactional entities (owned by this module),BookingSegment,Entity,Air/hotel segments,NEW,NO,1
+Transactional entities (owned by this module),BookingDeviation,Entity,Approval-to-booking variance,NEW,NO,1
+Transactional entities (owned by this module),TravelExpenseClaim,Entity,Seeded TE claim,NEW,NO,1
+Transactional entities (owned by this module),ClaimApprovalStep,Entity,Claim route,NEW,NO,1
+Transactional entities (owned by this module),TEExpenseLine,Entity,Claim lines,NEW,NO,1
+Transactional entities (owned by this module),TravelExpenseLink,Entity,TR↔claim link,NEW,NO,1
+Transactional entities (owned by this module),IntegrationMessage,Entity,TMC payload log,NEW,NO,1
+Transactional entities (owned by this module),AuditEvent,Entity,Append-only audit,NEW,NO,1
+Transactional entities (owned by this module),Attachment,Entity,Evidence metadata,NEW,NO,1
+Transactional entities (owned by this module),Provost,Entity,Guest-upgrade authority,NEW,NO,1
+Transactional entities (owned by this module),ModuleSettings,Entity,Runtime config,NEW,NO,1
+Transactional entities (owned by this module),IntegrationFieldSetting,Entity,Contract field override,NEW,NO,1
+Transactional entities (owned by this module),IntegrationGuardSetting,Entity,Contract guard override,NEW,NO,1
+Reference / static entities (reuse candidates),Employee,Entity,HR identity / appointments,REUSE,YES,0
+Reference / static entities (reuse candidates),Department,Entity,Org + DOA line,REUSE,YES,0
+Reference / static entities (reuse candidates),ChargingCode,Entity,CC/WBS master,REUSE,YES,0
+Reference / static entities (reuse candidates),ExpenseType,Entity,TE expense-type master,REUSE,YES,0
+Reference / static entities (reuse candidates),GstCode / GLAccount,Entity,Finance master,REUSE,YES,0
+Reference / static entities (reuse candidates),FxRate,Entity,FX master,REUSE,YES,0
+Reference / static entities (reuse candidates),WorkflowBand,Entity,Amount→DOA tier bands,REUSE,YES,0
+Reference / static entities (reuse candidates),TravelClass,Entity,Class master,REUSE,YES,0
+Reference / static entities (reuse candidates),Delegation,Entity,Delegation master,REUSE,YES,0
+Reference / static entities (reuse candidates),RejectionReason,Entity,Send-back reasons,REUSE,YES,0
+Reference / static entities (reuse candidates),Country,Entity,Location master,REUSE,YES,0
+Reference / static entities (reuse candidates),City,Entity,Location master,REUSE,YES,0
+Reference / static entities (reuse candidates),Airport,Entity,IATA master (GDS sync),REUSE,YES,0
+Reference / static entities (reuse candidates),TravelPurpose,Entity,Travel-specific,NEW,NO,1
+Reference / static entities (reuse candidates),HotelCap (city),Entity,Travel policy cap,NEW,NO,1
+Reference / static entities (reuse candidates),HotelCap (country),Entity,Travel policy cap,NEW,NO,1
+Reference / static entities (reuse candidates),OdaRate,Entity,ODA daily + monthly,NEW,NO,1
+Reference / static entities (reuse candidates),TravelClassRegister,Entity,Class entitlement register,NEW,NO,1
+Reference / static entities (reuse candidates),HighRiskDestination,Entity,Risk advisory master,NEW,NO,1
+Reference / static entities (reuse candidates),TmcProvider,Entity,TMC provider master,NEW,NO,1
+Integration methods (REST/SOAP),TMC — Send booking instruction,REST,Outbound hand-off,NEW,NO,1
+Integration methods (REST/SOAP),TMC — Retrieve bookings by TA,REST,TA-keyed inbound (all PNRs),NEW,NO,1
+Integration methods (REST/SOAP),TMC — Booking status callback,REST,Status webhook,NEW,NO,1
+Integration methods (REST/SOAP),TMC — Cancellation request,REST,Cancel (two-way),NEW,NO,1
+Integration methods (REST/SOAP),SAP — Airfare direct posting,REST,DIRECT_SAP posting,NEW,NO,1
+Integration methods (REST/SOAP),SAP — Allocation → GL posting,REST,Finance posting,REUSE,YES,0
+Integration methods (REST/SOAP),SAP — Charging account read,REST,CC/WBS read,REUSE,YES,0
+Integration methods (REST/SOAP),HR/Workday — Employee & appointment,REST,Identity read,REUSE,YES,0
+Integration methods (REST/SOAP),HR/Workday — Reporting line,REST,RO read,REUSE,YES,0
+Integration methods (REST/SOAP),HR/Workday — Home-dept cost object,REST,Auto-allocate read,REUSE,YES,0
+Integration methods (REST/SOAP),DOA — Line + amount band,REST,DOA candidates read,REUSE,YES,0
+Integration methods (REST/SOAP),FX — Rate read,REST,Effective-dated FX,REUSE,YES,0
+Integration methods (REST/SOAP),Immigration — Visa-letter batch,REST,Outbound daily batch,NEW,NO,1
+Integration methods (REST/SOAP),Notifications — Send,REST,Approval/booking alerts,REUSE,YES,0
+Integration methods (REST/SOAP),Location/GDS — Airport sync,REST,Airport feed sync,REUSE,YES,0
+Extensions,SFTP / file adapter (TMC workbook),Extension,File transport (if file-based),NEW,NO,1
+Extensions,PDF generator (approval pack),Extension,Forge component candidate,REUSE,YES,0
+
+,TOTALS (default reuse-heavy preset),,,,Objects 61 | Reused 23,Billable AOs 38
