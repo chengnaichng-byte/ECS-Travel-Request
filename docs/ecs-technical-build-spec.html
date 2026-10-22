@@ -372,7 +372,9 @@ Travel requests scale with staff travel (order 10³–10⁴/yr); each TR has a h
 
 ---
 
-## Chapter 5 — Configuration model
+## Chapter 5 — Configuration model (the settings and policy values that control behaviour)
+
+**In plain terms.** Much of how the module behaves is controlled by **settings an administrator can change at any time**, rather than by code — for example whether a Reporting Officer step is required, the claim auto-approval tolerance, the group size limit, and the emergency lead-time window. Alongside these are the **policy reference values** that come from NTU travel policy and finance: the hotel caps, the overseas-allowance rates and their long-trip taper, the approval amount bands that decide which DOA tier is needed, and the deviation tolerances. The tables below list every setting with its default and what it does, and every rate. The key point for the business: changing policy here is a configuration change, not a software release.
 
 ### 5.1 Module Settings (runtime-togglable, AC03 — one `SETTINGS` row)
 Maps to OutSystems site properties. A change persists and drives behaviour with no rebuild.
@@ -557,7 +559,9 @@ Book-first/raise-later, bounded & audited. Submit gates: a named **authorising o
 
 ---
 
-## Chapter 7 — Lifecycle & change governance
+## Chapter 7 — Lifecycle & change governance (how a request moves and changes over time)
+
+**In plain terms.** This chapter follows a request through its life — from draft, through approval, to an issued authorisation, booking, trip and claim — and sets out how changes are handled once it is approved. The guiding rules: an approver who disagrees **sends the request back** to be revised rather than rejecting it; a **material change** to an approved trip re-runs the full approval and re-issues the authorisation, so what is booked always matches what was approved; a **failed booking** is recovered in a controlled way (retry, amend-and-re-route, or cancel-and-re-raise) without ever leaving two live authorisations; and **cancellation** goes through the travel agency once anything has been booked. Every change is recorded in the audit trail, and each submitted/approved state is frozen as a version for the record.
 
 ### 7.1 Request lifecycle
 Draft → Submit (route built) → approvals (each `approveStep` advances or finalises) → **Approved + TA** → TMC hand-off → Booked → Travel Completed → TE claim. Dissent at any step = **Send Back** (→ Sent Back → Draft) with a reason; there is no Reject (DD-12).
