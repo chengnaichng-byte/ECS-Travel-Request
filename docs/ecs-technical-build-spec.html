@@ -798,6 +798,102 @@ This is a **medium-to-large module**; the weight is logic density (policy engine
 
 **O-S1:** confirm which ECS core modules (identity, DOA, charging, finance, FX, workflow bands, locations) are available for reuse — this sets the AO count.
 
+### F.5 Line-itemised AO register
+
+The full per-object list behind §F.2. Default flags are the **reuse-heavy preset** (reuse every candidate); the interactive worksheet (companion artifact) lets each line be re-flagged. **Default billable AOs: 38** · all-new: 61 objects.
+
+**Transactional entities (owned by this module)**
+
+| # | Object | AO type | Basis | Reuse | AO |
+|---|---|---|---|---|---|
+| 1 | TravelRequest | Entity | Header & lifecycle (NEW) | — | 1 |
+| 2 | TravelRequestTraveller | Entity | Group members (NEW) | — | 1 |
+| 3 | TravelRequestVersion | Entity | Immutable snapshots (NEW) | — | 1 |
+| 4 | ItineraryLeg | Entity | Multi-leg itinerary (NEW) | — | 1 |
+| 5 | EstimatedExpense | Entity | Cost estimate lines (NEW) | — | 1 |
+| 6 | AccommodationEstimate | Entity | Hotel + cap result (NEW) | — | 1 |
+| 7 | ODAEstimate | Entity | ODA by city/dates (NEW) | — | 1 |
+| 8 | ChargingAllocation | Entity | Funding split (NEW) | — | 1 |
+| 9 | PolicyCheck | Entity | Policy engine output (NEW) | — | 1 |
+| 10 | ApprovalStep | Entity | Approval route (NEW) | — | 1 |
+| 11 | TravelBooking | Entity | Booking header (PNR) (NEW) | — | 1 |
+| 12 | BookingSegment | Entity | Air/hotel segments (NEW) | — | 1 |
+| 13 | BookingDeviation | Entity | Approval-to-booking variance (NEW) | — | 1 |
+| 14 | TravelExpenseClaim | Entity | Seeded TE claim (NEW) | — | 1 |
+| 15 | ClaimApprovalStep | Entity | Claim route (NEW) | — | 1 |
+| 16 | TEExpenseLine | Entity | Claim lines (NEW) | — | 1 |
+| 17 | TravelExpenseLink | Entity | TR↔claim link (NEW) | — | 1 |
+| 18 | IntegrationMessage | Entity | TMC payload log (NEW) | — | 1 |
+| 19 | AuditEvent | Entity | Append-only audit (NEW) | — | 1 |
+| 20 | Attachment | Entity | Evidence metadata (NEW) | — | 1 |
+| 21 | Provost | Entity | Guest-upgrade authority (NEW) | — | 1 |
+| 22 | ModuleSettings | Entity | Runtime config (NEW) | — | 1 |
+| 23 | IntegrationFieldSetting | Entity | Contract field override (NEW) | — | 1 |
+| 24 | IntegrationGuardSetting | Entity | Contract guard override (NEW) | — | 1 |
+
+*Subtotal — Transactional entities (owned by this module): 24 billable AO of 24 objects (0 reused).*
+
+**Reference / static entities (reuse candidates)**
+
+| # | Object | AO type | Basis | Reuse | AO |
+|---|---|---|---|---|---|
+| 25 | Employee | Entity | HR identity / appointments (REUSE) | reuse | 0 |
+| 26 | Department | Entity | Org + DOA line (REUSE) | reuse | 0 |
+| 27 | ChargingCode | Entity | CC/WBS master (REUSE) | reuse | 0 |
+| 28 | ExpenseType | Entity | TE expense-type master (REUSE) | reuse | 0 |
+| 29 | GstCode / GLAccount | Entity | Finance master (REUSE) | reuse | 0 |
+| 30 | FxRate | Entity | FX master (REUSE) | reuse | 0 |
+| 31 | WorkflowBand | Entity | Amount→DOA tier bands (REUSE) | reuse | 0 |
+| 32 | TravelClass | Entity | Class master (REUSE) | reuse | 0 |
+| 33 | Delegation | Entity | Delegation master (REUSE) | reuse | 0 |
+| 34 | RejectionReason | Entity | Send-back reasons (REUSE) | reuse | 0 |
+| 35 | Country | Entity | Location master (REUSE) | reuse | 0 |
+| 36 | City | Entity | Location master (REUSE) | reuse | 0 |
+| 37 | Airport | Entity | IATA master (GDS sync) (REUSE) | reuse | 0 |
+| 38 | TravelPurpose | Entity | Travel-specific (NEW) | — | 1 |
+| 39 | HotelCap (city) | Entity | Travel policy cap (NEW) | — | 1 |
+| 40 | HotelCap (country) | Entity | Travel policy cap (NEW) | — | 1 |
+| 41 | OdaRate | Entity | ODA daily + monthly (NEW) | — | 1 |
+| 42 | TravelClassRegister | Entity | Class entitlement register (NEW) | — | 1 |
+| 43 | HighRiskDestination | Entity | Risk advisory master (NEW) | — | 1 |
+| 44 | TmcProvider | Entity | TMC provider master (NEW) | — | 1 |
+
+*Subtotal — Reference / static entities (reuse candidates): 7 billable AO of 20 objects (13 reused).*
+
+**Integration methods (REST/SOAP)**
+
+| # | Object | AO type | Basis | Reuse | AO |
+|---|---|---|---|---|---|
+| 45 | TMC — Send booking instruction | REST | Outbound hand-off (NEW) | — | 1 |
+| 46 | TMC — Retrieve bookings by TA | REST | TA-keyed inbound (all PNRs) (NEW) | — | 1 |
+| 47 | TMC — Booking status callback | REST | Status webhook (NEW) | — | 1 |
+| 48 | TMC — Cancellation request | REST | Cancel (two-way) (NEW) | — | 1 |
+| 49 | SAP — Airfare direct posting | REST | DIRECT_SAP posting (NEW) | — | 1 |
+| 50 | SAP — Allocation → GL posting | REST | Finance posting (REUSE) | reuse | 0 |
+| 51 | SAP — Charging account read | REST | CC/WBS read (REUSE) | reuse | 0 |
+| 52 | HR/Workday — Employee & appointment | REST | Identity read (REUSE) | reuse | 0 |
+| 53 | HR/Workday — Reporting line | REST | RO read (REUSE) | reuse | 0 |
+| 54 | HR/Workday — Home-dept cost object | REST | Auto-allocate read (REUSE) | reuse | 0 |
+| 55 | DOA — Line + amount band | REST | DOA candidates read (REUSE) | reuse | 0 |
+| 56 | FX — Rate read | REST | Effective-dated FX (REUSE) | reuse | 0 |
+| 57 | Immigration — Visa-letter batch | REST | Outbound daily batch (NEW) | — | 1 |
+| 58 | Notifications — Send | REST | Approval/booking alerts (REUSE) | reuse | 0 |
+| 59 | Location/GDS — Airport sync | REST | Airport feed sync (REUSE) | reuse | 0 |
+
+*Subtotal — Integration methods (REST/SOAP): 6 billable AO of 15 objects (9 reused).*
+
+**Extensions**
+
+| # | Object | AO type | Basis | Reuse | AO |
+|---|---|---|---|---|---|
+| 60 | SFTP / file adapter (TMC workbook) | Extension | File transport (if file-based) (NEW) | — | 1 |
+| 61 | PDF generator (approval pack) | Extension | Forge component candidate (REUSE) | reuse | 0 |
+
+*Subtotal — Extensions: 1 billable AO of 2 objects (1 reused).*
+
+**Register total: 38 billable AOs · 61 objects (23 reused) — reuse-heavy default.** Standalone (all reuse off) = 61 AOs. The headline planning range remains ~40–65 AOs.
+
+
 ---
 
 *This specification describes the intended build. Final design may change at a formal discovery / detailed-design phase with the implementation vendor; material changes are tracked by version.*
