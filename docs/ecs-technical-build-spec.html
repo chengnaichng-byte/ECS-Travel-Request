@@ -6,11 +6,14 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <style>
+/* ── Design tokens ─────────────────────────────────────────────── */
 :root{--bg:#f6f7f9;--surface:#fff;--surface-2:#eef1f5;--ink:#15202b;--ink-2:#44515f;--muted:#6b7886;--line:#d8dee6;--line-2:#e7ebf0;--navy:#1a2b4a;--navy-2:#2d4575;--red:#c8102e;--code-bg:#0f1b2d;--code-ink:#dfe7f2;--code-line:#2a3b55;--mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color-scheme:light;}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c121c;--surface:#121a26;--surface-2:#182334;--ink:#e7edf5;--ink-2:#b4c0cf;--muted:#8595a8;--line:#273243;--line-2:#1d2838;--navy:#9db4e0;--navy-2:#b9cbec;--red:#ff7085;--code-bg:#0a1320;--code-ink:#d4deec;--code-line:#223046;color-scheme:dark;}}
 :root[data-theme="dark"]{--bg:#0c121c;--surface:#121a26;--surface-2:#182334;--ink:#e7edf5;--ink-2:#b4c0cf;--muted:#8595a8;--line:#273243;--line-2:#1d2838;--navy:#9db4e0;--navy-2:#b9cbec;--red:#ff7085;--code-bg:#0a1320;--code-ink:#d4deec;--code-line:#223046;color-scheme:dark;}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+/* ── Screen: single consistent IBM Plex Sans family, comfortable scale ── */
+html{font-size:16px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:1rem;line-height:1.6;-webkit-font-smoothing:antialiased}
 .wrap{display:grid;grid-template-columns:18rem minmax(0,1fr);gap:0;max-width:86rem;margin:0 auto}
 nav.toc{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:1.4rem 1rem 3rem;border-right:1px solid var(--line);background:var(--surface);font-size:.8rem}
 nav.toc .brand{font-weight:600;color:var(--navy);font-size:.9rem}nav.toc .brand b{color:var(--red)}
@@ -21,27 +24,53 @@ nav.toc a.h3{padding-left:1.1rem;font-size:.74rem;color:var(--muted)}
 main{padding:2rem clamp(16px,4vw,3rem) 6rem;min-width:0}
 .masthead{border-bottom:2px solid var(--navy);padding-bottom:1.1rem;margin-bottom:1.4rem}
 .masthead .kicker{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;color:var(--red);text-transform:uppercase}
-.masthead h1{font-size:clamp(1.5rem,4vw,2.1rem);line-height:1.1;margin:.3rem 0 .4rem;color:var(--navy);font-weight:600}
-.masthead .meta{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;font-size:.78rem;color:var(--muted)}
+.masthead h1{font-size:1.8rem;line-height:1.15;margin:.3rem 0 .4rem;color:var(--navy);font-weight:600}
+.masthead .meta{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;font-size:.82rem;color:var(--muted)}
+/* ── Content: one family, clear hierarchy, generous rhythm ── */
 #doc h1{display:none}
-#doc h2{font-size:1.3rem;color:var(--navy);font-weight:600;margin:2rem 0 .6rem;padding-top:1.1rem;border-top:1px solid var(--line-2);scroll-margin-top:1rem}
-#doc h3{font-size:1.02rem;color:var(--navy-2);font-weight:600;margin:1.3rem 0 .4rem;scroll-margin-top:1rem}
-#doc h4{font-family:var(--mono);font-size:.88rem;margin:1rem 0 .3rem;color:var(--ink)}
-#doc p{max-width:74ch}#doc a{color:var(--navy-2)}
-#doc blockquote{border-left:3px solid var(--red);margin:1rem 0;padding:.4rem .9rem;background:var(--surface-2);border-radius:0 8px 8px 0;color:var(--ink-2);font-size:.92rem}
+#doc h2{font-size:1.45rem;color:var(--navy);font-weight:600;margin:2.2rem 0 .7rem;padding-top:1.2rem;border-top:1px solid var(--line-2);scroll-margin-top:1rem;line-height:1.25}
+#doc h3{font-size:1.15rem;color:var(--navy-2);font-weight:600;margin:1.5rem 0 .45rem;scroll-margin-top:1rem}
+#doc h4{font-size:1rem;font-weight:600;margin:1.1rem 0 .35rem;color:var(--ink)}
+#doc p{max-width:76ch;margin:.55rem 0}
+#doc a{color:var(--navy-2)}
+#doc blockquote{border-left:3px solid var(--red);margin:1rem 0;padding:.5rem .9rem;background:var(--surface-2);border-radius:0 8px 8px 0;color:var(--ink-2)}
 #doc blockquote p{margin:.3rem 0;max-width:none}
-#doc code{font-family:var(--mono);font-size:.84em;background:var(--surface-2);padding:.08em .35em;border-radius:4px;color:var(--navy-2);word-break:break-word}
+#doc code{font-family:var(--mono);font-size:.85em;background:var(--surface-2);padding:.08em .35em;border-radius:4px;color:var(--navy-2);word-break:break-word}
 #doc pre{background:var(--code-bg);border:1px solid var(--code-line);border-radius:9px;padding:.9rem 1.05rem;overflow-x:auto;margin:1rem 0}
-#doc pre code{background:none;color:var(--code-ink);padding:0;font-size:.79rem;line-height:1.55;word-break:normal}
-#doc table{border-collapse:collapse;width:100%;font-size:.82rem;margin:1rem 0;display:block;overflow-x:auto}
-#doc th,#doc td{text-align:left;padding:.42rem .65rem;border-bottom:1px solid var(--line-2);vertical-align:top}
-#doc thead th{background:var(--surface-2);color:var(--ink);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
-#doc tbody tr:last-child td{border-bottom:0}#doc td code{font-size:.82em;background:transparent;padding:0}
-#doc ul,#doc ol{max-width:74ch;padding-left:1.3rem}#doc li{margin:.18rem 0}
-#doc hr{border:0;border-top:1px solid var(--line);margin:1.8rem 0}#doc strong{color:var(--navy)}
-footer{border-top:1px solid var(--line);margin-top:2.2rem;padding-top:1rem;color:var(--muted);font-size:.78rem}
-@page{margin:13mm 12mm}
-@media print{:root{--bg:#fff;--surface:#fff;--surface-2:#f2f4f7}body{background:#fff;font-size:9.4px;line-height:1.45}.wrap{display:block;max-width:none}nav.toc{display:none}main{padding:0}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}#doc h2{break-after:avoid;padding-top:.3rem;margin-top:1.1rem}#doc h3,#doc h4{break-after:avoid}#doc table,#doc pre,#doc blockquote{break-inside:avoid}#doc table{display:table}#doc pre{white-space:pre-wrap}thead th{position:static}}
+#doc pre code{background:none;color:var(--code-ink);padding:0;font-size:.82rem;line-height:1.6;word-break:normal}
+#doc table{border-collapse:collapse;width:100%;font-size:.9rem;margin:1rem 0;display:block;overflow-x:auto}
+#doc th,#doc td{text-align:left;padding:.45rem .7rem;border-bottom:1px solid var(--line-2);vertical-align:top;line-height:1.45}
+#doc thead th{background:var(--surface-2);color:var(--ink);font-weight:600;font-size:.82em;text-transform:uppercase;letter-spacing:.03em}
+#doc tbody tr:last-child td{border-bottom:0}#doc td code{font-size:.85em;background:transparent;padding:0}
+#doc ul,#doc ol{max-width:76ch;padding-left:1.3rem;margin:.5rem 0}#doc li{margin:.22rem 0}
+#doc hr{border:0;border-top:1px solid var(--line);margin:2rem 0}#doc strong{color:var(--navy)}
+footer{border-top:1px solid var(--line);margin-top:2.4rem;padding-top:1rem;color:var(--muted);font-size:.82rem}
+/* ── Print / PDF: 11pt content, one family, proportional headings ── */
+@page{margin:16mm 14mm}
+@media print{
+  :root{--bg:#fff;--surface:#fff;--surface-2:#f2f4f7}
+  html{font-size:11pt}
+  body{background:#fff;font-size:11pt;line-height:1.5;font-family:var(--sans)}
+  .wrap{display:block;max-width:none}
+  nav.toc{display:none}
+  main{padding:0}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .masthead h1{font-size:20pt}
+  .masthead .meta{font-size:9.5pt}
+  #doc p,#doc li,#doc blockquote,#doc blockquote p{font-size:11pt;line-height:1.5}
+  #doc h2{font-size:15.5pt;margin:16pt 0 7pt;padding-top:8pt;break-after:avoid}
+  #doc h3{font-size:12.5pt;margin:12pt 0 4pt;break-after:avoid}
+  #doc h4{font-size:11pt;break-after:avoid}
+  #doc table{font-size:10pt;display:table;width:100%}
+  #doc th,#doc td{padding:3pt 5pt;line-height:1.4}
+  #doc thead th{font-size:8.6pt}
+  #doc code{font-size:10pt}
+  #doc pre{break-inside:avoid}
+  #doc pre code{font-size:9.2pt;line-height:1.5;white-space:pre-wrap}
+  #doc table,#doc blockquote{break-inside:avoid}
+  thead th{position:static}
+  footer{font-size:9pt}
+}
 @media(max-width:860px){.wrap{grid-template-columns:1fr}nav.toc{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}}
 </style></head>
 <body>
