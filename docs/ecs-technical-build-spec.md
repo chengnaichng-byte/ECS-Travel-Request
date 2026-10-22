@@ -552,7 +552,9 @@ See §6.13 — `bookingsForAuthorisation` return shape. Group fan-out returns on
 
 ---
 
-## Chapter 10 — Service & action catalogue
+## Chapter 10 — Service & action catalogue (the operations the system performs)
+
+**In plain terms.** This chapter is the catalogue of every operation the system can carry out — creating a draft, saving the trip, adding costs, submitting, approving, sending to the agency, receiving the booking, creating the claim, and so on. For each one it records what triggers it, who is allowed to run it, and what it changes. There is no separate "API" to learn: each operation is a single, self-contained action that checks the rules before it does anything. A business reader can treat the tables as a list of "what the system does and who may do it"; the `monospace` names are the labels the build team uses.
 
 ### 10.1 Conventions
 No REST layer in the prototype — **mutations are server actions** (`"use server"`), **reads** are server-component loaders (§11.3). Each action: resolves persona → checks source state + remit → transacts → audits → `revalidatePath`/`redirect(?error=)`. Production MAY expose these as Service Actions / REST.
@@ -608,7 +610,9 @@ Submit: `submitRequest` → `evaluatePolicies` + `findDuplicateRequests` → `co
 
 ---
 
-## Chapter 11 — Screen catalogue
+## Chapter 11 — Screen catalogue (the screens people use)
+
+**In plain terms.** This chapter lists every screen in the module and what each one is for, what the user enters or sees, and which rules it applies. The traveller's journey runs through a six-step wizard — **Traveller → Trip → Estimates → Charging → Policy Review → Submit** — and each step saves as you go, so a half-finished request can be parked as a draft and the full checks are applied only at submission. Alongside the wizard are the approver and finance dashboards, the booking screen, the claim, and the admin/configuration screens. The table is a quick map of where each piece of the process happens.
 
 ### 11.1 Global shell
 Persona switcher (role + person), role-gated left nav, request/claim/admin stages. Wizard stepper: **Traveller → Trip → Estimates → Charging → Policy Review → Submit** (soft-save; validation deferred to Submit).
@@ -637,7 +641,9 @@ Persona switcher (role + person), role-gated left nav, request/claim/admin stage
 
 ---
 
-## Chapter 12 — Reference data & seed
+## Chapter 12 — Reference data & example scenarios (the data behind the prototype)
+
+**In plain terms.** The prototype runs on real, representative data so the behaviour can be shown to business users, not just described. Two kinds of data are listed here. First, the **reference data** — the people, departments, funding accounts, caps, allowance rates, travel-class policy, airports and so on — which in production comes from the existing ECS/HR/DOA/Finance systems (the prototype holds its own copy only so it can run on its own). Second, a set of **worked example trips** (28 of them) pre-loaded so every feature can be demonstrated end to end — a standard approved-and-claimed trip, a research trip, an over-cap hotel, a group trip, a multi-city trip booked across two airline references, an emergency "book-first" trip, a long secondment that exercises the allowance taper, guest trips, and so on. These examples are the basis for the demonstration and the acceptance tests in Chapter 13.
 
 ### 12.1 Reference-data inventory (`src/data/*`, read through §2)
 `employees`, `organisation` (departments/entity), `charging` (CC/WBS), `expenseTypes`, `travelPurposes`, `locations` (countries/cities/airports + SIN flight-hours), `policyRates` (hotel caps + ODA + tiers), `travelClass` + `travelClassRegister`, `workflow` (bands), `fxRates`, `tolerances`, `delegations`, `rejectionReasons`, `highRiskDestinations`, `tmcProviders`, `personaRoles`, `visaLetter`. These are the masters a production build wires to live ECS.
@@ -647,7 +653,9 @@ S01 standard trip (approved, booked, claimed) · S02 research trip (Research DOA
 
 ---
 
-## Chapter 13 — Verification & acceptance
+## Chapter 13 — Verification & acceptance (how to confirm it works)
+
+**In plain terms.** This chapter sets out how to check that a build does what this document describes. The approach is behaviour-first: because every rule is already working in the prototype against real policy data, acceptance means a supplier's build is confirmed when it reproduces those behaviours. The table below is a plain checklist a business user or tester can walk through — e.g. "an over-cap hotel is capped and needs a justification", "a true duplicate blocks submission", "a matching claim is auto-approved". One honest point to note: the prototype proves its behaviour by demonstration and worked examples, not by an automated test suite, so a production build should add one (see the requirement at the end of this chapter).
 
 ### 13.1 Principles
 Acceptance is behaviour-first: each rule/algorithm is demonstrable in the running prototype against seeded policy data. The prototype is the executable specification; a respondent's build is accepted when it reproduces the behaviours below.
