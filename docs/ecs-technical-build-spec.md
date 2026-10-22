@@ -23,7 +23,9 @@
 | Test lead / evaluator | Acceptance criteria, test inventory, open decisions, demo script | Ch 13, 14, App. D |
 | Procurement panel | Scope, derived requirements, gap register, NFRs | Ch 1, 2, 14 |
 
-**Conventions.** Keywords **MUST / SHOULD / MAY** are used in the RFC sense. A *Derived requirement* (TR-PT-nn) states a requirement implied by prototype behaviour. A *Design decision* (DD-nn) is a binding decision documented in the companion design Build Spec (App. D). A *Decision point* (O-nn) is an open policy item for the University to confirm. Code identifiers are in `monospace`. Money is SGD; the prototype uses floating SGD but production **MUST** use exact decimal (TR-PT-04). Dates are stored as `DateTime`; comparisons use the official travel dates unless stated.
+**Conventions.** Keywords **MUST / SHOULD / MAY** are used in the RFC sense (MUST = mandatory, SHOULD = strongly recommended, MAY = optional). A *Derived requirement* (TR-PT-nn) states a requirement implied by prototype behaviour. A *Design decision* (DD-nn) is a binding decision documented in the companion design Build Spec (App. D). A *Decision point* (O-nn) is an open policy item for the University to confirm. Code identifiers (field names, functions) are shown in `monospace` — a business reader can treat them as labels and skip them. Money is SGD. Dates are the official travel dates unless stated.
+
+**Reading this as a business analyst.** This is a technical document, but it is written to be followed without coding knowledge. Each chapter and each rule opens with a plain-English explanation of *what it does and why*; the tables, code snippets and `monospace` names that follow are detail for the build team. If you read only the opening sentences of each section, the **tables** (which are plain-language), Chapter 2 (overview), Chapter 6's lead-ins (what the system decides and how), and Chapter 14 (what differs from a production build), you will have the full business picture. Technical terms (for example *idempotent*, *effective-dated*, *roll-up*) are defined in plain words in **Appendix A — Glossary**.
 
 ---
 
@@ -137,7 +139,9 @@ Every server action: (1) resolves the acting persona (`currentPersonaId`); (2) c
 
 ---
 
-## Chapter 4 — Data architecture
+## Chapter 4 — Data architecture (the information the system holds)
+
+**In plain terms.** This chapter lists every kind of record the system stores and what each field means. The one thing to hold onto: the system **keeps the reference information** (people, approval limits, funding accounts, rates) in the existing ECS systems and only **reads** it; it *owns* the trip-specific records (the request, its legs, estimates, approvals, bookings and the claim). The field tables below are a plain data dictionary — a BA can read them directly.
 
 ### 4.1 Modelling conventions
 | Convention | Rule |
@@ -345,9 +349,9 @@ A new destination or rate is **configuration only** (an effective-dated master r
 
 ---
 
-## Chapter 6 — Runtime algorithms
+## Chapter 6 — Runtime algorithms (the decisions the system makes)
 
-Each algorithm is server-side, deterministic and re-evaluated on submit/approval. Steps are numbered; early exits noted.
+**In plain terms.** This chapter describes every automatic decision the system makes for a trip: how it works out the entitled travel class and the estimated cost, which policy rules apply, who has to approve, who pays for what, and how it spots a duplicate trip. Each section opens with what the decision achieves in business terms; the numbered steps and code that follow are for the build team. Every one of these decisions runs on the server and is re-checked when the request is submitted and at each approval, so the result cannot be bypassed from the screen, and the same inputs always give the same answer.
 
 ### 6.1 Auto-estimate derivation — `syncAutoEstimates(id, resetRates)`
 Policy-driven ODA + accommodation are **auto-derived one line per overnight city** from the itinerary; the traveller never hand-keys them (airfare stays manual).
@@ -358,7 +362,9 @@ Policy-driven ODA + accommodation are **auto-derived one line per overnight city
 5. Reconcile — update matched keys, create new stops, delete stops that no longer exist.
 `saveTrip` calls this with `resetRates = (dates/legs signature changed)` — a dates change supersedes a prior manual rate edit. **TR-PT-13** ODA and accommodation MUST be system-derived per city from the itinerary and re-derived whenever the dates or stops change.
 
-### 6.2 Cost computation
+### 6.2 Working out the cost
+**In plain terms.** The system totals the trip cost and separates out what NTU funds (gross cost minus any sponsorship), what will be used to decide the approval tier (the "approval amount"), and the ceiling the travel agency must book within. Hotels are budgeted at the city cap (or the lower of the quote and the cap); an over-cap rate is flagged as an exception and needs a justification. ODA (the daily overseas allowance) steps down for very long trips: full rate for the first 15 days, 75% for days 16–31, and a monthly-allowance rate beyond that — so a normal trip is unaffected and only long secondments taper.
+
 **Summary** (`computeSummary`): `gross = Σ sgdAmount`; `sponsorship = Σ sponsorSgd`; `major/incidental` split by `expenseType.isMajorCost`; `bookingCeiling = Σ(AIRFARE+ACCOMMODATION)`; `ntuFunded = gross − sponsorship`. **approvalAmount** = GROSS→gross, MAJOR_COST→major, NET_NTU/ALLOCATION/default→ntuFunded. `approvalAmount` is **always the full committed spend** (settlement-independent, §6.10) and drives DOA tiering.
 **Accommodation** (`computeAccommodation`): `cap = hotelCap(city)`; `chargeableNights = max(nights−personalNights,0)`; `budgetedNightly` = QUOTED→quoted, CAP→cap, LOWER→`min(quoted, cap||quoted)`; `overCap = cap>0 && quoted>cap`; `capVariance = overCap?(quoted−cap)×chargeableNights:0`; `sgdAmount = budgetedNightly×chargeableNights`; `outcome = overCap?EXCEPTION:PASS`.
 **ODA tiered** (`computeOdaTiered({days,dailyRate,monthlyRate})`):
@@ -369,14 +375,18 @@ t3=max(0,days−31)          → t3×(monthlyRate÷30)
 sgdAmount=round2(t1Amt+t2Amt+t3Amt)
 ```
 
-### 6.3 Travel-class entitlement — `entitledForItinerary`
+### 6.3 Travel-class entitlement (what cabin the traveller is entitled to)
+**In plain terms.** The entitled cabin (Economy / Premium Economy / Business) is derived from the staff travel-policy register and the length of each flight — it is not chosen on a form. On a multi-city trip the longest flight sets the entitlement. A traveller may request a higher cabin, but that needs a written justification and becomes a policy exception routed to the right approver; a guest above Economy additionally needs a Provost's authorisation.
+
 1. For each flown (non-personal) leg, `entitledForDuration = register.entitledClassId if hours ≥ register.minHours else Economy` (Economy if not in the register).
 2. Overall entitlement = the **highest-ranked** per-leg class (multi-city safe).
 3. Persist `entitledClassId` + `classBasis` (request, per traveller, per leg).
 4. A chosen class above entitlement: (a) require a justification → else hard-stop `CLASS_JUSTIFY`; (b) raise the `CLASS` exception → Exception Approver (or DOA if off); (c) for a **guest** above Economy, additionally require a selected Provost → else `CLASS_PROVOST` → Provost step (DD-25).
 
-### 6.4 Policy engine — `evaluatePolicies(req, approvalAmountBasis) → PolicyCheck[]`
-Each rule is gated on `ruleActive(code, onDate)` (data-driven catalogue; `mandatory` rules always run). The worst outcome gates submission (`hasHardStop` blocks; `hasException` routes).
+### 6.4 Policy engine (checking the trip against travel policy)
+**In plain terms.** When a trip is reviewed, the system runs it against every travel-policy rule and labels each result one of four ways: **Pass** (fine), **Warning** (worth noting, but allowed), **Exception** (allowed only with the right approval — e.g. a hotel above the cap), or **Hard stop** (the trip cannot be submitted until it is fixed — e.g. no funding selected). A hard stop blocks submission; an exception adds the appropriate approver to the route. The rules below are held as a maintainable list, so policy can be switched on/off or dated without a code change.
+
+Each rule runs when it is active for the trip's date; a few structural rules are always on. The worst outcome decides what happens: any **Hard stop** blocks submission, any **Exception** adds an approver.
 
 | Code | Category | Outcome | Trigger |
 |---|---|---|---|
@@ -407,8 +417,10 @@ Each rule is gated on `ruleActive(code, onDate)` (data-driven catalogue; `mandat
 **Submission (`submitRequest`):** all hard-stops resolved; no **blocking duplicate** (§6.11); a destination present; a DOA selected when candidates exist; high-risk ack when applicable; emergency gates (§6.15); no guest-attributed ODA/shared line; valid status transition; self-approval prevented (§6.7).
 **Claim:** no expense type absent from the approved request; a `NO_RECEIPT > 0` line raises a new exception; a claim over the approved **reimbursable** amount beyond tolerance raises a new exception.
 
-### 6.6 Approval routing — `buildRoute(req, opts) → RouteStep[]`
-`excluded = selfApprovalSet(req)` (every traveller + the requestor). Build in order, each step **skipping/escalating past** anyone in `excluded`:
+### 6.6 Approval routing (working out who must approve)
+**In plain terms.** The system builds the list of approvers for a trip automatically, from the trip's cost, funding and policy exceptions — nobody is hard-coded. The route can include, in order, an optional extra approver the traveller chose, the traveller's Reporting Officer, a funding owner, a concurring approver for any other business area that is sharing a large cost, a policy-exception approver, a Provost (for a guest cabin upgrade), and always ends at the **DOA** (Delegation-of-Authority holder) whose authority covers the amount. Crucially, **no one who is travelling on the trip or who raised it can be an approver** — the system routes past them to the next suitable person (this is "separation of duties").
+
+The route is built in this order; at each step the system skips, or escalates past, anyone who is a traveller on the trip or raised it:
 1. **Additional Approver** — if `additionalApproverId` set and not excluded.
 2. **RO** — per `roRequirement` (ALWAYS, or INDIVIDUAL_ONLY for non-group; NEVER). `resolveRoStep` walks the traveller's reporting line to the first RO not excluded.
 3. **Funding Owner** — a charging account with `crossCharge && fundingOwnerId`.
@@ -428,8 +440,10 @@ No one in `selfApprovalSet` (travellers + requestor) may be an approver: single-
 ### 6.9 Authorisation issue
 On the final DOA approval: set `status = Approved`; allocate `authorisationNo = TA-YYYY-NNNNNN`; set `bookingDeadline` (+`bookingDeadlineDays`) and `authorisationExpiry` (+`authorisationValidityDays`); snapshot an approved `TravelRequestVersion`; for a TMC arrangement, auto-hand-off to the TMC (DD-26, §6.12).
 
-### 6.10 Settlement channel (DD-19) & the reimbursable rule
-Single source of truth — `lineSettlement(req, category)`:
+### 6.10 Who pays for what — settlement & reimbursement (DD-19)
+**In plain terms.** "Settlement" is simply *who fronts the money* for each cost, which decides whether the employee can later claim it back. **Airfare** booked through the travel agency is paid centrally by NTU (the Central Travel Account, CTA), so it is shown on the claim for reference but is **not** reimbursed to the employee (they never paid it). **Hotel** is the requestor's choice per trip — pay centrally (CTA) or let the traveller pay and claim it back. **ODA and other costs** are always paid by the traveller and claimed. A flight the traveller books themselves is reimbursable. This decision is kept in one place so the booking instruction, the claim and the approval all stay consistent. It does **not** change how much is approved or which budget bears the cost — only who is out of pocket.
+
+The one rule (used everywhere) for a cost line's settlement:
 ```
 AIRFARE       → CENTRAL if isTmcArrangement(bookingArrangement) else EMPLOYEE   (self-booked flight = reimbursable)
 ACCOMMODATION → CENTRAL if hotelSettlement==='CTA' (TMC arrangement) else EMPLOYEE
@@ -438,8 +452,10 @@ ODA / OTHER   → EMPLOYEE (always)
 `isReimbursable = settlement===EMPLOYEE`. **Reads:** (a) TMC payload — each hotel segment `billTo = CTA|TRAVELLER`; (b) claim treatment — CENTRAL → `REFERENCE` (shown, not reimbursed), EMPLOYEE → `EDITABLE`; (c) DD-08 tolerance — compares the **reimbursable** portion on **both** sides (§6.14). `airfareTreatment` only governs *how* a central airfare line posts, never reimbursability. The hotel toggle applies to individual + group; CTA offered only for a TMC arrangement. Settlement is **separate from authorisation and cost ownership** — the approval amount is the full committed spend and the CC/WBS allocation is unchanged.
 **TR-PT-17** A claim line MUST be reimbursable if and only if the employee fronted it; centrally-settled lines (CTA/TMC-billed) MUST be shown for reconciliation but excluded from the reimbursable total.
 
-### 6.11 Duplicate / overlap detection (DD-14) — `findDuplicateRequests(req)`
-Among **live** requests (Submitted · Pending\* · Approved · Amendment In Progress) other than this one, sharing an **employee** traveller (guests excluded) and whose **official dates overlap**: `sameDestination = sameCountry && (same city when both set)`. **True duplicate** (same dest) ⇒ hard block at submit; **date clash** (different dest) ⇒ warning. **Surfaced upfront** on every editable step (Trip·Estimates·Charging·Policy) once dates are known; the submit-stage block is the backstop. **TR-PT-18** The solution MUST block a second live authorisation for the same traveller + overlapping dates + same destination, surfaced from the first editable step, and MUST warn on an overlapping different-destination trip.
+### 6.11 Catching duplicate or clashing trips (DD-14)
+**In plain terms.** A traveller cannot be in two places at once, and the University does not want two live authorisations (and two sets of bookings) for the same trip. So the system looks at the traveller's other **active** requests (anything submitted, awaiting approval, approved or being amended). If one covers **the same dates and the same destination**, this is a true duplicate and the new request is **blocked** from submission until the original is cancelled or amended. If the dates overlap but the destination is different, it may be a genuine double-booking of the person's time, so the system shows a **warning** (not a block). This check is shown **early** — on every editable step as soon as the dates are entered — so the traveller is not surprised at the end; the block at submission is the final safeguard.
+
+Technically: among the traveller's other live requests with overlapping official dates, same country (and same city where both are set) is a true duplicate → hard block; a different destination → warning. **TR-PT-18** The solution MUST block a second live authorisation for the same traveller + overlapping dates + same destination, surfaced from the first editable step, and MUST warn on an overlapping different-destination trip.
 
 ### 6.12 TMC hand-off, group fan-out & multi-PNR
 **Hand-off** (`handoffToTmc`): build the canonical outbound payload (§9.1) honouring the Integration Contract; send only when the outbound guards hold (Approved · Not Sent · TMC-served method · TA set); emergency sends on submit (DD-26); **idempotent** (never re-send an in-flight/booked request). **Group fan-out:** one instruction per traveller, each with that traveller's effective itinerary/class/nights/share. **Multi-PNR:** a `≥3`-air-segment multi-city trip is split into PNR-A (first half + hotel) and PNR-B on inbound; each PNR is its own `TravelBooking`.
@@ -447,8 +463,10 @@ Among **live** requests (Submitted · Pending\* · Approved · Amendment In Prog
 ### 6.13 Inbound — TA-keyed retrieval & deviation (`receiveBooking`, `refreshBookingsFromTmc`, `bookingsForAuthorisation`)
 The claimant creates the claim **from the TR**; the TMC exposes retrieval **by the TA number**, returning the **full PNR set** (not a PNR-by-PNR lookup). `bookingsForAuthorisation(req)` → `{authorisationNo, pnrCount, bookings[{pnr,ticketNo,providerId,travellerId,status,fareSgd,taxesSgd,feesSgd,hotelRateSgd,totalSgd,segments[{type,origin,dest,departDate,arriveDate,bookedClassId,amount}]}], totalFareSgd}`. **Push-primary** (receiveBooking stores bookings against the TR so the claim pre-fills with zero PNR entry) + a **pull-by-TA refresh** (idempotent). A self-booked trip returns an empty set. **Deviation:** booked aggregate airfare vs approved + tolerance (`+10%`/`+SGD 200`, lower) → material deviation → re-approval. `legPnrMap(req)` maps each AIR leg to its PNR (origin+dest + date) for per-leg provenance on the TR (§11). **TR-PT-19** Booking retrieval MUST be keyed by the Travel Authorisation (returning all PNRs under it), not the PNR; captured actuals MUST include booked fares and booked dates.
 
-### 6.14 Claim prepopulation & DD-08 auto-grant (`prepopulateClaim`, `buildClaimRoute`, `doaAutoGrant`)
-**Prepopulate:** header mostly LOCKED; each expense line's treatment = `REFERENCE` when `!isReimbursable` (TMC airfare, CTA hotel) else `EDITABLE`; admin contract override wins; EXCLUDED dropped; group filtered to the claimant's lines; shared accommodation costed on the claimant's own nights; prior-claim amounts netted per category (AC17).
+### 6.14 Seeding the expense claim & auto-approving the DOA when it matches (DD-08)
+**In plain terms.** After the trip, the employee's expense claim is pre-filled from the approved travel request, so they are not re-typing it. If the claim **matches what was approved** (within a small tolerance, no new cost types, no new policy exception, same funding), the system **auto-approves the DOA step** — there is no need to ask the DOA again for something already authorised. If the claim exceeds the approved amount beyond tolerance, adds a new cost type or exception, or moves to a different funding account, it is **not** auto-approved and routes to the right DOA. Centrally-paid costs (airfare, CTA hotel) appear on the claim for reference but are not part of what is reimbursed, and both the claim and the approved figure are compared on the same (reimbursable) basis so the tolerance is fair.
+
+**Pre-fill detail:** the header is mostly read-only; each cost line is marked *Reference* (shown, not reimbursed) when it was centrally paid, otherwise *Editable*; lines are filtered to this claimant; shared accommodation is costed on the claimant's own nights; amounts already claimed earlier are netted off.
 **Route:** Verifier → (Exception if a new exception) → (RO per `roRequirement`) → DOA (always; from the claim's effective charging dept + band).
 **Auto-grant** (`doaAutoGrant`) — all must hold: TR Approved/Closed with a TA; `claimTotal − approvedAmount ≤ tolerance` (% and SGD); no new expense type; no new exception; **unchanged charging DOA** (a changed account routes to the new account's DOA, never auto-granted). Scope: `claimTotal = Σ non-REFERENCE lines − corpCard − personal`; `approvedAmount = Σ reimbursable (EMPLOYEE) approved expenses net of sponsorship` — **like-for-like**, central airfare + CTA hotel excluded from both sides.
 
@@ -476,7 +494,9 @@ Every submission/approval snapshots an immutable `TravelRequestVersion` (`curren
 
 ---
 
-## Chapter 8 — Security & access control
+## Chapter 8 — Security & access control (who can do what)
+
+**In plain terms.** Three separate questions decide what a person can do: *can they raise a request, and for whom?*, *can they edit this draft?*, and *can they approve this step?* Holding one of these never grants another — an administrator can help raise or edit requests but is **not** an approver, and an approver cannot raise a request they might then approve. Every one of these checks runs on the server, so the screen can never be used to get around them.
 
 ### 8.1 Three mechanisms, kept separate
 (1) **Creation remit** — may this persona originate a request, and for whom. (2) **Edit remit** — may this persona edit a draft. (3) **Approver entitlement** — may this persona act on *this* step. They are independent; holding one never implies another.
@@ -502,7 +522,9 @@ The dashboard is **traveller-scoped** (a persona sees their own + delegated + de
 
 ---
 
-## Chapter 9 — Integration & external interfaces
+## Chapter 9 — Integration & external interfaces (talking to other systems)
+
+**In plain terms.** The module reads reference data from ECS/HR/DOA/Finance and sends a governed booking instruction to the travel agency, then receives the booking back (the PNRs and fares). It also feeds the approved allocation to finance, raises visa-letter and notification messages, and seeds the expense claim. Every message is standardised and logged. The booking information comes back **keyed by the Travel Authorisation** — i.e. "give me everything booked under this approval" — so a multi-city trip split across several airline references is retrieved in one go.
 
 ### 9.1 Principles
 One governed boundary per external system; the module **reads** masters and **sends** governed, field-filtered instructions; inbound responses are status, never authority. All outbound/inbound payloads are canonical JSON persisted as `IntegrationMessage` rows. The Integration Contract is **declarative and admin-overridable**.
@@ -684,7 +706,25 @@ TMC/OBT interface capability (TA-keyed retrieval, group fan-out, secure guest-pr
 ---
 
 ## Appendix A — Glossary
-**TR** Travel Request · **TA** Travel Authorisation · **DOA** Delegation of Authority · **RO** Reporting Officer · **ODA** Overseas Daily Allowance · **TMC** Travel Management Company · **OBT** Online Booking Tool · **PNR** Passenger Name Record · **CTA** Central Travel Account · **CC/WBS** Cost Centre / Work Breakdown Structure · **BA** Business Area · **TE** Travel Expense (claim) · **SoD** Separation of Duties · **PDPA** Personal Data Protection Act.
+
+**Business acronyms.** **TR** Travel Request · **TA** Travel Authorisation (the dated, amount-bound approval) · **DOA** Delegation of Authority (the person authorised to approve a given amount) · **RO** Reporting Officer · **ODA** Overseas Daily Allowance · **TMC** Travel Management Company (the travel agency) · **OBT** Online Booking Tool · **PNR** Passenger Name Record (an airline booking reference) · **CTA** Central Travel Account (NTU pays the agency centrally) · **CC/WBS** Cost Centre / Work Breakdown Structure (the funding account) · **BA** Business Area (a finance grouping) · **TE** Travel Expense (the post-trip claim) · **SoD** Separation of Duties · **PDPA** Personal Data Protection Act · **GL/GST** General Ledger / Goods & Services Tax.
+
+**Technical terms in plain words.**
+- **Entity** — a type of record the system stores (like a table in a spreadsheet); a *static entity* is a fixed reference list.
+- **Application Object (AO)** — the unit OutSystems uses to size/licence a build (Appendix F).
+- **Server-side / server-authoritative** — the rule runs on the system, not in the browser, so it cannot be bypassed from the screen.
+- **Deterministic** — the same inputs always produce the same result.
+- **Idempotent** — safe to run twice; doing it again has no extra effect (e.g. a booking already sent is never sent again, so nothing double-books).
+- **Effective-dated** — a value (a cap, a rate) carries the dates it applies from/to, so the system can use the figure that was in force on any given date.
+- **Surrogate key / `cuid`** — a system-generated unique id for a record (not meaningful to a person).
+- **Cascade-delete** — deleting a parent record automatically removes its child records (e.g. deleting a request removes its legs and estimates).
+- **Soft reference** — a record points to another by a business code (e.g. a charging code) rather than a hard database link; resolved when read.
+- **Roll-up** — combining the parts into a total (e.g. the per-line funding splits summed to the request's overall allocation).
+- **Snapshot / version** — a frozen copy of the request as it was submitted/approved, kept unchanged for audit.
+- **Fan-out** — a group trip produces one booking instruction per traveller.
+- **Read model** — the pre-shaped data a screen reads (e.g. the dashboard list).
+- **Canonical payload** — the standard message format exchanged with an external system.
+- **Hard stop / Exception / Warning** — see §6.4: a blocker, an allowed-with-approval item, and an advisory note respectively.
 
 ## Appendix B — Enumerations & constants
 Request status, booking status, claim status, policy outcome, approver role, booking method/arrangement, expense category, TE treatment, ECS role — **full value lists in §4.4 and §4.3**. Band bounds `(lower, upper]` with first lower bound 0 inclusive. Tolerances, caps, ODA rates + tiers, workflow bands, policy thresholds — §5.2.
