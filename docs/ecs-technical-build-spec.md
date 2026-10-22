@@ -698,6 +698,49 @@ DD-01 config-driven routing · DD-02 DOA always/traveller-selected · DD-03 RO c
 ## Appendix E — Index of derived requirements
 TR-PT-01 full lifecycle server-enforced · 02 single integration boundary · 03 no admin approval bypass · 04 exact money · 05 server-side evaluation · 06 effective-dated FX re-locked · 07 audit + version snapshots · 08 idempotent hand-off/inbound · 09 immutable versions · 10 append-only audit · 11 as-approved from snapshot · 12 config-only policy change · 13 per-city auto-derived & re-derived estimates · 14 hard-stop/exception/warning semantics · 15 DOA always, not auto-selected · 16 no self-approval; no approver-origination · 17 reimbursable iff employee-fronted · 18 duplicate block + overlap warn, upfront · 19 TA-keyed retrieval + captured actuals · 20 emergency timing-only + named authoriser · 21 amendment re-runs route + re-issues TA · 22 production identity from ECS · 23 server-side state + remit re-check · 24 TMC interface (field-filtered, TA retrieval, fan-out) · 25 guest PDPA via TMC · 26 idempotent + audited hand-offs · 27 automated acceptance suite.
 
+## Appendix F — OutSystems sizing estimate
+
+A planning estimate of the build's size in OutSystems terms, derived from the object inventory in this document. It is a **planning figure, not a formal Application Object (AO) audit** — the authoritative count is produced in Service Studio against the real factory and depends on the University's reuse decisions. Two things are estimated: the **AO licensing count** (narrow — entities + integration methods + extensions) and the **development-object inventory** (broad — the basis for effort).
+
+### F.1 What counts as an Application Object
+An AO is counted (1 each) for every **Entity** (database + static), every **REST API method** (exposed and consumed), every **SOAP method** (exposed and consumed), and every **Extension** action and entity. **Screens, Web Blocks, Server/Client Actions, Structures, Roles, Timers and Processes are NOT AOs** — they drive effort (§F.3), not the licensing count.
+
+### F.2 AO licensing estimate
+The dominant variable is **reuse of existing ECS core**: this module *extends* ECS, so identity, DOA lines, charging accounts, GL/GST, FX and workflow bands SHOULD be consumed from the existing ECS core modules and add **0 AOs** to this application.
+
+| AO category | Items | Reuse-heavy | Standalone |
+|---|---|---|---|
+| Transactional entities | The 24 in §4.3 (TravelRequest, …Traveller, …Version, ItineraryLeg, EstimatedExpense, Accommodation/ODA Estimate, ChargingAllocation, PolicyCheck, ApprovalStep, TravelBooking, BookingSegment, BookingDeviation, Claim, ClaimApprovalStep, TEExpenseLine, TravelExpenseLink, IntegrationMessage, AuditEvent, Attachment, Provost, ModuleSettings, IntegrationField/GuardSetting) | **24** | **24** |
+| New reference / static entities | Hotel caps (city + country), ODA rates, travel-class register, travel classes, travel purposes, locations (country/city/airport), workflow bands, tolerances/thresholds, high-risk destinations, TMC providers, rejection reasons — minus any already in ECS/TE core | ~8 | ~14 |
+| Integration methods (consumed/exposed) | TMC hand-off · TMC TA-keyed inbound · TMC status · TMC cancel · SAP airfare posting · SAP GL allocation · visa-letter batch · notifications · (HR/Workday · DOA · FX if not reused) | ~8 | ~16 |
+| Extension objects | SFTP/file (TMC workbook), PDF (approval pack) | ~2 | ~4 |
+| **Total AOs** | | **≈ 42** | **≈ 58** |
+
+**Headline: ≈ 40–65 AOs, most likely 45–55**, assuming ECS core exposes identity/DOA/charging/finance/FX as reusable modules. The 24 transactional entities are firm; reference entities and integration methods are the swing factors. If the TMC/OBT interface is **file-based** (SFTP workbook) rather than REST, part of that count shifts from integration methods into an Extension + Timer.
+
+### F.3 Development-object inventory (effort basis — not AO licensing)
+| Object type | Estimate | Basis |
+|---|---|---|
+| Entities | ~34 | 24 transactional + ~8–14 reference/static |
+| Reactive Web Screens | ~23 | The §11.2 route catalogue (6 wizard + queue/admin/finance/claim) |
+| Web Blocks (reusable) | ~18–25 | Stepper, duplicate banner, itinerary builder, charging splitter, cost/breakdown table, route preview, PNR display, add-estimate panels, approval summary |
+| Server Actions | ~90–130 | ~49 action endpoints (§10.3) + decomposed domain logic (policy engine, routing, pricing + ODA tiers, settlement, duplicates, class entitlement, charging roll-up, auto-estimate derivation, claim workflow + auto-grant, TMC assemble/parse) |
+| Client Actions | ~50–80 | Screen interactivity + live validation |
+| Structures | ~25–35 | Canonical TMC payloads, DTOs, read models |
+| Roles | 9 | §2.3 |
+| Timers / BPT processes | ~4–6 | Visa batch, TA expiry, booking deadline, TMC reconcile |
+| Consumed REST/SOAP | ~8–16 | As §F.2 |
+
+This is a **medium-to-large module**; the weight is logic density (policy engine, configurable routing, settlement, TMC contract, claim auto-grant), not screen count.
+
+### F.4 Drivers & assumptions
+- **Reuse is the biggest driver** — consuming ECS core modules lands AOs ≈ 42; re-implementing masters/integrations pushes ≈ 58+.
+- **TMC transport** — REST methods vs a file/SFTP workbook changes where the integration AOs land.
+- **Reference data already in ECS/TE** (caps, ODA, class register) removes those AOs.
+- Effort SHOULD be derived from §F.3 using the vendor's own OutSystems delivery velocity; this document does not assert person-days.
+
+**O-S1:** confirm which ECS core modules (identity, DOA, charging, finance, FX, workflow bands, locations) are available for reuse — this sets the AO count.
+
 ---
 
 *This specification describes the intended build. Final design may change at a formal discovery / detailed-design phase with the implementation vendor; material changes are tracked by version.*
