@@ -16,6 +16,7 @@ const NAV: NavItem[] = [
   { href: '/approvals', label: 'RO / DOA Dashboard', icon: '✓' },
   { href: '/workbench', label: 'Travel Administration', icon: '⚑' },
   { href: '/finance', label: 'Finance Oversight', icon: '$' },
+  { href: '/finance/cta-charges', label: 'CTA Charges', icon: '◉' },
   { href: '/reports', label: 'Reporting', icon: '▦' },
   { href: '/visa-letters', label: 'Visa Letters', icon: '✉' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },

@@ -348,6 +348,7 @@ model TravelBooking {
   taxes         Float?
   fees          Float?
   hotelRate     Float?
+  ctaAccountId  String?                     // DD-30 CTA account the central (CTA-settled) charges were lodged to (feed-reported)
   status        String  @default("Booked")
   segments      BookingSegment[]
 }

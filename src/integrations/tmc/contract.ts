@@ -100,6 +100,7 @@ export interface CanonicalInbound {
   fareSgd: number;
   taxesSgd: number;
   feesSgd: number;
+  ctaAccountId?: string | null;        // DD-30 the CTA account the central charges were lodged to (feed-reported)
   segments: {
     type: 'AIR' | 'HOTEL';
     origin?: string;

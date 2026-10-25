@@ -1298,6 +1298,7 @@ export async function receiveBooking(id: string, fd: FormData) {
           requestId: id, travellerId, tmcProviderId: providerId, pnr: inbound.pnr, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
           fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd,
           hotelRate: inbound.segments.find((s: { type: string }) => s.type === 'HOTEL')?.roomRateSgd, status: inbound.bookingStatus,
+          ctaAccountId: inbound.ctaAccountId ?? null,   // DD-30 feed-reported CTA account the central charges hit
         },
       });
       for (const s of inbound.segments) {

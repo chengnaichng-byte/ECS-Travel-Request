@@ -13,6 +13,7 @@ import { hotelCaps, hotelCapsByCountry, odaRates, ODA_TRAVEL_DAY_PCT, ODA_FULL_D
 import { travelClasses } from '@/data/travelClass';
 import { travelClassRegister, type TravelClassRegisterEntry } from '@/data/travelClassRegister';
 import { chargingCodes, type ChargingCode } from '@/data/charging';
+import { ctaAccounts, type CtaAccount } from '@/data/ctaAccounts';
 import { workflowBands, bandForAmount } from '@/data/workflow';
 import { sgdPerUnit, currencies, fxRates } from '@/data/fxRates';
 import { tolerances } from '@/data/tolerances';
@@ -152,6 +153,11 @@ export const EcsTravelClassRegister = {
 export const EcsCharging = {
   codes: () => chargingCodes,
   code: (code: string): ChargingCode | undefined => chargingCodes.find((c) => c.code === code),
+  // DD-30 CTA master — posting-only lookup: resolve the clearing account for a CTA account id
+  // reported by the card/TMC feed. Returns undefined for an unknown/inactive account.
+  ctaAccounts: (): CtaAccount[] => ctaAccounts,
+  ctaAccount: (ctaAccountId: string | null | undefined): CtaAccount | undefined =>
+    ctaAccountId ? ctaAccounts.find((a) => a.ctaAccountId === ctaAccountId && a.active !== false) : undefined,
 };
 
 /* -------------------------------------------------------------- Workflow (§2.3) */

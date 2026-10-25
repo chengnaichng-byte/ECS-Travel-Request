@@ -8,6 +8,7 @@ import { hotelCaps, hotelCapsByCountry, odaRates } from '@/data/policyRates';
 import { travelClasses } from '@/data/travelClass';
 import { travelClassRegister } from '@/data/travelClassRegister';
 import { chargingCodes } from '@/data/charging';
+import { ctaAccounts } from '@/data/ctaAccounts';
 import { workflowBands } from '@/data/workflow';
 import { fxRates } from '@/data/fxRates';
 import { tolerances } from '@/data/tolerances';
@@ -88,6 +89,12 @@ export default function ConfigViewer() {
         <T head={['Code', 'Rule', 'Category', 'Outcome', 'Effective from', 'Enforcement']}
           rows={policyRules.map((r) => [r.code, r.name, r.category, r.defaultOutcome, r.effectiveFrom, r.mandatory ? 'Mandatory' : r.active ? 'Active' : 'Inactive'])} />
         <p className="text-xs text-[var(--ecs-muted)] mt-2">The policy engine gates each discretionary check on its active flag and effective date (mandatory structural checks always run). Turning a rule off or dating it changes evaluation without code changes (§43).</p>
+      </Card>
+
+      <Card title="Central Travel Accounts — CTA → clearing (DD-30)">
+        <T head={['CTA account', 'Label', 'Provider', 'Company', 'Currency', 'Clearing GL', 'Effective', 'Status']}
+          rows={ctaAccounts.map((a) => [a.ctaAccountId, a.label, a.provider, a.companyCode, a.currency, a.clearingGlAccount, a.effectiveFrom, a.active ? 'Active' : 'Inactive'])} />
+        <p className="text-xs text-[var(--ecs-muted)] mt-2">The CTA account id is reported by the card / TMC feed on each central-settled charge; this master is a posting-only lookup that maps it to the clearing GL account ECS&apos;s posting programme credits. Different CTA accounts map to different clearing accounts.</p>
       </Card>
 
       <Card title="Workflow Amount Bands">

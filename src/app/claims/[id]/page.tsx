@@ -11,13 +11,13 @@ import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
 import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging } from '@/modules/te/actions';
 import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
 import { currencies } from '@/data/fxRates';
 import { employees } from '@/data/employees';
-import { CLAIM_STATUS, APPROVER_ROLE } from '@/shared/enums';
+import { CLAIM_STATUS, APPROVER_ROLE, TE_TREATMENT } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { ClaimDecisionBar } from '@/components/ClaimDecisionBar';
@@ -50,8 +50,16 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const bookingRef = `${req.authorisationNo ?? '—'}${booking?.pnr ? ` · ${booking.pnr}` : ''}`;
   const labelOf = (l: { category: string; expenseTypeId: string }) => EcsReference.expenseType(l.expenseTypeId)?.name ?? prep.lines.find((p) => p.category === l.category)?.label ?? l.category;
 
+  // DD-19 / DD-30 — CTA-settled (Reference) lines are shown for the full cost picture but are NOT
+  // reimbursed (the employee never fronted them). Auto-deduct them from the reimbursable total so
+  // the displayed figure matches claimTotal() (which already excludes Reference lines). The paying
+  // CTA account comes from the claimant's booking (feed-reported).
+  const isRef = (l: { treatment: string }) => l.treatment === TE_TREATMENT.Reference;
   const totalExpenses = claim.lines.reduce((s, l) => s + l.actualSgd, 0);
-  const totalReimbursable = Math.max(totalExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
+  const ctaPaidTotal = claim.lines.filter(isRef).reduce((s, l) => s + l.actualSgd, 0);
+  const reimbursableExpenses = claim.lines.filter((l) => !isRef(l)).reduce((s, l) => s + l.actualSgd, 0);
+  const totalReimbursable = Math.max(reimbursableExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
+  const ctaAccount = EcsCharging.ctaAccount(booking?.ctaAccountId);
 
   // DD-08 / E11 — if the claimant moved the charging off the approved request's DOA, the claim
   // will route to the NEW account's DOA on submit (no auto-grant). Surface that before submit.
@@ -180,11 +188,11 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                   {claim.lines.map((l) => (
                     <tr key={l.id} className="hover:bg-[var(--ecs-panel-2)]">
                       <td className="td whitespace-nowrap">{d(l.transactionDate) || '—'}</td>
-                      <td className="td font-medium">{labelOf(l)}</td>
-                      <td className="td">{canEdit ? <input name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
+                      <td className="td font-medium">{labelOf(l)}{isRef(l) && <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-xs font-normal bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] whitespace-nowrap" title={ctaAccount ? `${ctaAccount.label} → clearing ${ctaAccount.clearingGlAccount}` : undefined}>Paid by CTA{booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed</span>}</td>
+                      <td className="td">{canEdit && !isRef(l) ? <input name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
                       <td className="td text-right whitespace-nowrap text-[var(--ecs-muted)]">{l.approvedSgd > 0 ? fmtSgd(l.approvedSgd) : '—'}</td>
-                      <td className="td text-right">{canEdit ? <input name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right w-28 ml-auto" /> : fmtSgd(l.actualSgd)}</td>
-                      <td className="td">{canEdit ? (
+                      <td className={`td text-right ${isRef(l) ? 'text-[var(--ecs-muted)]' : ''}`}>{canEdit && !isRef(l) ? <input name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right w-28 ml-auto" /> : fmtSgd(l.actualSgd)}</td>
+                      <td className="td">{isRef(l) ? <span className="text-[var(--ecs-muted)]">—</span> : canEdit ? (
                         <select name={`receipt_${l.id}`} defaultValue={l.receiptType} className="field">
                           {Object.entries(RECEIPT).map(([v, lab]) => <option key={v} value={v}>{lab}</option>)}
                         </select>
@@ -196,11 +204,15 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
               </table>
             </div>
           )}
-          <div className="mt-4 ml-auto max-w-sm space-y-1.5 text-sm">
-            <div className="flex justify-between"><span className="text-[var(--ecs-muted)]">Total expenses</span><span className="font-medium">{fmtSgd(totalExpenses)}</span></div>
-            <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less NTU Corporate Card</span>{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessCorpCard)}</span>}</div>
+          <div className="mt-4 ml-auto max-w-md space-y-1.5 text-sm">
+            <div className="flex justify-between"><span className="text-[var(--ecs-muted)]">Total expenses (all lines)</span><span className="font-medium">{fmtSgd(totalExpenses)}</span></div>
+            {ctaPaidTotal > 0 && (
+              <div className="flex justify-between"><span className="text-[var(--ecs-muted)]">Less: charges paid by CTA{ctaAccount ? ` (${ctaAccount.ctaAccountId})` : ''} — reference only</span><span className="text-[var(--ecs-muted)]">− {fmtSgd(ctaPaidTotal)}</span></div>
+            )}
+            <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</span>{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessCorpCard)}</span>}</div>
             <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less Personal / Sponsorship</span>{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessPersonal)}</span>}</div>
             <div className="flex justify-between border-t border-[var(--ecs-border)] pt-1.5 font-bold text-[var(--ecs-navy)]"><span>Total Reimbursable Amount</span><span>{fmtSgd(totalReimbursable)}</span></div>
+            {ctaPaidTotal > 0 && <p className="text-xs text-[var(--ecs-muted)] pt-1">CTA-settled airfare / hotel are deducted automatically (paid centrally, not reimbursed). &ldquo;Less NTU Corporate Card (other)&rdquo; is for any other corporate-card spend not already shown as a reference line.</p>}
           </div>
           {canEdit && <div className="flex justify-end mt-4"><button type="submit" className="btn-secondary">Save draft</button></div>}
         </Card>
