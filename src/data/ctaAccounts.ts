@@ -23,4 +23,9 @@ export const ctaAccounts: CtaAccount[] = [
   { ctaAccountId: 'CTA-SG-SGD', label: 'NTU Central Travel Account — SGD', provider: 'FCM Travel (lodge card)', companyCode: '1000', currency: 'SGD', clearingGlAccount: '199101', active: true, effectiveFrom: '2025-01-01' },
   { ctaAccountId: 'CTA-SG-USD', label: 'NTU Central Travel Account — USD multi-currency (non-SGD settlements)', provider: 'FCM Travel (lodge card)', companyCode: '1000', currency: 'USD', clearingGlAccount: '199102', active: true, effectiveFrom: '2025-01-01' },
   { ctaAccountId: 'CTA-BSP-AIR', label: 'NTU Air BSP settlement account', provider: 'IATA BSP', companyCode: '1000', currency: 'SGD', clearingGlAccount: '199105', active: true, effectiveFrom: '2025-01-01' },
+  // Guest bookings are CTA-settled too (airfare + accommodation). The feed reports which account
+  // was used, so a guest charge can lodge to the SAME account as employees OR to this dedicated
+  // guest account — the master simply holds whichever the TMC uses. Here it maps to its own
+  // clearing GL to keep guest settlement reconcilable separately.
+  { ctaAccountId: 'CTA-GUEST', label: 'NTU Guest Central Travel Account', provider: 'FCM Travel (guest lodge card)', companyCode: '1000', currency: 'SGD', clearingGlAccount: '199110', active: true, effectiveFrom: '2025-01-01' },
 ];

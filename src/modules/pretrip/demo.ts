@@ -472,7 +472,7 @@ async function buildGuestLondonBookedS26() {
   const id = await seedGuestRequest({ guestName: 'Prof Eleanor Vance', guestEmail: 'e.vance@cam.ac.uk', guestOrg: 'University of Cambridge', purposeId: 'TP-OB-ACAD', destCountry: 'GB', destCity: 'LON', destAirport: 'LHR', start: '2026-12-01', end: '2026-12-05', nights: 4, durationHours: 13, airfare: 1850, nightly: 260, descr: 'Guest external examiner — London (approved & booked, S26)' });
   await submit(id);
   await approveAll(id);
-  await bookViaTmc(id);
+  await bookViaTmc(id, 0, 'CTA-GUEST');   // DD-30 guest bookings lodged to the dedicated guest CTA (separate clearing)
 }
 
 /** S22 — multi-city itinerary (SIN → Tokyo → Seoul → SIN) left at Pending DOA. */

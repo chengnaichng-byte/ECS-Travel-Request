@@ -60,15 +60,19 @@ export async function listCtaCharges(): Promise<{ groups: ClearingGroup[]; total
       clearingGlAccount: cta?.clearingGlAccount ?? 'UNMAPPED',
     });
 
-    // Airfare is a CTA charge only when the trip is a TMC arrangement (central-settled).
+    // A guest booking is CTA-settled in full (airfare + accommodation are paid centrally /
+    // direct-billed — DD-21): guests file no TE claim, but their CTA charges are still captured and
+    // reconciled here. For employees, airfare is central when TMC-arranged and the hotel only when
+    // the requestor chose CTA settlement.
+    const isGuest = req.travellerType === 'GUEST';
+
     const airSgd = Math.round(((b.fare ?? 0) + (b.taxes ?? 0) + (b.fees ?? 0)) * 100) / 100;
-    if (airSgd > 0 && lineSettlement(req, EXPENSE_CATEGORY.Airfare) === 'CENTRAL') {
+    if (airSgd > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Airfare) === 'CENTRAL')) {
       const air = b.segments.find((s) => s.type === 'AIR');
       rows.push(mk('Airfare', air ? `${air.originCode ?? ''} → ${air.destCode ?? ''}` : (EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—'), iso(air?.departDate), airSgd));
     }
-    // Hotel is a CTA charge only when the requestor chose CTA settlement.
     const hotelSgd = Math.round(b.segments.filter((s) => s.type === 'HOTEL').reduce((s, x) => s + (x.amount ?? 0), 0) * 100) / 100;
-    if (hotelSgd > 0 && lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL') {
+    if (hotelSgd > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL')) {
       const hotel = b.segments.find((s) => s.type === 'HOTEL');
       rows.push(mk('Accommodation', EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—', iso(hotel?.departDate), hotelSgd));
     }

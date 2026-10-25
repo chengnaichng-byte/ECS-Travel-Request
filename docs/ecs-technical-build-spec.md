@@ -78,7 +78,7 @@ This is the technical appendix to the RFP for the **ECS Pre-Trip Travel Request*
 | Authentication | Persona cookie switcher | Replace with ECS SSO/identity (§8.2) |
 
 ### 1.4 Provenance
-The requirements are derived from the ECS Pre-Trip Build Pack and the CFO review decisions (DD-01…DD-29, App. D), validated by the running prototype. Companion artifacts: the **design Build Spec** (decisions + screen narratives) and the **Feature Walkthrough** (live screens).
+The requirements are derived from the ECS Pre-Trip Build Pack and the CFO review decisions (DD-01…DD-30, App. D), validated by the running prototype. Companion artifacts: the **design Build Spec** (decisions + screen narratives) and the **Feature Walkthrough** (live screens).
 
 **TR-PT-01** The solution MUST implement the full pre-trip lifecycle (draft → approval → Travel Authorisation → TMC hand-off → booking reconciliation → claim seeding) with policy and routing enforced **server-side**, never trusting the client.
 **TR-PT-02** The solution MUST read all reference masters (identity, DOA, charging, policy rates, FX, locations, bands) through a single integration boundary and MUST NOT maintain copies of them.
@@ -508,6 +508,9 @@ ODA / OTHER   → EMPLOYEE (always)
 `isReimbursable = settlement===EMPLOYEE`. **Reads:** (a) TMC payload — each hotel segment `billTo = CTA|TRAVELLER`; (b) claim treatment — CENTRAL → `REFERENCE` (shown, not reimbursed), EMPLOYEE → `EDITABLE`; (c) DD-08 tolerance — compares the **reimbursable** portion on **both** sides (§6.14). `airfareTreatment` only governs *how* a central airfare line posts, never reimbursability. The hotel toggle applies to individual + group; CTA offered only for a TMC arrangement. Settlement is **separate from authorisation and cost ownership** — the approval amount is the full committed spend and the CC/WBS allocation is unchanged.
 **TR-PT-17** A claim line MUST be reimbursable if and only if the employee fronted it; centrally-settled lines (CTA/TMC-billed) MUST be shown for reconciliation but excluded from the reimbursable total.
 
+**CTA charge posting & reconciliation (DD-30).** ECS's existing posting programme performs the GL posting of central (CTA) charges; the one input it lacks is the **clearing account** per CTA. A small **CTA master** supplies it — a posting-only lookup keyed by the `ctaAccountId` the card/TMC feed reports on each charge (never derived), mapping it to its clearing GL account (different CTA accounts → different clearing accounts). On the claim the CTA-settled lines are **Reference** and auto-deducted from the reimbursable total (above). A read-only **CTA Charges** listing groups the captured charges by clearing account (with CSV export) — a one-sided view for finance to reconcile against the provider statement outside ECS; ECS performs no matching or posting there. **Guest bookings are CTA-settled too** (airfare + accommodation): their charges are captured and listed for reconciliation, but a guest files **no TE claim** (DD-21), so guest charges never appear on a claim. Guest charges may lodge to the **same CTA account as employees or a separate guest CTA account** — the account is feed-reported, so the master simply holds whichever the TMC uses.
+**TR-PT-28** Each central-settled charge MUST carry the feed-reported CTA account; ECS MUST resolve its clearing account from a configurable CTA master (distinct CTA accounts resolving to distinct clearing accounts) and MUST NOT derive the account itself. Guest bookings MUST be CTA-captured for reconciliation without a TE claim, and the CTA account MAY be shared with employees or dedicated to guests.
+
 ### 6.11 Catching duplicate or clashing trips (DD-14)
 **In plain terms.** A traveller cannot be in two places at once, and the University does not want two live authorisations (and two sets of bookings) for the same trip. So the system looks at the traveller's other **active** requests (anything submitted, awaiting approval, approved or being amended) and compares dates and destination:
 
@@ -873,7 +876,7 @@ Where each behaviour lives in the source:
 - **Actions** — `modules/pretrip/actions.ts` + `modules/te/*`
 - **Seed** — `modules/pretrip/demo.ts`
 
-Design decisions trace to the companion Build Spec (DD-01…DD-29).
+Design decisions trace to the companion Build Spec (DD-01…DD-30).
 
 ## Appendix D — Decision register (design decisions)
 Binding design decisions carried from the companion Build Spec:
@@ -905,6 +908,8 @@ Binding design decisions carried from the companion Build Spec:
 - **DD-26** — automatic TMC hand-off
 - **DD-27** — destination mandatory
 - **DD-28** — separation of duties
+- **DD-29** — policy-driven estimates (ODA & accommodation) auto-derived per city
+- **DD-30** — CTA-settled charges: CTA→clearing master (posting-only lookup), claim reference lines auto-deducted, one-sided CTA charges reconciliation listing; guest bookings CTA-captured (no TE claim), same-or-separate guest CTA account
 
 **Open decision points:** O-1 auto-grant tolerance figures · O-5 upgrade split percentages · O-R1 retention periods.
 
@@ -938,6 +943,7 @@ Each requirement is stated in full at the point it is derived; this is the conso
 - **TR-PT-25** — guest PDPA via TMC
 - **TR-PT-26** — idempotent + audited hand-offs
 - **TR-PT-27** — automated acceptance suite
+- **TR-PT-28** — CTA account feed-reported; clearing resolved from a configurable CTA master (DD-30)
 
 ## Appendix F — OutSystems sizing estimate
 
