@@ -92,7 +92,7 @@ export default function ConfigViewer() {
       </Card>
 
       <Card title="Central Travel Accounts — CTA → clearing (DD-30)">
-        <T head={['CTA account', 'Label', 'Provider', 'Company', 'Currency', 'Clearing GL', 'Effective', 'Status']}
+        <T head={['CTA account', 'Label', 'Provider', 'Company', 'Currency', 'Credit GL (clearing)', 'Effective', 'Status']}
           rows={ctaAccounts.map((a) => [a.ctaAccountId, a.label, a.provider, a.companyCode, a.currency, a.clearingGlAccount, a.effectiveFrom, a.active ? 'Active' : 'Inactive'])} />
         <p className="text-xs text-[var(--ecs-muted)] mt-2">The CTA account id is reported by the card / TMC feed on each central-settled charge; this master is a posting-only lookup that maps it to the clearing GL account ECS&apos;s posting programme credits. Different CTA accounts map to different clearing accounts.</p>
       </Card>

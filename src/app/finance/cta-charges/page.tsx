@@ -17,23 +17,23 @@ export default async function CtaChargesPage() {
   return (
     <div className="w-full space-y-5">
       <PageTitle id="DD-30 · read-only" title="CTA Charges"
-        subtitle="Central-settled (CTA-paid) airfare and hotel charges captured from the TMC feed, grouped by clearing account. A one-sided listing for finance to reconcile against the provider statement — ECS does not match or post here; its posting programme handles the GL posting." />
+        subtitle="Central-settled (CTA-paid) airfare and hotel charges captured from the TMC feed, grouped by credit GL account. The credit side of each accounting entry is the CTA clearing account, derived from the CTA master; the debit (expense cost object + GL) is set at the claim. A one-sided listing for finance to reconcile against the provider statement — ECS does not match or post here; its posting programme handles the GL posting." />
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="text-sm text-[var(--ecs-muted)]">{rowCount} charge(s) · total {fmtSgd(totalSgd)} across {groups.length} clearing account(s)</div>
+        <div className="text-sm text-[var(--ecs-muted)]">{rowCount} charge(s) · total {fmtSgd(totalSgd)} across {groups.length} credit GL account(s)</div>
         <div className="ml-auto"><ExportCtaCsv rows={allRows} /></div>
       </div>
 
       {groups.length === 0 ? (
         <Card title="CTA charges"><Empty>No CTA-settled charges captured yet. Book a trip whose airfare or hotel is paid on the CTA.</Empty></Card>
       ) : groups.map((g) => (
-        <Card key={g.clearingGlAccount} title={`Clearing ${g.clearingGlAccount}${g.ctaAccountIds.length ? `  ·  ${g.ctaAccountIds.join(', ')}` : ''}`}>
+        <Card key={g.clearingGlAccount} title={`Credit GL ${g.clearingGlAccount} · CTA clearing${g.ctaAccountIds.length ? `  ·  ${g.ctaAccountIds.join(', ')}` : ''}`}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr>
                 <th className="th">Request</th><th className="th">TA</th><th className="th">Traveller</th><th className="th">PNR / ticket</th>
                 <th className="th">Type</th><th className="th">Detail</th><th className="th">Booked</th><th className="th">CTA account</th>
-                <th className="th text-right">Amount (SGD)</th>
+                <th className="th">Credit GL</th><th className="th text-right">Amount (SGD)</th>
               </tr></thead>
               <tbody>
                 {g.rows.map((r, i) => (
@@ -46,12 +46,13 @@ export default async function CtaChargesPage() {
                     <td className="td">{r.detail}</td>
                     <td className="td whitespace-nowrap">{r.bookedDate ?? '—'}</td>
                     <td className="td font-mono text-xs" title={r.ctaAccountLabel}>{r.ctaAccountId ?? '—'}</td>
+                    <td className="td font-mono text-xs" title="Credit side of the accounting entry (CTA clearing account, from the CTA master)">{r.clearingGlAccount}</td>
                     <td className="td text-right">{fmtSgd(r.amountSgd)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
-                <td className="td" colSpan={8}>Subtotal → clearing {g.clearingGlAccount}</td>
+                <td className="td" colSpan={9}>Subtotal → credit GL {g.clearingGlAccount}</td>
                 <td className="td text-right">{fmtSgd(g.subtotalSgd)}</td>
               </tr></tfoot>
             </table>
@@ -59,7 +60,7 @@ export default async function CtaChargesPage() {
         </Card>
       ))}
 
-      <p className="text-xs text-[var(--ecs-muted)]">The CTA account is reported by the card / TMC feed on each charge; the CTA master (DD-30) maps it to its clearing account. This listing is ECS&apos;s side only — reconciliation against the provider statement is performed outside ECS.</p>
+      <p className="text-xs text-[var(--ecs-muted)]">The CTA account is reported by the card / TMC feed on each charge; the CTA master (DD-30) maps it to its <strong>credit GL (clearing) account</strong> — the credit side of the accounting entry generated when the charge posts. The debit (the expense cost object and GL) is determined at the claim. This listing is ECS&apos;s side only — reconciliation against the provider statement is performed outside ECS.</p>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import type { CtaChargeRow } from '@/modules/te/ctaCharges';
 
 export function ExportCtaCsv({ rows }: { rows: CtaChargeRow[] }) {
   const download = () => {
-    const head = ['Request', 'TA', 'Traveller', 'PNR', 'Ticket', 'Type', 'Detail', 'Booked date', 'Amount SGD', 'CTA account', 'CTA account label', 'Clearing GL', 'Provider'];
+    const head = ['Request', 'TA', 'Traveller', 'PNR', 'Ticket', 'Type', 'Detail', 'Booked date', 'Amount SGD', 'CTA account', 'CTA account label', 'Credit GL (clearing)', 'Provider'];
     const esc = (v: string | number | null) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const lines = [head.join(',')];
     for (const r of rows) {
