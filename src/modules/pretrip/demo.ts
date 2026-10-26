@@ -12,6 +12,7 @@ import { evaluatePolicies, hasException, hasHardStop } from './policy';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
 import { HOTEL_SETTLEMENT } from './settlement';
+import { postCtaChargesForRequest } from './ctaPosting';
 import { applyMaterialAmendment } from './amend';
 import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsPolicy, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
@@ -253,6 +254,7 @@ async function bookViaTmc(id: string, overFarePct = 0, ctaAccountId = 'CTA-SG-SG
   for (const seg of inbound.segments) await prisma.bookingSegment.create({ data: { bookingId: booking.id, type: seg.type, originCode: seg.origin, destCode: seg.destination, bookedClassId: seg.bookedClass, amount: seg.amountSgd ?? seg.roomRateSgd } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   await audit(id, 'E-SYS', 'INTEGRATION', `Inbound booking received — PNR ${inbound.pnr}`);
+  await postCtaChargesForRequest(id);   // DD-31 post settled CTA charges to SAP on receipt
 }
 
 async function makeClaim(id: string, claimantId: string, actualsFactor = 1) {
@@ -597,6 +599,7 @@ async function buildMultiCityBookedS28() {
   await mkPnr('B', legs.slice(2, 4), { fare: 1700, taxes: 204, fees: 30 }, [['SEL', 240]]);
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   await audit(id, 'E-SYS', 'INTEGRATION', `Inbound received — 2 PNRs (PNR${seed}-A, PNR${seed}-B)`);
+  await postCtaChargesForRequest(id);   // DD-31 post settled CTA charges to SAP on receipt
 }
 
 /** S23 — one-way trip (single leg) left at Pending RO. */

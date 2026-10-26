@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { adapterFor } from '@/integrations/tmc/adapter';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
+import { postCtaChargesForRequest } from './ctaPosting';
 import { resolveTmcProvider } from './tmcRouting';
 import { bookingsForAuthorisation } from './tmcRetrieval';
 import { assessHandoffRouting, channelLabel } from './handoffRouting';
@@ -1314,6 +1315,7 @@ export async function receiveBooking(id: string, fd: FormData) {
     : inbounds.length > 1
       ? `Inbound received — ${inbounds.length} PNRs (${inbounds.map((b) => b.inbound.pnr).join(', ')})`
       : `Inbound booking received — PNR ${inbounds[0].inbound.pnr}`);
+  await postCtaChargesForRequest(id);   // DD-31 post settled CTA charges to SAP on receipt
   revalidatePath(`/requests/${id}/booking`);
 }
 

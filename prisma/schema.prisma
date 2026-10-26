@@ -152,6 +152,23 @@ model TravelRequest {
 /// §8 / DD-25 Per-school Provost list — the approvers who may authorise a guest (non-employee)
 /// travel-class upgrade. Maintained in Setup & Maintenance (list + add/deactivate); the host
 /// school's active provosts are offered for selection when a guest is booked above Economy.
+/// DD-31 CtaPostingDocument — the SAP posting made for a settled CTA charge, on receipt from the
+/// TMC (not at claim). One per booking + charge type; idempotent. Carries the SAP document number,
+/// posting date and status so the accounting-entries report shows the real posting lifecycle.
+model CtaPostingDocument {
+  id                String   @id @default(cuid())
+  bookingId         String
+  requestId         String
+  chargeType        String                      // Airfare | Accommodation
+  sapDocNo          String   @unique
+  postingDate       String                      // YYYY-MM-DD the charge posted to SAP
+  status            String   @default("Posted")  // Posted | Failed | Reversed
+  grossSgd          Float
+  clearingGlAccount String
+  createdAt         DateTime @default(now())
+  @@unique([bookingId, chargeType])
+}
+
 /// DD-30 CtaAccount — Central Travel Account master (CTA → credit-GL clearing). A maintainable
 /// reference master (list + add/edit/deactivate in Setup & Maintenance), seeded idempotently from
 /// src/data/ctaAccounts.ts so a fresh/reseeded database always carries the default accounts.

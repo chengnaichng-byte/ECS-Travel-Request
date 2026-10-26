@@ -1,13 +1,13 @@
-// DD-31 (proposed) CTA charge → SAP accounting-entry computation. Read-only: it builds the GL
-// journal each settled CTA charge WOULD post (the posting itself is not wired yet — this is the
-// preview report for finance to validate the entries before build).
-//
-// Per settled CTA charge the entry is:
-//   Dr  <expense GL>  (cost object)   net amount, split across the APPROVED charging allocation
-//   Dr  Input GST GL                  tax (only when the expense type is GST-rated; CTA airfare &
-//                                     accommodation are ZP zero-rated → no tax line)
-//   Cr  <CTA clearing GL>             gross amount (the credit side, from the CTA master)
+// DD-31 CTA charge → SAP posting. A settled CTA charge posts to SAP on RECEIPT from the TMC (not at
+// claim). The entry per charge is:
+//   Dr  <expense GL>  (cost object)   net, split across the APPROVED charging allocation (cross charge)
+//   Dr  Input GST GL                  tax (only when GST-rated; CTA air/accom are ZP zero-rated)
+//   Cr  <CTA clearing GL>             gross (the credit side, from the CTA master)
 // On a later cancellation/refund the same entry is posted REVERSED (auto-reversal).
+//
+// `postCtaChargesForRequest` persists a CtaPostingDocument per settled charge (idempotent) with the
+// SAP document number, posting date and status. `computeCtaPostings` builds the journal for the
+// report and attaches each charge's posting lifecycle (date / status / doc).
 import { prisma } from '@/shared/db';
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { ctaAccountsMap } from './ctaMaster';
@@ -20,11 +20,12 @@ export interface PostingLine {
   description: string;
   costObject: string | null;
   costObjectType: string | null;
-  percent: number | null;      // cross-charge share % for a debit cost-object line; null for GST / credit
+  percent: number | null;
   amountSgd: number;
 }
 
 export interface CtaPosting {
+  bookingId: string;
   requestId: string;
   requestNumber: string;
   authorisationNo: string | null;
@@ -39,76 +40,112 @@ export interface CtaPosting {
   netSgd: number;
   gstCode: string;
   allocationNote: string;
-  crossCharge: boolean;        // the debit is split across more than one cost object (cross charge)
+  crossCharge: boolean;
   source: string;
   lines: PostingLine[];
   balanced: boolean;
+  // posting lifecycle (from the persisted CtaPostingDocument)
+  sapDocNo: string | null;
+  postingDate: string | null;
+  postingStatus: string;
 }
+
+interface Charge { chargeType: 'Airfare' | 'Accommodation'; expenseTypeId: string; grossSgd: number }
+type BookingLike = { fare: number | null; taxes: number | null; fees: number | null; segments: { type: string; amount: number | null }[] };
+type ReqLike = { travellerType: string | null; bookingArrangement: string | null; hotelSettlement: string | null };
 
 const ELIGIBLE: string[] = [BOOKING_STATUS.Booked, BOOKING_STATUS.TravelCompleted];
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const iso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 const GST_INPUT_GL = 'GL-GST-INPUT';
 
+/** The CTA (central-settled) charges carried by a booking. */
+function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
+  const out: Charge[] = [];
+  const isGuest = req.travellerType === 'GUEST';
+  const air = r2((b.fare ?? 0) + (b.taxes ?? 0) + (b.fees ?? 0));
+  if (air > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Airfare) === 'CENTRAL')) out.push({ chargeType: 'Airfare', expenseTypeId: 'ET-AIR', grossSgd: air });
+  const hotel = r2(b.segments.filter((s) => s.type === 'HOTEL').reduce((s, x) => s + (x.amount ?? 0), 0));
+  if (hotel > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL')) out.push({ chargeType: 'Accommodation', expenseTypeId: 'ET-ACC', grossSgd: hotel });
+  return out;
+}
+
+/** DD-31 — post the settled CTA charges of a request to SAP on receipt (idempotent, one posting per
+ *  booking + charge type). Creates a CtaPostingDocument with the SAP doc no, posting date and status. */
+export async function postCtaChargesForRequest(requestId: string): Promise<void> {
+  const req = await prisma.travelRequest.findUnique({ where: { id: requestId }, include: { allocations: true, bookings: { include: { segments: true } } } });
+  if (!req) return;
+  const ctaMap = await ctaAccountsMap();
+  for (const b of req.bookings) {
+    if (!ELIGIBLE.includes(b.status)) continue;
+    if (!b.ctaCharged) continue;                       // post only once the feed reports it settled
+    const cta = b.ctaAccountId ? ctaMap.get(b.ctaAccountId) : undefined;
+    const clearingGl = cta?.clearingGlAccount ?? 'UNMAPPED';
+    const status = clearingGl === 'UNMAPPED' ? 'Failed' : 'Posted';
+    const postingDate = iso(b.ctaChargeDate) ?? new Date().toISOString().slice(0, 10);
+    for (const c of chargesOf(b, req)) {
+      const existing = await prisma.ctaPostingDocument.findUnique({ where: { bookingId_chargeType: { bookingId: b.id, chargeType: c.chargeType } } });
+      if (existing) continue;                          // idempotent
+      const seq = (await prisma.ctaPostingDocument.count()) + 1;
+      const sapDocNo = `SAP-CTA-${String(seq).padStart(6, '0')}`;
+      await prisma.ctaPostingDocument.create({ data: { bookingId: b.id, requestId: req.id, chargeType: c.chargeType, sapDocNo, postingDate, status, grossSgd: c.grossSgd, clearingGlAccount: clearingGl } });
+    }
+  }
+}
+
 export interface CtaPostingsView { postings: CtaPosting[]; totalDr: number; totalCr: number; count: number }
 
+/** Build the accounting-entries report: the journal per settled CTA charge, with the posting
+ *  lifecycle (date/status/doc) attached from the persisted CtaPostingDocument. */
 export async function computeCtaPostings(): Promise<CtaPostingsView> {
   const bookings = await prisma.travelBooking.findMany({ include: { request: { include: { allocations: true } }, segments: true }, orderBy: { id: 'asc' } });
   const ctaMap = await ctaAccountsMap();
+  const docs = await prisma.ctaPostingDocument.findMany();
+  const docMap = new Map(docs.map((d) => [`${d.bookingId}:${d.chargeType}`, d]));
   const postings: CtaPosting[] = [];
 
   for (const b of bookings) {
     const req = b.request;
     if (!req) continue;
-    if (!ELIGIBLE.includes(b.status)) continue;   // booked/completed via TMC only
-    if (!b.ctaCharged) continue;                   // only charges the feed reports settled post to SAP
+    if (!ELIGIBLE.includes(b.status)) continue;
+    if (!b.ctaCharged) continue;
     const cta = b.ctaAccountId ? ctaMap.get(b.ctaAccountId) : undefined;
     const clearingGl = cta?.clearingGlAccount ?? 'UNMAPPED';
     const traveller = b.travellerId ?? req.travellerId;
     const travellerName = EcsIdentity.employee(traveller)?.name ?? req.guestName ?? traveller;
-    const isGuest = req.travellerType === 'GUEST';
     const allocs = req.allocations.length
       ? req.allocations.map((a) => ({ code: a.chargingCode, type: a.chargingType, percent: a.percent }))
       : [{ code: 'UNALLOCATED', type: 'CC', percent: 100 }];
 
-    const build = (chargeType: 'Airfare' | 'Accommodation', expenseTypeId: string, amount: number, source: string) => {
-      const et = EcsReference.expenseType(expenseTypeId);
+    for (const c of chargesOf(b, req)) {
+      const et = EcsReference.expenseType(c.expenseTypeId);
       const gl = et?.glAccount ?? 'GL-UNKNOWN';
       const rate = et?.taxRatePct ?? 0;
-      const gross = r2(amount);
-      const tax = rate > 0 ? r2((gross * rate) / (100 + rate)) : 0;   // GST-inclusive
+      const gross = r2(c.grossSgd);
+      const tax = rate > 0 ? r2((gross * rate) / (100 + rate)) : 0;
       const net = r2(gross - tax);
       const lines: PostingLine[] = [];
-      // Dr expense net, split across the approved allocation (last line absorbs rounding).
       let running = 0;
       allocs.forEach((a, i) => {
         const amt = i === allocs.length - 1 ? r2(net - running) : r2(net * (a.percent / 100));
         running = r2(running + amt);
-        lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
+        lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? c.chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
       });
       if (tax > 0) lines.push({ side: 'DR', glAccount: GST_INPUT_GL, description: `Input GST (${et?.gstCode})`, costObject: null, costObjectType: null, percent: null, amountSgd: tax });
-      // Cr CTA clearing (gross).
       lines.push({ side: 'CR', glAccount: clearingGl, description: `CTA clearing${b.ctaAccountId ? ` — ${b.ctaAccountId}` : ''}`, costObject: null, costObjectType: null, percent: null, amountSgd: gross });
       const dr = r2(lines.filter((l) => l.side === 'DR').reduce((s, l) => s + l.amountSgd, 0));
       const cr = r2(lines.filter((l) => l.side === 'CR').reduce((s, l) => s + l.amountSgd, 0));
+      const doc = docMap.get(`${b.id}:${c.chargeType}`);
       postings.push({
-        requestId: req.id, requestNumber: req.requestNumber, authorisationNo: req.authorisationNo,
-        travellerName, pnr: b.pnr, chargeType, chargeDate: iso(b.ctaChargeDate),
+        bookingId: b.id, requestId: req.id, requestNumber: req.requestNumber, authorisationNo: req.authorisationNo,
+        travellerName, pnr: b.pnr, chargeType: c.chargeType, chargeDate: iso(b.ctaChargeDate),
         ctaAccountId: b.ctaAccountId, clearingGlAccount: clearingGl,
         grossSgd: gross, taxSgd: tax, netSgd: net, gstCode: et?.gstCode ?? '—',
-        allocationNote: allocs.map((a) => `${a.code} ${a.percent}%`).join(' · '),
-        crossCharge: allocs.length > 1,
-        source, lines, balanced: Math.abs(dr - cr) < 0.005,
+        allocationNote: allocs.map((a) => `${a.code} ${a.percent}%`).join(' · '), crossCharge: allocs.length > 1,
+        source: c.chargeType === 'Airfare' ? `fare ${fmt(b.fare)} + taxes ${fmt(b.taxes)} + fees ${fmt(b.fees)}` : 'hotel segment total',
+        lines, balanced: Math.abs(dr - cr) < 0.005,
+        sapDocNo: doc?.sapDocNo ?? null, postingDate: doc?.postingDate ?? null, postingStatus: doc?.status ?? 'Not posted',
       });
-    };
-
-    const airSgd = r2((b.fare ?? 0) + (b.taxes ?? 0) + (b.fees ?? 0));
-    if (airSgd > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Airfare) === 'CENTRAL')) {
-      build('Airfare', 'ET-AIR', airSgd, `fare ${fmt(b.fare)} + taxes ${fmt(b.taxes)} + fees ${fmt(b.fees)}`);
-    }
-    const hotelSgd = r2(b.segments.filter((s) => s.type === 'HOTEL').reduce((s, x) => s + (x.amount ?? 0), 0));
-    if (hotelSgd > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL')) {
-      build('Accommodation', 'ET-ACC', hotelSgd, `hotel segment total`);
     }
   }
 
