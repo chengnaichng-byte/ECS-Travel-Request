@@ -42,6 +42,7 @@ model ModuleSettings {
   authorisationValidityDays Int  @default(30)     // §13.3
   bookingDeadlineDays    Int     @default(14)     // §13.3
   emergencyLeadDays      Int     @default(14)     // §13.x/DD-23 emergency-lane standard lead-time window (days before departure); beyond it the out-of-window justification + confirmation are required
+  ctaPostingTiming       String  @default("ON_RECEIPT") // DD-31 ON_RECEIPT | AT_CLAIM — when CTA charges post to SAP
   updatedAt              DateTime @updatedAt
 }
 
@@ -165,6 +166,8 @@ model CtaPostingDocument {
   status            String   @default("Posted")  // Posted | Failed | Reversed
   grossSgd          Float
   clearingGlAccount String
+  reversalSapDocNo  String?                     // DD-31 auto-reversal: the reversing SAP document
+  reversedDate      String?                     // DD-31 date the entry was reversed (cancellation/refund)
   createdAt         DateTime @default(now())
   @@unique([bookingId, chargeType])
 }

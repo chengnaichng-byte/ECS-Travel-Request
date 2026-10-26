@@ -28,7 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { adapterFor } from '@/integrations/tmc/adapter';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
-import { postCtaChargesForRequest } from './ctaPosting';
+import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
 import { resolveTmcProvider } from './tmcRouting';
 import { bookingsForAuthorisation } from './tmcRetrieval';
 import { assessHandoffRouting, channelLabel } from './handoffRouting';
@@ -1156,6 +1156,7 @@ export async function receiveCancellation(id: string, fd?: FormData) {
     await tx.travelBooking.updateMany({ where: { requestId: id, channel: 'TMC' }, data: { status: BOOKING_STATUS.Cancelled } });
     await tx.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Cancelled } });
   });
+  await reverseCtaChargesForRequest(id);   // DD-31 auto-reverse the CTA postings on cancellation
   await audit(id, 'INTEGRATION', `TMC confirmed cancellation — ${cancelRef}${feeSgd ? `, fee SGD ${feeSgd}, refund SGD ${refundSgd}` : ' (no fee)'}`);
   revalidatePath(`/requests/${id}`);
   revalidatePath(`/requests/${id}/booking`);

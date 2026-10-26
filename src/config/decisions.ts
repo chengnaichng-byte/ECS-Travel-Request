@@ -29,6 +29,7 @@ export const moduleSettingsDefaults = {
   authorisationValidityDays: 30,    // §13.3
   bookingDeadlineDays: 14,          // §13.3
   emergencyLeadDays: 14,            // §13.x/DD-23 emergency-lane standard lead-time window (days before departure)
+  ctaPostingTiming: 'ON_RECEIPT' as 'ON_RECEIPT' | 'AT_CLAIM', // DD-31 when CTA charges post to SAP
 };
 
 /** §3.4 decision catalogue — drives the Module Settings screen (TR-19). */
@@ -63,4 +64,6 @@ export const decisionCatalogue = [
     effect: 'Per the CFO review a group is employees-only by default (off): guests are raised on a separate Guest request. Turn on only to allow mixing employees and guests in one group (§8, DD-13).' },
   { key: 'selfBookingEnabled', label: 'Self-booked travel enabled', kind: 'boolean',
     effect: 'Allows Self-Booked method and Travel Request selection at claim (§13.17).' },
+  { key: 'ctaPostingTiming', label: 'CTA charge posting timing', kind: 'enum', options: ['ON_RECEIPT', 'AT_CLAIM'],
+    effect: 'When CTA (central-settled) charges post to SAP: ON_RECEIPT = immediately when the settled charge is received from the TMC (DD-31); AT_CLAIM = at the expense claim. The debit is the approved charging allocation, the credit the CTA clearing GL.' },
 ] as const;

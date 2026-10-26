@@ -25,6 +25,10 @@ function ChargeRows({ rows, pending }: { rows: CtaChargeRow[]; pending?: boolean
           <td className="td whitespace-nowrap">{pending ? <span className="pill-warn">pending</span> : (r.chargeDate ?? '—')}</td>
           <td className="td font-mono text-xs" title={r.ctaAccountLabel}>{r.ctaAccountId ?? '—'}</td>
           <td className="td font-mono text-xs" title="Credit side of the accounting entry (CTA clearing account, from the CTA master)">{r.clearingGlAccount}</td>
+          <td className="td whitespace-nowrap">{pending ? <span className="text-[var(--ecs-muted)]">—</span> : (<>
+            <span className={r.postingStatus === 'Posted' ? 'pill-pass' : r.postingStatus === 'Reversed' ? 'pill-warn' : 'pill-info'}>{r.postingStatus}</span>
+            {r.sapDocNo && <span className="font-mono text-xs ml-1 text-[var(--ecs-muted)]">{r.sapDocNo}</span>}
+          </>)}</td>
           <td className="td text-right">{fmtSgd(r.amountSgd)}</td>
         </tr>
       ))}
@@ -36,7 +40,7 @@ const HEAD = (
   <thead><tr>
     <th className="th">Request</th><th className="th">TA</th><th className="th">Traveller</th><th className="th">PNR / ticket</th>
     <th className="th">Type</th><th className="th">Detail</th><th className="th">Charged</th><th className="th">CTA account</th>
-    <th className="th">Credit GL</th><th className="th text-right">Amount (SGD)</th>
+    <th className="th">Credit GL</th><th className="th">Posting (SAP)</th><th className="th text-right">Amount (SGD)</th>
   </tr></thead>
 );
 
@@ -47,7 +51,7 @@ export default async function CtaChargesPage() {
   return (
     <div className="w-full space-y-5">
       <PageTitle id="DD-30 · read-only" title="CTA Charges"
-        subtitle="Central-settled (CTA-paid) airfare and hotel charges captured from the TMC feed, grouped by credit GL account. A charge appears under its credit GL only once the feed reports it settled on the CTA (ticketed/charged); a booked-but-not-yet-charged booking is shown under Pending settlement. The credit side of each accounting entry is the CTA clearing account, derived from the CTA master; the debit (expense cost object + GL) is set at the claim. One-sided — ECS does not match or post here; its posting programme handles the GL posting." />
+        subtitle="Central-settled (CTA-paid) airfare and hotel charges captured from the TMC feed, grouped by credit GL account. A charge appears under its credit GL once the feed reports it settled on the CTA, and posts to SAP on receipt (DD-31) — the Posting column shows the SAP document and status (auto-reversed on cancellation). A booked-but-not-yet-charged booking is shown under Pending settlement. The full journal is on the CTA Accounting Entries screen." />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="text-sm text-[var(--ecs-muted)]">
@@ -66,7 +70,7 @@ export default async function CtaChargesPage() {
               {HEAD}
               <tbody><ChargeRows rows={g.rows} /></tbody>
               <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
-                <td className="td" colSpan={9}>Subtotal → credit GL {g.clearingGlAccount}</td>
+                <td className="td" colSpan={10}>Subtotal → credit GL {g.clearingGlAccount}</td>
                 <td className="td text-right">{fmtSgd(g.subtotalSgd)}</td>
               </tr></tfoot>
             </table>
@@ -81,7 +85,7 @@ export default async function CtaChargesPage() {
               {HEAD}
               <tbody><ChargeRows rows={pending} pending /></tbody>
               <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
-                <td className="td" colSpan={9}>Total pending settlement</td>
+                <td className="td" colSpan={10}>Total pending settlement</td>
                 <td className="td text-right">{fmtSgd(totalPending)}</td>
               </tr></tfoot>
             </table>

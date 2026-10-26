@@ -11,6 +11,7 @@
 import { prisma } from '@/shared/db';
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { ctaAccountsMap } from './ctaMaster';
+import { getSettings } from './settings';
 import { lineSettlement } from './settlement';
 import { EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 
@@ -48,6 +49,7 @@ export interface CtaPosting {
   sapDocNo: string | null;
   postingDate: string | null;
   postingStatus: string;
+  isReversal: boolean;
 }
 
 interface Charge { chargeType: 'Airfare' | 'Accommodation'; expenseTypeId: string; grossSgd: number }
@@ -73,6 +75,8 @@ function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
 /** DD-31 — post the settled CTA charges of a request to SAP on receipt (idempotent, one posting per
  *  booking + charge type). Creates a CtaPostingDocument with the SAP doc no, posting date and status. */
 export async function postCtaChargesForRequest(requestId: string): Promise<void> {
+  const settings = await getSettings();
+  if (settings.ctaPostingTiming !== 'ON_RECEIPT') return;   // DD-31 config gate (else post at claim)
   const req = await prisma.travelRequest.findUnique({ where: { id: requestId }, include: { allocations: true, bookings: { include: { segments: true } } } });
   if (!req) return;
   const ctaMap = await ctaAccountsMap();
@@ -93,6 +97,19 @@ export async function postCtaChargesForRequest(requestId: string): Promise<void>
   }
 }
 
+/** DD-31 auto-reversal — on cancellation/refund, reverse every Posted CTA posting of the request:
+ *  the original is marked Reversed and a reversing SAP document is recorded. */
+export async function reverseCtaChargesForRequest(requestId: string, dateIso?: string): Promise<void> {
+  const date = dateIso ?? new Date().toISOString().slice(0, 10);
+  const docs = await prisma.ctaPostingDocument.findMany({ where: { requestId, status: 'Posted' } });
+  for (const d of docs) {
+    await prisma.ctaPostingDocument.update({
+      where: { id: d.id },
+      data: { status: 'Reversed', reversalSapDocNo: d.sapDocNo.replace('SAP-CTA-', 'SAP-CTA-R'), reversedDate: date },
+    });
+  }
+}
+
 export interface CtaPostingsView { postings: CtaPosting[]; totalDr: number; totalCr: number; count: number }
 
 /** Build the accounting-entries report: the journal per settled CTA charge, with the posting
@@ -102,12 +119,13 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
   const ctaMap = await ctaAccountsMap();
   const docs = await prisma.ctaPostingDocument.findMany();
   const docMap = new Map(docs.map((d) => [`${d.bookingId}:${d.chargeType}`, d]));
+  const postedBookingIds = new Set(docs.map((d) => d.bookingId));   // include posted-then-cancelled bookings
   const postings: CtaPosting[] = [];
 
   for (const b of bookings) {
     const req = b.request;
     if (!req) continue;
-    if (!ELIGIBLE.includes(b.status)) continue;
+    if (!ELIGIBLE.includes(b.status) && !postedBookingIds.has(b.id)) continue;
     if (!b.ctaCharged) continue;
     const cta = b.ctaAccountId ? ctaMap.get(b.ctaAccountId) : undefined;
     const clearingGl = cta?.clearingGlAccount ?? 'UNMAPPED';
@@ -136,7 +154,7 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
       const dr = r2(lines.filter((l) => l.side === 'DR').reduce((s, l) => s + l.amountSgd, 0));
       const cr = r2(lines.filter((l) => l.side === 'CR').reduce((s, l) => s + l.amountSgd, 0));
       const doc = docMap.get(`${b.id}:${c.chargeType}`);
-      postings.push({
+      const base: CtaPosting = {
         bookingId: b.id, requestId: req.id, requestNumber: req.requestNumber, authorisationNo: req.authorisationNo,
         travellerName, pnr: b.pnr, chargeType: c.chargeType, chargeDate: iso(b.ctaChargeDate),
         ctaAccountId: b.ctaAccountId, clearingGlAccount: clearingGl,
@@ -145,7 +163,14 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
         source: c.chargeType === 'Airfare' ? `fare ${fmt(b.fare)} + taxes ${fmt(b.taxes)} + fees ${fmt(b.fees)}` : 'hotel segment total',
         lines, balanced: Math.abs(dr - cr) < 0.005,
         sapDocNo: doc?.sapDocNo ?? null, postingDate: doc?.postingDate ?? null, postingStatus: doc?.status ?? 'Not posted',
-      });
+        isReversal: false,
+      };
+      postings.push(base);
+      // DD-31 auto-reversal: a Reversed charge also shows the reversing entry (Dr/Cr flipped).
+      if (doc?.status === 'Reversed') {
+        const revLines = lines.map((l) => ({ ...l, side: (l.side === 'DR' ? 'CR' : 'DR') as 'DR' | 'CR' }));
+        postings.push({ ...base, lines: revLines, sapDocNo: doc.reversalSapDocNo ?? null, postingDate: doc.reversedDate ?? null, postingStatus: 'Reversed', isReversal: true });
+      }
     }
   }
 

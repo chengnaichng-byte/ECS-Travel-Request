@@ -30,6 +30,8 @@ export interface CtaChargeRow {
   ctaAccountId: string | null;
   ctaAccountLabel: string;
   clearingGlAccount: string;   // the credit GL account (CTA clearing) from the master
+  postingStatus: string;       // DD-31 SAP posting status (Posted | Reversed | Not posted)
+  sapDocNo: string | null;     // DD-31 SAP document number
 }
 
 export interface ClearingGroup {
@@ -58,6 +60,8 @@ const ELIGIBLE: string[] = [BOOKING_STATUS.Booked, BOOKING_STATUS.TravelComplete
 export async function listCtaCharges(): Promise<CtaChargesView> {
   const bookings = await prisma.travelBooking.findMany({ include: { request: true, segments: true }, orderBy: { id: 'asc' } });
   const ctaMap = await ctaAccountsMap();   // resolve credit GL from the maintainable CTA master
+  const postingDocs = await prisma.ctaPostingDocument.findMany();   // DD-31 posting status per charge
+  const postingMap = new Map(postingDocs.map((d) => [`${d.bookingId}:${d.chargeType}`, d]));
   const rows: CtaChargeRow[] = [];
 
   for (const b of bookings) {
@@ -81,6 +85,8 @@ export async function listCtaCharges(): Promise<CtaChargesView> {
       ctaAccountId: b.ctaAccountId,
       ctaAccountLabel: cta?.label ?? (b.ctaAccountId ?? 'Unmapped'),
       clearingGlAccount: cta?.clearingGlAccount ?? 'UNMAPPED',
+      postingStatus: postingMap.get(`${b.id}:${type}`)?.status ?? 'Not posted',
+      sapDocNo: postingMap.get(`${b.id}:${type}`)?.sapDocNo ?? null,
     });
 
     // A guest booking is CTA-settled in full (airfare + accommodation — DD-21); guests file no TE

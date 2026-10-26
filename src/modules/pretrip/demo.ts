@@ -12,7 +12,7 @@ import { evaluatePolicies, hasException, hasHardStop } from './policy';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
 import { HOTEL_SETTLEMENT } from './settlement';
-import { postCtaChargesForRequest } from './ctaPosting';
+import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
 import { applyMaterialAmendment } from './amend';
 import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsPolicy, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
@@ -334,6 +334,28 @@ async function buildCtaCrossChargeS31() {
   await submit(id); await approveAll(id); await bookViaTmc(id, 0, 'CTA-SG-SGD', true);
 }
 
+/** S32 — DD-31 auto-reversal: a CTA airfare booked, settled and posted to SAP on receipt, then the
+ *  booking is cancelled — the posting is auto-reversed (the accounting-entries report shows the
+ *  original Reversed plus a reversing entry with flipped Dr/Cr). */
+async function buildCtaCancelledReversalS32() {
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-OB-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: '2026-12-21', end: '2026-12-24',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+    airfare: { amount: 1500, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'TYO', nights: 3, quotedNightly: 300 },
+    oda: { country: 'JP', city: 'TYO', arrive: '2026-12-21', depart: '2026-12-24' },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { description: 'CTA airfare booked & posted, then cancelled — posting auto-reversed (S32)' } });
+  await submit(id); await approveAll(id); await bookViaTmc(id, 0, 'CTA-SG-SGD', true);   // posts CTA airfare on receipt
+  // Cancellation after booking (DD-22) → CTA posting auto-reversed (DD-31).
+  await prisma.travelBooking.updateMany({ where: { requestId: id, channel: 'TMC' }, data: { status: BOOKING_STATUS.Cancelled } });
+  await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Cancelled } });
+  await reverseCtaChargesForRequest(id, '2026-12-16');
+  await audit(id, 'E-SYS', 'INTEGRATION', 'Booking cancelled — CTA posting auto-reversed');
+}
+
 export async function seedDemoScenarios() {
   const existing = await prisma.travelRequest.count();
   if (existing > 0) { revalidatePath('/dashboard'); return; }
@@ -416,6 +438,7 @@ export async function seedDemoScenarios() {
   await buildCtaSettledClaimS29();
   await buildCtaPendingSettlementS30();
   await buildCtaCrossChargeS31();
+  await buildCtaCancelledReversalS32();
 
   // Normalise every seeded request's estimate lines to the latest design: hotel stay dates filled
   // from the itinerary (so "Stay dates" isn't "— → —"), and ODA rebuilt as one full-rate line per

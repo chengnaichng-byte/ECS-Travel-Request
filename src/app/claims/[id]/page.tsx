@@ -61,6 +61,11 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const reimbursableExpenses = claim.lines.filter((l) => !isRef(l)).reduce((s, l) => s + l.actualSgd, 0);
   const totalReimbursable = Math.max(reimbursableExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
   const ctaAccount = await getCtaAccount(booking?.ctaAccountId);
+  // DD-31 — CTA charges post to SAP on receipt, so they are NOT posted again at the claim. Surface
+  // the posting on each reference line for traceability (de-scoped from the claim posting).
+  const ctaPostings = booking ? await prisma.ctaPostingDocument.findMany({ where: { bookingId: booking.id } }) : [];
+  const postingByType = new Map(ctaPostings.map((d) => [d.chargeType, d] as const));
+  const postingFor = (cat: string) => postingByType.get(cat === 'AIRFARE' ? 'Airfare' : cat === 'ACCOMMODATION' ? 'Accommodation' : '');
 
   // DD-08 / E11 — if the claimant moved the charging off the approved request's DOA, the claim
   // will route to the NEW account's DOA on submit (no auto-grant). Surface that before submit.
@@ -189,7 +194,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                   {claim.lines.map((l) => (
                     <tr key={l.id} className="hover:bg-[var(--ecs-panel-2)]">
                       <td className="td whitespace-nowrap">{d(l.transactionDate) || '—'}</td>
-                      <td className="td font-medium">{labelOf(l)}{isRef(l) && <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-xs font-normal bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] whitespace-nowrap" title={ctaAccount ? `${ctaAccount.label} → clearing ${ctaAccount.clearingGlAccount}` : undefined}>Paid by CTA{booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed</span>}</td>
+                      <td className="td font-medium">{labelOf(l)}{isRef(l) && <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-xs font-normal bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] whitespace-nowrap" title={ctaAccount ? `${ctaAccount.label} → clearing ${ctaAccount.clearingGlAccount}` : undefined}>Paid by CTA{booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed{(() => { const d = postingFor(l.category); return d ? ` · posted to SAP ${d.sapDocNo} (${d.status})` : ''; })()}</span>}</td>
                       <td className="td">{canEdit && !isRef(l) ? <input name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
                       <td className="td text-right whitespace-nowrap text-[var(--ecs-muted)]">{l.approvedSgd > 0 ? fmtSgd(l.approvedSgd) : '—'}</td>
                       <td className={`td text-right ${isRef(l) ? 'text-[var(--ecs-muted)]' : ''}`}>{canEdit && !isRef(l) ? <input name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right w-28 ml-auto" /> : fmtSgd(l.actualSgd)}</td>
