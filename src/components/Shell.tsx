@@ -74,7 +74,10 @@ export async function Shell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="px-3 pt-4 pb-2 mt-2 border-t border-[var(--ecs-border)]">
             <p className="text-[10px] uppercase tracking-wide text-[var(--ecs-muted)] mb-1">Setup &amp; Maintenance</p>
-            <div className="mb-1"><NavLinks items={[{ href: '/setup/provosts', label: 'Provost List (guest upgrades)', icon: '◈' }]} /></div>
+            <div className="mb-1"><NavLinks items={[
+              { href: '/setup/provosts', label: 'Provost List (guest upgrades)', icon: '◈' },
+              { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
+            ]} /></div>
             <ul className="space-y-0.5">
               {STUBS.map((s) => (
                 <li key={s} className="flex items-center gap-2.5 px-3 py-1.5 rounded text-sm text-slate-400 cursor-not-allowed select-none" title="Existing ECS screen — not rebuilt in the prototype (§13.18)">

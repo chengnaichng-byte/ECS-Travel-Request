@@ -9,7 +9,8 @@
 // reports it SETTLED on the CTA (ticketed/charged, with a charge date); a confirmed-but-not-yet
 // -charged booking is shown separately under "pending settlement".
 import { prisma } from '@/shared/db';
-import { EcsCharging, EcsIdentity, EcsReference } from '@/shared/ecs/services';
+import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
+import { ctaAccountsMap } from '@/modules/pretrip/ctaMaster';
 import { lineSettlement } from '@/modules/pretrip/settlement';
 import { EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 
@@ -56,6 +57,7 @@ const ELIGIBLE: string[] = [BOOKING_STATUS.Booked, BOOKING_STATUS.TravelComplete
 
 export async function listCtaCharges(): Promise<CtaChargesView> {
   const bookings = await prisma.travelBooking.findMany({ include: { request: true, segments: true }, orderBy: { id: 'asc' } });
+  const ctaMap = await ctaAccountsMap();   // resolve credit GL from the maintainable CTA master
   const rows: CtaChargeRow[] = [];
 
   for (const b of bookings) {
@@ -63,7 +65,7 @@ export async function listCtaCharges(): Promise<CtaChargesView> {
     if (!req) continue;
     if (!ELIGIBLE.includes(b.status)) continue;   // (1) booked/completed only
     const traveller = b.travellerId ?? req.travellerId;
-    const cta = EcsCharging.ctaAccount(b.ctaAccountId);
+    const cta = b.ctaAccountId ? ctaMap.get(b.ctaAccountId) : undefined;
     const mk = (type: 'Airfare' | 'Accommodation', detail: string, amountSgd: number): CtaChargeRow => ({
       requestId: req.id,
       requestNumber: req.requestNumber,

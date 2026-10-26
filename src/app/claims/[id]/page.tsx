@@ -11,7 +11,8 @@ import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
 import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging } from '@/modules/te/actions';
 import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
-import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { getCtaAccount } from '@/modules/pretrip/ctaMaster';
 import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
@@ -59,7 +60,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const ctaPaidTotal = claim.lines.filter(isRef).reduce((s, l) => s + l.actualSgd, 0);
   const reimbursableExpenses = claim.lines.filter((l) => !isRef(l)).reduce((s, l) => s + l.actualSgd, 0);
   const totalReimbursable = Math.max(reimbursableExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
-  const ctaAccount = EcsCharging.ctaAccount(booking?.ctaAccountId);
+  const ctaAccount = await getCtaAccount(booking?.ctaAccountId);
 
   // DD-08 / E11 — if the claimant moved the charging off the approved request's DOA, the claim
   // will route to the NEW account's DOA on submit (no auto-grant). Surface that before submit.

@@ -152,6 +152,22 @@ model TravelRequest {
 /// §8 / DD-25 Per-school Provost list — the approvers who may authorise a guest (non-employee)
 /// travel-class upgrade. Maintained in Setup & Maintenance (list + add/deactivate); the host
 /// school's active provosts are offered for selection when a guest is booked above Economy.
+/// DD-30 CtaAccount — Central Travel Account master (CTA → credit-GL clearing). A maintainable
+/// reference master (list + add/edit/deactivate in Setup & Maintenance), seeded idempotently from
+/// src/data/ctaAccounts.ts so a fresh/reseeded database always carries the default accounts.
+model CtaAccount {
+  id                String   @id @default(cuid())
+  ctaAccountId      String   @unique          // feed key — the account id the card/TMC reports on each charge
+  label             String
+  provider          String
+  companyCode       String
+  currency          String
+  clearingGlAccount String                    // credit GL (clearing) account the posting programme credits
+  active            Boolean  @default(true)
+  effectiveFrom     String
+  createdAt         DateTime @default(now())
+}
+
 model Provost {
   id         String   @id @default(cuid())
   schoolId   String                                  // department / school this provost authorises for
