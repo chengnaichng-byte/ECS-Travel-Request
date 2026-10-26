@@ -73,10 +73,10 @@ footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line);color:v
   <div class="tbl-box"><table>
     <thead><tr><th>Object type</th><th class="c">Estimate</th><th>Basis</th></tr></thead>
     <tbody>
-      <tr><td>Entities</td><td class="c">~34</td><td>24 transactional + ~8–14 reference/static</td></tr>
-      <tr><td>Reactive Web Screens</td><td class="c">~23</td><td>Route catalogue (6 wizard + queue/admin/finance/claim)</td></tr>
-      <tr><td>Web Blocks (reusable)</td><td class="c">~18–25</td><td>Stepper, duplicate banner, itinerary builder, charging splitter, cost table, route preview, PNR display, add-estimate panels, approval summary</td></tr>
-      <tr><td>Server Actions</td><td class="c">~90–130</td><td>~49 action endpoints + decomposed domain logic (policy, routing, pricing+tiers, settlement, duplicates, entitlement, roll-up, auto-estimates, claim workflow, TMC assemble/parse)</td></tr>
+      <tr><td>Entities</td><td class="c">~35</td><td>24 transactional + ~9–15 reference/static (incl. CtaAccount, DD-30)</td></tr>
+      <tr><td>Reactive Web Screens</td><td class="c">~24</td><td>Route catalogue (6 wizard + queue/admin/finance/claim) + CTA charges (DD-30)</td></tr>
+      <tr><td>Web Blocks (reusable)</td><td class="c">~19–26</td><td>Stepper, duplicate banner, itinerary builder, charging splitter, cost table, route preview, PNR display, add-estimate panels, approval summary, CTA charges CSV export (DD-30)</td></tr>
+      <tr><td>Server Actions</td><td class="c">~92–132</td><td>~49 action endpoints + decomposed domain logic (policy, routing, pricing+tiers, settlement, duplicates, entitlement, roll-up, auto-estimates, claim workflow, TMC assemble/parse, CTA charge read model + credit-GL lookup, DD-30)</td></tr>
       <tr><td>Client Actions</td><td class="c">~50–80</td><td>Screen interactivity + live validation</td></tr>
       <tr><td>Structures</td><td class="c">~25–35</td><td>Canonical TMC payloads, DTOs, read models</td></tr>
       <tr><td>Roles</td><td class="c">9</td><td>Traveller, Requestor, RO, DOA, Research DOA, Exception, Travel Admin, System Admin, Finance Viewer</td></tr>
@@ -137,10 +137,11 @@ var ITEMS=[
  {obj:'TravelClassRegister',type:'Entity',basis:'Class entitlement register',flag:'NEW',reuse:false},
  {obj:'HighRiskDestination',type:'Entity',basis:'Risk advisory master',flag:'NEW',reuse:false},
  {obj:'TmcProvider',type:'Entity',basis:'TMC provider master',flag:'NEW',reuse:false},
+ {obj:'CtaAccount',type:'Entity',basis:'CTA → credit-GL (clearing) master · DD-30',flag:'NEW',reuse:false},
 
  {g:'Integration methods (REST/SOAP)'},
  {obj:'TMC — Send booking instruction',type:'REST',basis:'Outbound hand-off',flag:'NEW',reuse:false},
- {obj:'TMC — Retrieve bookings by TA',type:'REST',basis:'TA-keyed inbound (all PNRs)',flag:'NEW',reuse:false},
+ {obj:'TMC — Retrieve bookings by TA',type:'REST',basis:'TA-keyed inbound (all PNRs) + CTA account & settlement · DD-30',flag:'NEW',reuse:false},
  {obj:'TMC — Booking status callback',type:'REST',basis:'Status webhook',flag:'NEW',reuse:false},
  {obj:'TMC — Cancellation request',type:'REST',basis:'Cancel (two-way)',flag:'NEW',reuse:false},
  {obj:'SAP — Airfare direct posting',type:'REST',basis:'DIRECT_SAP posting',flag:'NEW',reuse:false},

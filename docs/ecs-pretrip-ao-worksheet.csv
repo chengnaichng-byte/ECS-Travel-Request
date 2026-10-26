@@ -43,8 +43,9 @@ Reference / static entities (reuse candidates),OdaRate,Entity,ODA daily + monthl
 Reference / static entities (reuse candidates),TravelClassRegister,Entity,Class entitlement register,NEW,NO,1
 Reference / static entities (reuse candidates),HighRiskDestination,Entity,Risk advisory master,NEW,NO,1
 Reference / static entities (reuse candidates),TmcProvider,Entity,TMC provider master,NEW,NO,1
+Reference / static entities (reuse candidates),CtaAccount,Entity,CTA → credit-GL (clearing) master · DD-30,NEW,NO,1
 Integration methods (REST/SOAP),TMC — Send booking instruction,REST,Outbound hand-off,NEW,NO,1
-Integration methods (REST/SOAP),TMC — Retrieve bookings by TA,REST,TA-keyed inbound (all PNRs),NEW,NO,1
+Integration methods (REST/SOAP),TMC — Retrieve bookings by TA,REST,TA-keyed inbound (all PNRs) + CTA account & settlement · DD-30,NEW,NO,1
 Integration methods (REST/SOAP),TMC — Booking status callback,REST,Status webhook,NEW,NO,1
 Integration methods (REST/SOAP),TMC — Cancellation request,REST,Cancel (two-way),NEW,NO,1
 Integration methods (REST/SOAP),SAP — Airfare direct posting,REST,DIRECT_SAP posting,NEW,NO,1
@@ -61,4 +62,4 @@ Integration methods (REST/SOAP),Location/GDS — Airport sync,REST,Airport feed 
 Extensions,SFTP / file adapter (TMC workbook),Extension,File transport (if file-based),NEW,NO,1
 Extensions,PDF generator (approval pack),Extension,Forge component candidate,REUSE,YES,0
 
-,TOTALS (default reuse-heavy preset),,,,Objects 61 | Reused 23,Billable AOs 38
+,TOTALS (default reuse-heavy preset),,,,Objects 62 | Reused 23,Billable AOs 39
