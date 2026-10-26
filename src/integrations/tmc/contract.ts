@@ -101,6 +101,8 @@ export interface CanonicalInbound {
   taxesSgd: number;
   feesSgd: number;
   ctaAccountId?: string | null;        // DD-30 the CTA account the central charges were lodged to (feed-reported)
+  ctaCharged?: boolean;                 // DD-30 the central charges have settled on the CTA (ticketed/charged), not just confirmed
+  ctaChargeDate?: string | null;        // DD-30 date the charge posted to the CTA (ISO)
   segments: {
     type: 'AIR' | 'HOTEL';
     origin?: string;

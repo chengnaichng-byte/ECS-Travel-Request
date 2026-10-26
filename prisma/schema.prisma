@@ -349,6 +349,8 @@ model TravelBooking {
   fees          Float?
   hotelRate     Float?
   ctaAccountId  String?                     // DD-30 CTA account the central (CTA-settled) charges were lodged to (feed-reported)
+  ctaCharged    Boolean @default(false)     // DD-30 the central charges have actually settled on the CTA (ticketed/charged), not merely a confirmed booking
+  ctaChargeDate DateTime?                   // DD-30 date the charge posted to the CTA (from the card/TMC feed) — what finance reconciles to the statement period
   status        String  @default("Booked")
   segments      BookingSegment[]
 }

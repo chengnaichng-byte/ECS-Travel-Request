@@ -1299,6 +1299,7 @@ export async function receiveBooking(id: string, fd: FormData) {
           fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd,
           hotelRate: inbound.segments.find((s: { type: string }) => s.type === 'HOTEL')?.roomRateSgd, status: inbound.bookingStatus,
           ctaAccountId: inbound.ctaAccountId ?? null,   // DD-30 feed-reported CTA account the central charges hit
+          ctaCharged: inbound.ctaCharged ?? false, ctaChargeDate: inbound.ctaChargeDate ? new Date(inbound.ctaChargeDate) : null,
         },
       });
       for (const s of inbound.segments) {

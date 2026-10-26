@@ -89,7 +89,7 @@ export function buildOutbound(req: {
  * Simulate the TMC returning a booking (§13.9). Produces a PNR, ticket and fares.
  * `overFare` lets the demo drive a booking-deviation scenario (S09).
  */
-export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: number; pnrPrefix?: string; ctaAccountId?: string }, meta?: InboundMeta): CanonicalInbound {
+export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: number; pnrPrefix?: string; ctaAccountId?: string; charged?: boolean; chargeDate?: string | null }, meta?: InboundMeta): CanonicalInbound {
   const air = out.segments.filter((s) => s.type === 'AIR');
   const hotel = out.segments.filter((s) => s.type === 'HOTEL');
   const baseFare = (out.approvedCostCeilingSgd ?? 5000) * 0.6 * (1 + (opts?.overFarePct ?? 0) / 100);
@@ -106,6 +106,8 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
     taxesSgd: Math.round(baseFare * 0.12),
     feesSgd: 30,
     ctaAccountId: opts?.ctaAccountId ?? 'CTA-SG-SGD',   // DD-30 feed-reported CTA account (the card the charges hit)
+    ctaCharged: opts?.charged ?? true,                  // DD-30 default: a confirmed TMC booking is ticketed/charged
+    ctaChargeDate: opts?.charged === false ? null : (opts?.chargeDate ?? null),
     segments: [
       ...air.map((s) => ({ type: 'AIR' as const, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, departDate: s.departDate, arriveDate: s.arriveDate ?? s.departDate })),
       ...hotel.map((s) => ({ type: 'HOTEL' as const, city: s.city, roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0) })),
@@ -119,7 +121,7 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
  * handoff/receive actions pick the adapter by the resolved provider's `adapterKey`. */
 export interface TmcAdapter {
   buildOutbound: typeof buildOutbound;
-  simulateInbound: (out: CanonicalOutbound, opts?: { overFarePct?: number; ctaAccountId?: string }, meta?: InboundMeta) => CanonicalInbound;
+  simulateInbound: (out: CanonicalOutbound, opts?: { overFarePct?: number; ctaAccountId?: string; charged?: boolean; chargeDate?: string | null }, meta?: InboundMeta) => CanonicalInbound;
 }
 const withPrefix = (pnrPrefix: string): TmcAdapter => ({
   buildOutbound,

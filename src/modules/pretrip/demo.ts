@@ -236,17 +236,20 @@ async function finaliseApproval(id: string) {
   await audit(id, 'E-SYS', 'STATUS', `Final approval — Travel Authorisation ${authNo} issued`);
 }
 
-async function bookViaTmc(id: string, overFarePct = 0, ctaAccountId = 'CTA-SG-SGD') {
+async function bookViaTmc(id: string, overFarePct = 0, ctaAccountId = 'CTA-SG-SGD', charged = true) {
   const req = await loadRequest(id);
   if (!req) return;
+  // DD-30 a settled CTA charge posts a few days before travel (ticketing); a pending booking is
+  // confirmed but not yet charged (chargeDate null).
+  const chargeDate = charged && req.startDate ? new Date(req.startDate.getTime() - 7 * 86400000) : null;
   const acc = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation).map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly }));
   const ceiling = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare || e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception).map((c) => c.label);
   const outbound = buildOutbound({ authorisationNo: req.authorisationNo, travellerId: req.travellerId, travellers: req.travellers, bookingMethod: req.bookingMethod, bookingDeadline: req.bookingDeadline, approvedCostCeilingSgd: ceiling, approvedExceptions: exceptions, legs: sharedLegs(req), accommodation: acc });
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify(outbound, null, 2) } });
-  const inbound = simulateInbound(outbound, { overFarePct, ctaAccountId });
+  const inbound = simulateInbound(outbound, { overFarePct, ctaAccountId, charged, chargeDate: chargeDate ? chargeDate.toISOString().slice(0, 10) : null });
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', payload: JSON.stringify(inbound, null, 2) } });
-  const booking = await prisma.travelBooking.create({ data: { requestId: id, pnr: inbound.pnr, ticketNo: inbound.ticketNumbers[0], channel: 'TMC', fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd, hotelRate: inbound.segments.find((x) => x.type === 'HOTEL')?.roomRateSgd, ctaAccountId: inbound.ctaAccountId ?? null, status: inbound.bookingStatus } });
+  const booking = await prisma.travelBooking.create({ data: { requestId: id, pnr: inbound.pnr, ticketNo: inbound.ticketNumbers[0], channel: 'TMC', fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd, hotelRate: inbound.segments.find((x) => x.type === 'HOTEL')?.roomRateSgd, ctaAccountId: inbound.ctaAccountId ?? null, ctaCharged: inbound.ctaCharged ?? false, ctaChargeDate: inbound.ctaChargeDate ? new Date(inbound.ctaChargeDate) : null, status: inbound.bookingStatus } });
   for (const seg of inbound.segments) await prisma.bookingSegment.create({ data: { bookingId: booking.id, type: seg.type, originCode: seg.origin, destCode: seg.destination, bookedClassId: seg.bookedClass, amount: seg.amountSgd ?? seg.roomRateSgd } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   await audit(id, 'E-SYS', 'INTEGRATION', `Inbound booking received — PNR ${inbound.pnr}`);
@@ -293,6 +296,23 @@ async function buildCtaSettledClaimS29() {
   // arrangement), so both are reference-only on the claim.
   await prisma.travelRequest.update({ where: { id }, data: { hotelSettlement: HOTEL_SETTLEMENT.Cta, description: 'CTA-settled trip — airfare + hotel on CTA, ODA + conference reimbursable (S29)' } });
   await submit(id); await approveAll(id); await bookViaTmc(id, 0, 'CTA-SG-USD'); await makeClaim(id, 'E-TRAV', 1);
+}
+
+/** S30 — DD-30 booked but PENDING SETTLEMENT: the TMC has confirmed the booking but the airfare is
+ *  not yet ticketed/charged to the CTA, so it appears in the CTA Charges "Pending settlement" group
+ *  (no charge date) rather than under a credit GL account. */
+async function buildCtaPendingSettlementS30() {
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-OB-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: '2026-12-07', end: '2026-12-10',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1250, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'TYO', nights: 3, quotedNightly: 300 },
+    oda: { country: 'JP', city: 'TYO', arrive: '2026-12-07', depart: '2026-12-10' },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { description: 'CTA airfare booked, pending settlement — not yet ticketed (S30)' } });
+  await submit(id); await approveAll(id); await bookViaTmc(id, 0, 'CTA-SG-SGD', false);
 }
 
 export async function seedDemoScenarios() {
@@ -375,6 +395,7 @@ export async function seedDemoScenarios() {
   await buildGuestLondonBookedS26();
   await buildMultiCityBookedS28();
   await buildCtaSettledClaimS29();
+  await buildCtaPendingSettlementS30();
 
   // Normalise every seeded request's estimate lines to the latest design: hotel stay dates filled
   // from the itinerary (so "Stay dates" isn't "— → —"), and ODA rebuilt as one full-rate line per
@@ -550,7 +571,7 @@ async function buildMultiCityBookedS28() {
   const booked = await loadRequest(id);
   const seed = (booked!.authorisationNo ?? '').replace(/\D/g, '').slice(-4) || '0028';
   const mkPnr = async (tag: string, sel: typeof legs, air: { fare: number; taxes: number; fees: number }, hotels: [string, number][]) => {
-    const b = await prisma.travelBooking.create({ data: { requestId: id, pnr: `PNR${seed}-${tag}`, ticketNo: `TKT-${seed}-${tag}`, channel: 'TMC', fare: air.fare, taxes: air.taxes, fees: air.fees, hotelRate: hotels[0]?.[1] ?? null, ctaAccountId: 'CTA-SG-SGD', status: BOOKING_STATUS.Booked } });
+    const b = await prisma.travelBooking.create({ data: { requestId: id, pnr: `PNR${seed}-${tag}`, ticketNo: `TKT-${seed}-${tag}`, channel: 'TMC', fare: air.fare, taxes: air.taxes, fees: air.fees, hotelRate: hotels[0]?.[1] ?? null, ctaAccountId: 'CTA-SG-SGD', ctaCharged: true, ctaChargeDate: day('2026-11-09'), status: BOOKING_STATUS.Booked } });
     for (const l of sel) await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'AIR', originCode: l.o, destCode: l.d, bookedClassId: 'TC-PEY', departDate: day(l.dep), arriveDate: day(l.dep), amount: Math.round(air.fare / sel.length) } });
     for (const [, rate] of hotels) await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'HOTEL', amount: rate } });
   };
