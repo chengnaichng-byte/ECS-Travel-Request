@@ -33,7 +33,7 @@ export default async function CtaChargesPage() {
               <thead><tr>
                 <th className="th">Request</th><th className="th">TA</th><th className="th">Traveller</th><th className="th">PNR / ticket</th>
                 <th className="th">Type</th><th className="th">Detail</th><th className="th">Booked</th><th className="th">CTA account</th>
-                <th className="th text-right">Amount (SGD)</th><th className="th"></th>
+                <th className="th text-right">Amount (SGD)</th>
               </tr></thead>
               <tbody>
                 {g.rows.map((r, i) => (
@@ -47,13 +47,12 @@ export default async function CtaChargesPage() {
                     <td className="td whitespace-nowrap">{r.bookedDate ?? '—'}</td>
                     <td className="td font-mono text-xs" title={r.ctaAccountLabel}>{r.ctaAccountId ?? '—'}</td>
                     <td className="td text-right">{fmtSgd(r.amountSgd)}</td>
-                    <td className="td text-right">{r.claimId ? <Link href={`/claims/${r.claimId}`} className="btn-ghost text-xs">Claim →</Link> : null}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
                 <td className="td" colSpan={8}>Subtotal → clearing {g.clearingGlAccount}</td>
-                <td className="td text-right">{fmtSgd(g.subtotalSgd)}</td><td className="td"></td>
+                <td className="td text-right">{fmtSgd(g.subtotalSgd)}</td>
               </tr></tfoot>
             </table>
           </div>
