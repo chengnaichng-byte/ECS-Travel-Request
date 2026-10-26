@@ -73,8 +73,8 @@ footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line);color:v
   <div class="tbl-box"><table>
     <thead><tr><th>Object type</th><th class="c">Estimate</th><th>Basis</th></tr></thead>
     <tbody>
-      <tr><td>Entities</td><td class="c">~35</td><td>24 transactional + ~9–15 reference/static (incl. CtaAccount, DD-30)</td></tr>
-      <tr><td>Reactive Web Screens</td><td class="c">~24</td><td>Route catalogue (6 wizard + queue/admin/finance/claim) + CTA charges (DD-30)</td></tr>
+      <tr><td>Entities</td><td class="c">~36</td><td>25 transactional (incl. CtaPostingDocument, DD-31) + ~9–15 reference/static (incl. CtaAccount, DD-30)</td></tr>
+      <tr><td>Reactive Web Screens</td><td class="c">~26</td><td>Route catalogue (6 wizard + queue/admin/finance/claim) + CTA charges, CTA accounting entries, CTA accounts (DD-30/31)</td></tr>
       <tr><td>Web Blocks (reusable)</td><td class="c">~19–26</td><td>Stepper, duplicate banner, itinerary builder, charging splitter, cost table, route preview, PNR display, add-estimate panels, approval summary, CTA charges CSV export (DD-30)</td></tr>
       <tr><td>Server Actions</td><td class="c">~92–132</td><td>~49 action endpoints + decomposed domain logic (policy, routing, pricing+tiers, settlement, duplicates, entitlement, roll-up, auto-estimates, claim workflow, TMC assemble/parse, CTA charge read model + credit-GL lookup, DD-30)</td></tr>
       <tr><td>Client Actions</td><td class="c">~50–80</td><td>Screen interactivity + live validation</td></tr>
@@ -115,6 +115,7 @@ var ITEMS=[
  {obj:'ModuleSettings',type:'Entity',basis:'Runtime config',flag:'NEW',reuse:false},
  {obj:'IntegrationFieldSetting',type:'Entity',basis:'Contract field override',flag:'NEW',reuse:false},
  {obj:'IntegrationGuardSetting',type:'Entity',basis:'Contract guard override',flag:'NEW',reuse:false},
+ {obj:'CtaPostingDocument',type:'Entity',basis:'SAP posting on receipt · DD-31',flag:'NEW',reuse:false},
 
  {g:'Reference / static entities (reuse candidates)'},
  {obj:'Employee',type:'Entity',basis:'HR identity / appointments',flag:'REUSE',reuse:true},

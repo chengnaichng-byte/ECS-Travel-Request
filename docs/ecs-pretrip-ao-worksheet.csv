@@ -23,6 +23,7 @@ Transactional entities (owned by this module),Provost,Entity,Guest-upgrade autho
 Transactional entities (owned by this module),ModuleSettings,Entity,Runtime config,NEW,NO,1
 Transactional entities (owned by this module),IntegrationFieldSetting,Entity,Contract field override,NEW,NO,1
 Transactional entities (owned by this module),IntegrationGuardSetting,Entity,Contract guard override,NEW,NO,1
+Transactional entities (owned by this module),CtaPostingDocument,Entity,SAP posting on receipt · DD-31,NEW,NO,1
 Reference / static entities (reuse candidates),Employee,Entity,HR identity / appointments,REUSE,YES,0
 Reference / static entities (reuse candidates),Department,Entity,Org + DOA line,REUSE,YES,0
 Reference / static entities (reuse candidates),ChargingCode,Entity,CC/WBS master,REUSE,YES,0
@@ -62,4 +63,4 @@ Integration methods (REST/SOAP),Location/GDS — Airport sync,REST,Airport feed 
 Extensions,SFTP / file adapter (TMC workbook),Extension,File transport (if file-based),NEW,NO,1
 Extensions,PDF generator (approval pack),Extension,Forge component candidate,REUSE,YES,0
 
-,TOTALS (default reuse-heavy preset),,,,Objects 62 | Reused 23,Billable AOs 39
+,TOTALS (default reuse-heavy preset),,,,Objects 63 | Reused 23,Billable AOs 40
