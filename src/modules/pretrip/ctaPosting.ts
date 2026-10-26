@@ -20,6 +20,7 @@ export interface PostingLine {
   description: string;
   costObject: string | null;
   costObjectType: string | null;
+  percent: number | null;      // cross-charge share % for a debit cost-object line; null for GST / credit
   amountSgd: number;
 }
 
@@ -38,6 +39,7 @@ export interface CtaPosting {
   netSgd: number;
   gstCode: string;
   allocationNote: string;
+  crossCharge: boolean;        // the debit is split across more than one cost object (cross charge)
   source: string;
   lines: PostingLine[];
   balanced: boolean;
@@ -82,11 +84,11 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
       allocs.forEach((a, i) => {
         const amt = i === allocs.length - 1 ? r2(net - running) : r2(net * (a.percent / 100));
         running = r2(running + amt);
-        lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? chargeType}`, costObject: a.code, costObjectType: a.type, amountSgd: amt });
+        lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
       });
-      if (tax > 0) lines.push({ side: 'DR', glAccount: GST_INPUT_GL, description: `Input GST (${et?.gstCode})`, costObject: null, costObjectType: null, amountSgd: tax });
+      if (tax > 0) lines.push({ side: 'DR', glAccount: GST_INPUT_GL, description: `Input GST (${et?.gstCode})`, costObject: null, costObjectType: null, percent: null, amountSgd: tax });
       // Cr CTA clearing (gross).
-      lines.push({ side: 'CR', glAccount: clearingGl, description: `CTA clearing${b.ctaAccountId ? ` — ${b.ctaAccountId}` : ''}`, costObject: null, costObjectType: null, amountSgd: gross });
+      lines.push({ side: 'CR', glAccount: clearingGl, description: `CTA clearing${b.ctaAccountId ? ` — ${b.ctaAccountId}` : ''}`, costObject: null, costObjectType: null, percent: null, amountSgd: gross });
       const dr = r2(lines.filter((l) => l.side === 'DR').reduce((s, l) => s + l.amountSgd, 0));
       const cr = r2(lines.filter((l) => l.side === 'CR').reduce((s, l) => s + l.amountSgd, 0));
       postings.push({
@@ -95,6 +97,7 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
         ctaAccountId: b.ctaAccountId, clearingGlAccount: clearingGl,
         grossSgd: gross, taxSgd: tax, netSgd: net, gstCode: et?.gstCode ?? '—',
         allocationNote: allocs.map((a) => `${a.code} ${a.percent}%`).join(' · '),
+        crossCharge: allocs.length > 1,
         source, lines, balanced: Math.abs(dr - cr) < 0.005,
       });
     };

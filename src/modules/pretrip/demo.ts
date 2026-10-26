@@ -315,6 +315,23 @@ async function buildCtaPendingSettlementS30() {
   await submit(id); await approveAll(id); await bookViaTmc(id, 0, 'CTA-SG-SGD', false);
 }
 
+/** S31 — DD-31 CTA cross-charge: a CTA-settled trip whose charging is split 60/40 across two cost
+ *  centres (cross charge). The accounting-entries report then shows two debit lines per CTA charge
+ *  with their share %, crediting the CTA clearing. */
+async function buildCtaCrossChargeS31() {
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-OB-RES', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: '2026-12-14', end: '2026-12-17',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1600, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'TYO', nights: 3, quotedNightly: 300 },
+    oda: { country: 'JP', city: 'TYO', arrive: '2026-12-14', depart: '2026-12-17' },
+    charging: [{ code: 'CC-1000', pct: 60 }, { code: 'CC-2000', pct: 40 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { hotelSettlement: HOTEL_SETTLEMENT.Cta, description: 'CTA cross-charge — airfare + hotel split 60/40 across two cost centres (S31)' } });
+  await submit(id); await approveAll(id); await bookViaTmc(id, 0, 'CTA-SG-SGD', true);
+}
+
 export async function seedDemoScenarios() {
   const existing = await prisma.travelRequest.count();
   if (existing > 0) { revalidatePath('/dashboard'); return; }
@@ -396,6 +413,7 @@ export async function seedDemoScenarios() {
   await buildMultiCityBookedS28();
   await buildCtaSettledClaimS29();
   await buildCtaPendingSettlementS30();
+  await buildCtaCrossChargeS31();
 
   // Normalise every seeded request's estimate lines to the latest design: hotel stay dates filled
   // from the itinerary (so "Stay dates" isn't "— → —"), and ODA rebuilt as one full-rate line per
