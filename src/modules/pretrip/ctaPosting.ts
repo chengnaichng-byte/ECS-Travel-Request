@@ -11,7 +11,6 @@
 import { prisma } from '@/shared/db';
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { ctaAccountsMap } from './ctaMaster';
-import { getSettings } from './settings';
 import { lineSettlement } from './settlement';
 import { EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 
@@ -75,8 +74,6 @@ function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
 /** DD-31 — post the settled CTA charges of a request to SAP on receipt (idempotent, one posting per
  *  booking + charge type). Creates a CtaPostingDocument with the SAP doc no, posting date and status. */
 export async function postCtaChargesForRequest(requestId: string): Promise<void> {
-  const settings = await getSettings();
-  if (settings.ctaPostingTiming !== 'ON_RECEIPT') return;   // DD-31 config gate (else post at claim)
   const req = await prisma.travelRequest.findUnique({ where: { id: requestId }, include: { allocations: true, bookings: { include: { segments: true } } } });
   if (!req) return;
   const ctaMap = await ctaAccountsMap();
