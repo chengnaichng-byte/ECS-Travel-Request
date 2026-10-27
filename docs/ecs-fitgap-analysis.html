@@ -123,7 +123,7 @@
     </div>
 
     <div class="note" style="border-left-color:var(--fit)">
-      <b>Update — the four open items are now built.</b> The remaining partials and the gap have been delivered: <b>#1</b> research PI self-approval, <b>#5</b> travel policy reference screen, and <b>#7 / #14</b> the travel-class upgrade-delta split (NTU-funded → M6; self-funded → traveller). Each card below notes what was built.
+      <b>Update — the four open items are now built.</b> <b>#1</b> research PI self-approval, <b>#5</b> the Travel Policy reference screen, and <b>#7 / #14</b> how a travel-class upgrade's cost is charged — an NTU-funded upgrade to cost centre M6, a self-funded one to the traveller. Each card below explains how it works.
     </div>
 
     <div class="note">
@@ -145,25 +145,25 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">A·1</span><span class="req-name">Research vs Non-Research</span><span class="pill">Fit</span></div>
       <p class="desc">Cater for different approval flows based on funding source. For research WBS, PIs can self-approve up to S$5,000.</p>
-      <div class="block f"><h4>Fit</h4><p>Funding-source routing routes a research WBS to the <b>Research DOA</b> line (S02). The <b>research PI self-approval</b> band is now built and configurable in the approval workflow: a research request raised for a PI traveller (staff-master PI flag), within the self-approval limit (S$5,000), is self-approved — the <b>PI is the DOA</b>. Auto-granted on submission when the PI raised it; a delegate-raised one waits in the PI's approval queue. Over the limit or non-PI routes to the Research DOA as before (demoed: S33 self-approved, S02 to DOA).</p></div>
+      <div class="block f"><h4>Fit</h4><p>Research-funded trips follow a separate approval path to the <b>Research delegated authority (DOA)</b>. The prototype also supports <b>PI self-approval</b>: when a Principal Investigator raises a research-funded trip within a set limit (currently <b>S$5,000</b>), the PI approves it as the authority — there is no separate DOA step. Whether this applies, and the limit, are set in the approval configuration. Trips above the limit, or raised for a non-PI traveller, follow the normal Research DOA approval.</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">A·2</span><span class="req-name">Group &amp; Guest Bookings</span><span class="pill">Fit</span></div>
       <p class="desc">Different approval routing for group and guest bookings, requiring only the relevant DOA approval.</p>
-      <div class="block f"><h4>Fit</h4><p>Group requests auto-route to the charging department's DOA line; guest requests route to the host-school DOA, with a Provost step added for a guest class upgrade (DD-25). Separation-of-duties (DD-28) escalates past any self-approval. Only the relevant DOA is engaged.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Group trips route to the delegated authority (DOA) of the funding department; guest trips route to the host school's DOA, with the Provost approving a guest's class upgrade. A person can never approve a trip they are travelling on or raised — the request is escalated to the next approver. Only the relevant DOA is involved.</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">A·3</span><span class="req-name">Policy Exceptions</span><span class="pill">Fit</span></div>
       <p class="desc">Identify and route policy exceptions for approval upfront within the pre-trip system, and how these approved exceptions can flow into ECS without re-approval.</p>
-      <div class="block f"><h4>Fit</h4><p>A data-driven policy engine detects exceptions upfront (hotel-above-cap, class-above-entitlement, offline booking) and routes them to the Exception Approver / DOA before booking. Approved exceptions are carried in the TMC hand-off (<code>approvedExceptions</code>) and into the expense claim as <b>Reference</b>.</p><p>At the claim, re-approval is actively avoided, not merely assumed. The DOA step is <b>auto-granted from the pre-trip approval</b> when the claim stays within the configured tolerance (reimbursable actual vs approved — both a % and an absolute limit), adds no new expense type, introduces no new policy exception, and keeps the same charging DOA. The Exception step re-fires <b>only for a new exception</b> — a fresh overspend beyond tolerance, or a line with no receipt; an exception already approved at pre-trip stays part of the approved baseline and is not reviewed again.</p><p class="muted"><b>Enhancement available:</b> each rule declares its outcome (hard-stop / warning / exception-approval) in the rule catalogue, but the engine currently fixes it. Having the engine honour the configured outcome, plus a maintenance screen, would make each check's severity admin-configurable.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Policy exceptions — a hotel above the cap, a class above entitlement, or an offline booking — are identified when the request is built and sent for exception approval before booking. Once approved, they are passed to the travel agent and carried into the expense claim for reference.</p><p>At the claim stage, what was already approved is <b>not re-approved</b>. The delegated-authority approval is granted automatically when the claim stays within the set tolerance (a percentage and a dollar limit over the approved amount), adds no new expense type, raises no new exception, and uses the same funding department. A fresh exception — an overspend beyond tolerance, or a line with no receipt — is the only thing that needs new approval.</p><p class="muted"><b>Possible enhancement:</b> let an administrator set each check's severity (block the request, warn only, or require exception approval) from a maintenance screen.</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">A·4</span><span class="req-name">Approval for Changes</span><span class="pill">Fit</span></div>
       <p class="desc">Determine when amendments, cost increases or rerouting require fresh approval.</p>
-      <div class="block f"><h4>Fit</h4><p>The amendment flow re-routes for approval on a material change; a configurable booking-deviation tolerance (% / absolute) decides reapproval versus log-only. Cost increases beyond tolerance and material rerouting trigger fresh approval.</p></div>
+      <div class="block f"><h4>Fit</h4><p>A change to an approved trip triggers fresh approval when it is material — a different destination, dates, class or booking method, or a cost increase beyond the set tolerance. Smaller changes within tolerance are recorded without re-approval. A cost increase can also move the trip into a higher approval tier.</p></div>
     </article>
   </section>
 
@@ -174,19 +174,19 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">B·5</span><span class="req-name">Policy Guidelines</span><span class="pill">Fit</span></div>
       <p class="desc">Display applicable travel policies, guidelines and entitlements within the system.</p>
-      <div class="block f"><h4>Fit</h4><p>A standalone, traveller-facing <b>Travel Policy</b> reference screen is now built (<code>/policy</code>): the class-entitlement matrix by policy group, accommodation caps (city + country), ODA rates and duration tiers, the policy checks grouped by hard-stop / exception / warning, and the booking &amp; payment guidelines — assembled from the same ECS masters the request flow enforces, so what a traveller reads is what the engine applies. Entitlements, caps and live checks also remain surfaced contextually through the request flow.</p></div>
+      <div class="block f"><h4>Fit</h4><p>A <b>Travel Policy</b> reference screen now lets anyone see the rules that apply: cabin-class entitlement by staff group, hotel caps by city and country, overseas daily allowance (ODA) rates and the long-stay step-downs, the policy checks (what blocks a request, what is only a warning, and what needs an exception), and the booking and payment rules. The figures come from the same policy tables the system enforces, so what a traveller reads is exactly what is applied. The relevant entitlements and caps also continue to appear as the request is built.</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">B·6</span><span class="req-name">Travel Eligibility (class entitlement)</span><span class="pill">Fit</span></div>
       <p class="desc">CITS is building a travel eligibility system — possible integration to this system in future. <span class="muted">(Clarified: travel class entitlement, via ECS.)</span></p>
-      <div class="block f"><h4>Fit</h4><p>Travel class entitlement is fully built and ECS-register-driven. Entitlement is derived per traveller per flight leg (policy group + minimum-hours threshold) and aggregated across the itinerary. It is enforced through the policy framework — above-entitlement raises an exception to approval (<code>CLASS</code>), requires a justification (<code>CLASS_JUSTIFY</code>), and a guest upgrade needs Provost authorisation (<code>CLASS_PROVOST</code>). The approved class is the ceiling sent to the TMC and carried into the claim. Demoed in S15.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Cabin-class entitlement is fully built and comes from the ECS staff travel-class register. Each traveller's entitled class is worked out from their policy group and the flight duration, across the whole itinerary. Booking above entitlement is allowed only as an approved exception, needs a written justification, and for a guest needs Provost authorisation. The approved class is the ceiling sent to the travel agent and carried into the claim.</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">B·7</span><span class="req-name">Personal Travel &amp; Upgrades</span><span class="pill">Fit</span></div>
       <p class="desc">Discuss on personal travel period as well as self-funded upgrades.</p>
-      <div class="block f"><h4>Fit</h4><p>Personal travel is fully modelled — personal legs and dates, excluded from ODA and from the accommodation budget, with the incremental personal cost shown as traveller-borne. <b>Self-funded upgrades</b> are now settled (built with #14): the airfare line captures the entitlement-class fare and a funding choice; a self-funded upgrade charges NTU the <b>entitlement only</b> and the traveller pays the TMC the delta directly — excluded from the NTU cost and from reimbursement. Demoed in S15b.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Personal travel days are captured and excluded from the daily allowance and the hotel budget, with any extra personal cost shown as the traveller's own. <b>Self-funded upgrades</b> are now handled (together with #14): when a traveller chooses a higher class and pays the difference themselves, NTU is charged only the <b>entitlement fare</b> and the traveller settles the upgrade difference with the travel agent directly — it is not an NTU cost and is not reimbursed.</p></div>
     </article>
   </section>
 
@@ -197,29 +197,29 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">C·8</span><span class="req-name">Multi-Leg Travel</span><span class="pill">Fit</span></div>
       <p class="desc">Support multi-destination and multi-leg bookings within a single request, and how to flow into ECS.</p>
-      <div class="block f"><h4>Fit</h4><p>Multi-destination / multi-leg itineraries in one request (per-leg entitlement, per-city caps and ODA). It flows to the TMC as multiple PNRs and consolidates into a single ECS claim (1 request → N PNRs → 1 claim). Demoed in S14 (multi-leg) and S16 (multi-country).</p></div>
+      <div class="block f"><h4>Fit</h4><p>A single request can cover a multi-stop or multi-country trip, with the right class entitlement, hotel cap and daily allowance applied to each leg. The travel agent may book it across several tickets, and it still comes back as one expense claim.</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">C·9</span><span class="req-name">Group &amp; Guest Travel</span><span class="pill">Fit</span></div>
       <p class="desc">Able to submit pre-trip approval for big groups and external guests.</p>
-      <div class="block f"><h4>Fit</h4><p>Group requests (multiple travellers, shared or own sub-itineraries, per-traveller entitlement and charging split) and external guest requests (no ECS profile; PDPA-safe capture via the TMC) are both built (DD-16, DD-21). Demoed in S11/S12 and the guest scenarios.</p></div>
+      <div class="block f"><h4>Fit</h4><p>One request can cover a large group — each traveller with their own itinerary, class entitlement and share of the cost — or an external guest. For a guest, NTU holds only the name and contact; the travel agent collects passport and personal details securely (PDPA-safe).</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">C·10</span><span class="req-name">Changes &amp; Cancellations</span><span class="pill">Fit</span></div>
       <p class="desc">Allow cancellation, rerouting and amendments to approved bookings.</p>
       <div class="block f"><h4>Fit</h4>
-        <p><b>Cancellation</b> is allowed from Approved, Amendment-in-progress or Expired (before approval the request is withdrawn instead). On cancel the Travel Authorisation is voided immediately and pending steps skipped. A <b>live TMC booking</b> sends a cancellation request to the TMC and holds at "Cancellation Requested" until the TMC confirms the fee/refund; with <b>no live booking</b> (not sent / self-booked / failed) it closes locally with no fee. On TMC confirmation the fee and refund are settled and the <b>CTA postings auto-reverse</b> (DD-31).</p>
-        <p><b>Amendments &amp; rerouting</b> are a free edit only while Draft or Sent Back. A material change on an approved (or pending) request moves it to "Amendment in progress" and <b>restarts approval</b> — the route is re-derived (DOA recomputed) and policy re-evaluated, the TA number retained; if the booking is already in flight an updated instruction is retransmitted to the TMC. Material changes today: destination / dates / class / booking method (rerouting), adding or removing a group traveller, and a failed booking reopening the itinerary.</p>
-        <p><b>Cost increases</b> force fresh approval on two paths — the booking-deviation check (booked vs approved beyond the configurable tolerance → reapproval) and route re-derivation against the new amount band at amendment.</p>
+        <p><b>Cancellation</b> is allowed once a trip is approved (before that, it is simply withdrawn). The travel authorisation is cancelled immediately. If the agent has already booked, a cancellation request goes to the agent and any fee or refund is settled when they confirm — and any charges already posted to the Corporate Travel Account (CTA) are automatically reversed. If nothing was booked yet, it closes with no fee.</p>
+        <p><b>Amendments &amp; rerouting</b> are free to edit before submission. After approval, a material change — a different destination, dates, class or booking method, or adding or removing a group traveller — restarts approval, keeps the same travel-authorisation number, and re-sends updated instructions to the agent if the trip is already booked.</p>
+        <p><b>Cost increases</b> need fresh approval: a booked fare above the approved estimate beyond tolerance is sent back for approval, and a higher amount can move the trip into a higher approval tier.</p>
       </div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">C·11</span><span class="req-name">Direct Bookings</span><span class="pill">Fit</span></div>
       <p class="desc">Pre-trip approval via ECS but book with non-NTU agents. <span class="muted">(Clarified: always self-paid, reimbursed by expense claim.)</span></p>
-      <div class="block f"><h4>Fit</h4><p>The self-booked / offline method supports exactly this: the trip is approved in ECS, booked outside the NTU TMC with a non-NTU agent, paid by the traveller, and reimbursed through the expense claim. No TMC hand-off; the approved ceiling and class deviation are checked at claim.</p></div>
+      <div class="block f"><h4>Fit</h4><p>A traveller can get the trip approved in ECS but book it themselves (including with a non-NTU agent). They pay, and claim it back through the expense claim. Nothing is sent to NTU's travel agent, and the approved budget and class are checked at the claim.</p></div>
     </article>
   </section>
 
@@ -230,13 +230,13 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">D·12</span><span class="req-name">Corporate Travel Account (CTA)</span><span class="pill">Fit</span></div>
       <p class="desc">Re-explore flexible CTA usage, particularly for bookings requiring prepayment, including group and guest bookings, so as to remove the need for no-PO payment.</p>
-      <div class="block f"><h4>Fit</h4><p>CTA central settlement (DD-19) covers airfare and the per-trip chosen hotel, for individuals, groups and guests (DD-30, including a separate guest CTA). A maintainable CTA master resolves each account to its clearing GL; charges are captured and posted. The central lodge replaces no-PO payment.</p></div>
+      <div class="block f"><h4>Fit</h4><p>The Corporate Travel Account (CTA) pays airfare, and hotel where the requestor chooses, centrally — for individuals, groups and guests (guests can use a separate CTA). Each CTA account is mapped to its clearing account, and charges are captured and posted to SAP. Paying centrally this way removes the need for no-PO payments.</p></div>
     </article>
 
     <article class="req fit">
       <div class="req-top"><span class="req-no">D·13</span><span class="req-name">GST</span><span class="pill">Fit</span></div>
       <p class="desc">Cater for appropriate GST treatment and coding for travel expenses.</p>
-      <div class="block f"><h4>Fit</h4><p>GST is built on the shared ECS ⇄ SAP tax codes (<code>IZ / IO / I9 / P9</code>) held in a GST code master and referenced by the expense-type master: airfare <code>IZ</code>, overseas hotel/visa <code>IO</code>, the agency fee as its own <code>I9</code> line. Per-charge GST (external tax amount) flows on the SAP CTA posting, driven from the TMC feed with store-and-validate.</p><p class="muted"><b>Clarification:</b> GST applies only to <b>actual expenses</b> — the CTA posting and the expense claim — never to the travel request. Pre-trip estimates are gross amounts with no GST computed; the estimate / approval-amount calculation applies no tax.</p></div>
+      <div class="block f"><h4>Fit</h4><p>GST is coded using the standard ECS/SAP tax codes: <b>IZ</b> (zero-rated, e.g. airfare), <b>IO</b> (out-of-scope, e.g. overseas hotel and visa) and <b>I9</b> (9% claimable, e.g. the agency booking fee, shown on its own line). The code for each charge comes from the GST code table and the expense-type table, so travel charges carry the right GST treatment. The GST amount per charge flows onto the SAP posting from the travel agent's feed, and the system checks it against its own calculation.</p><p class="muted"><b>Note:</b> GST applies to <b>actual expenses only</b> — the CTA posting and the expense claim — never to the pre-trip request. Pre-trip estimates are gross amounts with no GST added.</p></div>
     </article>
 
     <article class="req fit">
@@ -247,7 +247,7 @@
         <summary>How it works</summary>
         <div class="howto-body">
           <p><b>Capture.</b> An above-entitlement airfare line stores two quotes — the chosen fare and the entitlement-class fare — plus a funding choice (NTU / self). Delta = chosen − entitlement.</p>
-          <p><b>One split helper.</b> <code>airfareUpgrade()</code> derives the entitlement, delta, funding and the fixed <b>M6</b> cost centre; every stage reads it, so the logic never diverges.</p>
+          <p><b>One calculation.</b> The system works out the entitlement, the upgrade difference, the funding and the fixed <b>M6</b> cost centre once, and every stage uses the same figures — so they always agree.</p>
           <p><b>Charging step.</b> A callout shows the split — entitlement → original WBS/CC, delta → M6 (NTU) or traveller (self) — and the NTU-funded totals exclude a self-funded delta.</p>
           <p><b>CTA / SAP posting.</b> On central settlement the airfare debit splits: entitlement → the request's cost object, <b>delta → M6</b> as its own line, balancing the full clearing credit. Self-funded posts the entitlement only (the delta is traveller-direct, off the CTA).</p>
           <p><b>Claim.</b> Self-funded reimbursable airfare is capped at the entitlement. Verified in S35 — CC-1000 $972 + M6 $2,106 = $3,078.</p>
@@ -258,11 +258,11 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">D·15</span><span class="req-name">Budgeting</span><span class="pill">Fit</span></div>
       <p class="desc">Clarify budget checks, including tolerance levels. Pre-populate ODA? <span class="muted">(Clarified: checks of actual against the travel budget.)</span></p>
-      <div class="block f"><h4>Fit</h4><p>Actual-vs-travel-budget control is built across booking and claim: ODA is auto-populated (DD-29, answering "Pre-populate ODA?"); per-line variance (actual − approved) on every claim line; a configurable claim-level tolerance gate blocks a claim that exceeds the approved travel budget beyond the % / SGD tolerance and routes it for approval; remaining-budget tracking across multiple claims; and a booking-deviation check (booked vs approved + tolerance) at booking time.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Spend is checked against the approved travel budget. The overseas daily allowance (ODA) is pre-filled automatically (answering "Pre-populate ODA?"). Each claim line shows actual against approved, and a claim that exceeds the approved budget beyond the set tolerance is held for approval rather than approved automatically. If a trip is claimed in parts, later claims only draw the remaining budget. The booked fare is also checked against the approved estimate when the agent confirms.</p></div>
     </article>
   </section>
 
   <footer>
-    Assessment of the prototype as at 27 Oct 2026. Status reflects what is demonstrable in the running build; "clearing" describes the change that would close each gap. Design-decision references (DD-nn) and scenario references (S-nn) point to the prototype's build spec and seeded demo scenarios.
+    Assessment of the working prototype as at 28 Oct 2026. Status reflects what can be demonstrated in the running prototype. All 15 items are now built; the explanations describe how each works in practice.
   </footer>
 </div>
