@@ -9,7 +9,10 @@ import { travelClassRegister } from '@/data/travelClassRegister';
 import { hotelCaps, hotelCapsByCountry, odaRates, ODA_TIER1_END_DAY, ODA_TIER1_PCT, ODA_TIER2_END_DAY, ODA_TIER2_PCT, ODA_MONTHLY_DAYS } from '@/data/policyRates';
 import { policyRules } from '@/config/policyRules';
 import { POLICY_OUTCOME } from '@/shared/enums';
-import { EcsReference } from '@/shared/ecs/services';
+import { EcsReference, EcsPolicy, EcsTravelClassRegister, EcsIdentity } from '@/shared/ecs/services';
+import { currentPersonaId } from '@/shared/session';
+import { employees } from '@/data/employees';
+import { cities } from '@/data/locations';
 
 const className = (id: string) => travelClasses.find((c) => c.id === id)?.name ?? id;
 const countryName = (code: string) => EcsReference.country(code)?.name ?? code;
@@ -33,11 +36,83 @@ const outcomeLabel: Record<string, string> = {
 };
 const ruleGroups = [POLICY_OUTCOME.HardStop, POLICY_OUTCOME.Exception, POLICY_OUTCOME.Warning];
 
-export default function TravelPolicyPage() {
+export default async function TravelPolicyPage({ searchParams }: { searchParams: Promise<{ traveller?: string; dest?: string }> }) {
+  const sp = await searchParams;
+  const persona = await currentPersonaId();
+  const travellers = employees.filter((e) => e.isTraveller);
+  const travellerId = sp.traveller && travellers.some((t) => t.id === sp.traveller)
+    ? sp.traveller
+    : (travellers.find((t) => t.id === persona)?.id ?? travellers[0]?.id ?? '');
+  const destOptions = cities.filter((c) => c.code !== 'SIN').sort((a, b) => a.name.localeCompare(b.name));
+  const destCity = sp.dest && destOptions.some((c) => c.code === sp.dest) ? sp.dest : '';
+  const now = new Date();
+
+  // The policy that applies to the selected traveller travelling to the selected destination.
+  let result: null | {
+    travellerName: string; cityName: string; countryName: string; hours: number;
+    group: string | null; minHours: number | null; groupClass: string | null;
+    entClass: string; cap: number | undefined; oda: number | undefined;
+  } = null;
+  if (travellerId && destCity) {
+    const entry = EcsTravelClassRegister.entry(travellerId, now);
+    const country = cities.find((c) => c.code === destCity)?.countryCode ?? '';
+    result = {
+      travellerName: EcsIdentity.employee(travellerId)?.name ?? travellerId,
+      cityName: cityName(destCity), countryName: countryName(country), hours: EcsReference.flightHours(destCity),
+      group: entry?.policyGroup ?? null, minHours: entry?.minHours ?? null, groupClass: entry ? className(entry.entitledClassId) : null,
+      entClass: className(EcsTravelClassRegister.entitledForCity(travellerId, destCity, now)),
+      cap: EcsPolicy.hotelCap(destCity), oda: country ? EcsPolicy.odaRate(country) : undefined,
+    };
+  }
+
   return (
     <div className="w-full space-y-5">
-      <PageTitle id="Reference" title="Travel Policy &amp; Entitlements"
-        subtitle="The travel policies, entitlements and checks that apply to a pre-trip request. These are the same rules the system enforces as you build and submit — shown here so you can plan before you start." />
+      <PageTitle id="Travel Policy" title="Your Travel Policy"
+        subtitle="Pick who is travelling and where to — the system shows the cabin class, hotel cap and daily allowance that apply to that trip. The full reference tables are below." />
+
+      <Card title="Check the policy for a trip">
+        <form method="GET" className="flex flex-wrap items-end gap-3">
+          <div className="grow min-w-48">
+            <label className="label">Traveller</label>
+            <select name="traveller" defaultValue={travellerId} className="field w-full">
+              {travellers.map((t) => <option key={t.id} value={t.id}>{t.name} — {t.title}</option>)}
+            </select>
+          </div>
+          <div className="grow min-w-48">
+            <label className="label">Destination</label>
+            <select name="dest" defaultValue={destCity} className="field w-full">
+              <option value="">Select a destination…</option>
+              {destOptions.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </div>
+          <button className="btn-primary">Show policy</button>
+        </form>
+
+        {result ? (
+          <div className="mt-4 grid sm:grid-cols-3 gap-3">
+            <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+              <div className="text-[11px] uppercase tracking-wide text-[var(--ecs-muted)]">Entitled cabin class</div>
+              <div className="text-lg font-semibold text-[var(--ecs-navy)]">{result.entClass}</div>
+              <div className="text-xs text-[var(--ecs-muted)] mt-1">Flight ~{result.hours}h · {result.group ? `policy group ${result.group}: ${result.groupClass} for flights ≥ ${result.minHours}h` : 'not in the register → Economy'}</div>
+            </div>
+            <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+              <div className="text-[11px] uppercase tracking-wide text-[var(--ecs-muted)]">Hotel cap</div>
+              <div className="text-lg font-semibold text-[var(--ecs-navy)]">{result.cap != null ? `SGD ${result.cap}/night` : '—'}</div>
+              <div className="text-xs text-[var(--ecs-muted)] mt-1">{result.cityName}{result.cap == null ? ' · no cap set' : ''}</div>
+            </div>
+            <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+              <div className="text-[11px] uppercase tracking-wide text-[var(--ecs-muted)]">Daily allowance (ODA)</div>
+              <div className="text-lg font-semibold text-[var(--ecs-navy)]">{result.oda != null ? `SGD ${result.oda}/day` : '—'}</div>
+              <div className="text-xs text-[var(--ecs-muted)] mt-1">{result.countryName} · days 1–{ODA_TIER1_END_DAY} at 100%, then tiers apply</div>
+            </div>
+            <p className="sm:col-span-3 text-xs text-[var(--ecs-muted)] m-0">Booking above these — a higher cabin, or a hotel above the cap — is allowed only as an <span className="pill-warn">exception</span> with a justification, routed to an approver.</p>
+          </div>
+        ) : (
+          <p className="text-sm text-[var(--ecs-muted)] mt-3">Choose a traveller and a destination, then <strong>Show policy</strong> to see the cabin class, hotel cap and daily allowance that apply.</p>
+        )}
+      </Card>
+
+      <h3 className="text-base font-semibold text-[var(--ecs-navy)] pt-2 border-t border-[var(--ecs-border)]">Full policy reference</h3>
 
       <Card title="How policy is applied">
         <ul className="text-sm text-[var(--ecs-muted)] space-y-1.5 list-disc pl-5">
