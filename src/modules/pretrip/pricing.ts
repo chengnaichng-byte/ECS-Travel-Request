@@ -4,11 +4,13 @@
 // §4.5 accommodation cap and ODA indicative-estimate calculators.
 import { EcsPolicy, EcsReference } from '@/shared/ecs/services';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
+import { airfareUpgrade } from './upgrade';
 import type { FullRequest } from './queries';
 
 export interface CostSummary {
   gross: number;
   sponsorship: number;
+  travellerFunded: number;   // #7 self-funded upgrade delta the traveller pays the TMC directly
   ntuFunded: number;
   major: number;
   incidental: number;
@@ -20,7 +22,7 @@ export function computeSummary(
   expenses: FullRequest['expenses'],
   approvalAmountBasis: string,
 ): CostSummary {
-  let gross = 0, sponsorship = 0, major = 0, incidental = 0, bookingCeiling = 0;
+  let gross = 0, sponsorship = 0, major = 0, incidental = 0, bookingCeiling = 0, travellerFunded = 0;
   for (const e of expenses) {
     gross += e.sgdAmount;
     sponsorship += e.sponsorSgd;
@@ -29,8 +31,14 @@ export function computeSummary(
     if (e.category === EXPENSE_CATEGORY.Airfare || e.category === EXPENSE_CATEGORY.Accommodation) {
       bookingCeiling += e.sgdAmount;
     }
+    // #7 a self-funded class-upgrade delta is settled by the traveller with the TMC directly — it is
+    // not an NTU cost, so it is excluded from the NTU-funded total and the approval amount (like sponsorship).
+    if (e.category === EXPENSE_CATEGORY.Airfare) {
+      const up = airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding });
+      if (up.isUpgrade && up.funding === 'SELF') travellerFunded += up.travellerPaysSgd;
+    }
   }
-  const ntuFunded = gross - sponsorship;
+  const ntuFunded = gross - sponsorship - travellerFunded;
   let approvalAmount: number;
   switch (approvalAmountBasis) {
     case 'GROSS': approvalAmount = gross; break;
@@ -39,7 +47,7 @@ export function computeSummary(
     case 'NET_NTU':
     default: approvalAmount = ntuFunded; break;
   }
-  return { gross, sponsorship, ntuFunded, major, incidental, approvalAmount, bookingCeiling };
+  return { gross, sponsorship, travellerFunded, ntuFunded, major, incidental, approvalAmount, bookingCeiling };
 }
 
 /** §4.5 accommodation: cap, budgeted rate per basis, variance and exception outcome. */

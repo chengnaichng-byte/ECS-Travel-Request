@@ -288,6 +288,9 @@ model EstimatedExpense {
   proposedClassId String?
   fareCeiling    Float?
   handoffStatus  String?
+  // #7/#14 travel-class upgrade — the second (entitlement-class) quote and how the delta is funded.
+  entitlementFareSgd Float?                  // the entitlement-class fare (second quote); delta = sgdAmount - this
+  upgradeFunding  String?                    // NTU (delta → M6) | SELF (traveller pays the TMC the delta directly)
 
   accommodation  AccommodationEstimate?
   oda            ODAEstimate?

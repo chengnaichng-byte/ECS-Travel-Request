@@ -8,6 +8,7 @@ import { TE_TREATMENT, EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { travellerNightsAtCity } from '@/modules/pretrip/group';
 import { isReimbursable } from '@/modules/pretrip/settlement';
+import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
 export interface HeaderField { label: string; value: string; treatment: string; }
@@ -127,6 +128,12 @@ export function prepopulateClaim(
         const sharers = req.travellers.filter((t) => !(t.travellerType === 'GUEST' || t.employeeId.startsWith('G-'))).length || 1;
         approvedSgd = e.sgdAmount / sharers;
       }
+    }
+    // #7 self-funded travel-class upgrade — the traveller pays the TMC the delta directly, so the
+    // NTU/reimbursable airfare is capped at the entitlement (the delta is never an NTU cost).
+    if (e.category === EXPENSE_CATEGORY.Airfare) {
+      const up = airfareUpgrade({ sgdAmount: approvedSgd, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding });
+      if (up.isUpgrade && up.funding === 'SELF') approvedSgd = up.ntuAirfareSgd;
     }
     // booked amount from the TMC feed (null for self-booked §13.17, or when the
     // admin excludes booked amounts from the contract).

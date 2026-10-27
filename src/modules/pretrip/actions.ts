@@ -522,6 +522,11 @@ export async function addAirfare(id: string, fd: FormData) {
   const now = new Date();
   const sgd = EcsFx.toSgd(foreign, currency, now); // §13.4 converted at the entry-date rate; re-locked at submission
   const spForeign = num(fd, 'sponsorship');
+  // #7/#14 travel-class upgrade — the entitlement-class fare (second quote) and the delta funding.
+  const entFare = num(fd, 'entitlementFare');
+  const entFareSgd = entFare > 0 ? EcsFx.toSgd(entFare, currency, now) : null;
+  const upFunding = (str(fd, 'upgradeFunding') || '').toUpperCase();
+  const upgradeFunding = upFunding === 'NTU' || upFunding === 'SELF' ? upFunding : null;
   const tids = await travellerFanout(id, fd);
   // §13.14 for a group, default each line's proposed class to that traveller's booked (entitled)
   // class so estimates match what each person will fly, without re-keying per traveller.
@@ -540,6 +545,9 @@ export async function addAirfare(id: string, fd: FormData) {
         originCode: str(fd, 'originCode'), destCode: str(fd, 'destCode'),
         proposedClassId: (tid && classByTraveller[tid]) || str(fd, 'proposedClassId'), fareCeiling: sgd, handoffStatus: 'Pending',
         notes: str(fd, 'notes'),
+        // #7/#14 upgrade split is captured on the individual airfare line only (groups fly entitlement).
+        entitlementFareSgd: tid === null ? entFareSgd : null,
+        upgradeFunding: tid === null ? upgradeFunding : null,
         travellerId: tid, // §13.14 airfare is always individual
       },
     });

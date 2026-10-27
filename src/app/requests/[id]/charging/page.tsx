@@ -15,6 +15,7 @@ import { expenseTypes } from '@/data/expenseTypes';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName } from '@/modules/pretrip/traveller';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
+import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { Card, Stepper, Empty } from '@/components/ui';
@@ -36,6 +37,13 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
   const settings = await getSettings();
   const canEdit = canEditRequest(await currentPersonaId(), req);
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
+
+  // #7/#14 travel-class upgrade split — derived from the airfare line's entitlement-class fare + funding.
+  const mainCode = (req.allocations.find((a) => a.isMain) ?? req.allocations[0])?.chargingCode ?? null;
+  const upgradeLines = req.expenses
+    .filter((e) => e.category === EXPENSE_CATEGORY.Airfare)
+    .map((e) => ({ e, u: airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding }) }))
+    .filter((x) => x.u.isUpgrade);
 
   const defaultAccount = EcsIdentity.employee(req.travellerId)?.defaultChargingCode ?? EcsIdentity.employee(req.requestorId)?.defaultChargingCode ?? chargingCodes[0]?.code ?? '';
   // §8 a guest member has no Workday department — their share is charged to the host's
@@ -109,28 +117,65 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s charging.</div>}
       <DuplicateWarning req={req} />
 
+      {upgradeLines.length > 0 && (
+        <Card title="Travel-class upgrade — charging split (#7 / #14)" className="mb-5">
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">The standard entitlement charges the original WBS / cost centre; the upgrade differential is funded as chosen on the airfare line.</p>
+          <div className="space-y-4">
+            {upgradeLines.map(({ e, u }) => (
+              <div key={e.id} className="text-sm">
+                <div className="font-medium mb-1">{e.originCode} → {e.destCode} · {EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? ''}
+                  <span className="text-[var(--ecs-muted)] font-normal"> — chosen {fmtSgd(u.fareSgd)}, entitlement {fmtSgd(u.entitlementSgd)}, delta {fmtSgd(u.deltaSgd)}</span>
+                </div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    <tr className="border-t border-[var(--ecs-border)]">
+                      <td className="td">Standard entitlement</td>
+                      <td className="td text-right tabular-nums">{fmtSgd(u.entitlementSgd)}</td>
+                      <td className="td">→ original WBS / cost centre{mainCode ? ` (${chargingCodes.find((c) => c.code === mainCode)?.name ?? mainCode})` : ' (per the allocation below)'}</td>
+                    </tr>
+                    <tr className="border-t border-[var(--ecs-border)]">
+                      <td className="td">Upgrade differential</td>
+                      <td className="td text-right tabular-nums">{fmtSgd(u.deltaSgd)}</td>
+                      <td className="td">{u.funding === 'NTU'
+                        ? <>→ cost centre <strong>M6</strong> <span className="pill-info ml-1">NTU-funded</span></>
+                        : <>→ <strong>traveller</strong> — paid to the TMC directly, not reimbursed <span className="pill-warn ml-1">self-funded</span></>}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <Card title={`Estimated Cost Lines (${req.expenses.length})`} className="mb-5">
         {req.expenses.length === 0 ? <Empty>No estimate lines yet — add airfare, accommodation and ODA on the Estimates step.</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr><th className="th">Type</th>{req.isGroup && <th className="th">Traveller</th>}<th className="th">Detail</th><th className="th text-right">Gross (SGD)</th><th className="th text-right">Sponsor (SGD)</th><th className="th text-right">NTU-funded (SGD)</th></tr></thead>
               <tbody>
-                {req.expenses.map((e) => (
+                {req.expenses.map((e) => {
+                  // #7 a self-funded airfare upgrade delta is traveller-paid — exclude it from the line's NTU-funded figure.
+                  const u = e.category === EXPENSE_CATEGORY.Airfare ? airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding }) : null;
+                  const selfDelta = u?.isUpgrade && u.funding === 'SELF' ? u.travellerPaysSgd : 0;
+                  const ntu = Math.max(e.sgdAmount - e.sponsorSgd - selfDelta, 0);
+                  return (
                   <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
                     <td className="td font-medium">{EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category}</td>
                     {req.isGroup && <td className="td text-xs text-[var(--ecs-navy-2)] whitespace-nowrap">{e.isShared ? 'Shared — apportioned' : memberKeyLabel(e.travellerId)}</td>}
                     <td className="td text-xs text-[var(--ecs-muted)]">{detailOf(e)}</td>
                     <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}</td>
-                    <td className="td text-right whitespace-nowrap">{e.sponsorSgd > 0 ? `− ${fmtSgd(e.sponsorSgd)}` : '—'}</td>
-                    <td className="td text-right whitespace-nowrap font-medium">{fmtSgd(Math.max(e.sgdAmount - e.sponsorSgd, 0))}</td>
+                    <td className="td text-right whitespace-nowrap">{e.sponsorSgd > 0 ? `− ${fmtSgd(e.sponsorSgd)}` : selfDelta > 0 ? `− ${fmtSgd(selfDelta)} self` : '—'}</td>
+                    <td className="td text-right whitespace-nowrap font-medium">{fmtSgd(ntu)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="font-semibold">
                   <td className="td" colSpan={req.isGroup ? 3 : 2}>Estimated NTU-funded cost</td>
                   <td className="td text-right">{fmtSgd(summary.gross)}</td>
-                  <td className="td text-right">{summary.sponsorship > 0 ? `− ${fmtSgd(summary.sponsorship)}` : '—'}</td>
+                  <td className="td text-right">{(summary.sponsorship + summary.travellerFunded) > 0 ? `− ${fmtSgd(summary.sponsorship + summary.travellerFunded)}` : '—'}</td>
                   <td className="td text-right">{fmtSgd(summary.ntuFunded)}</td>
                 </tr>
               </tfoot>
