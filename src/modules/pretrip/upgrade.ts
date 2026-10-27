@@ -7,6 +7,7 @@
 //                   delta to the TMC directly, so the delta is never an NTU charge or reimbursement (#7).
 // This helper derives the split from the airfare line; charging, posting and the claim all read it.
 import { UPGRADE_DELTA_CC } from '@/data/charging';
+import { EXPENSE_CATEGORY } from '@/shared/enums';
 
 export type UpgradeFunding = 'NTU' | 'SELF';
 
@@ -32,4 +33,15 @@ export function airfareUpgrade(e: { sgdAmount: number; entitlementFareSgd?: numb
   const ntuAirfare = !isUpgrade ? fare : funding === 'SELF' ? ent : fare;
   const travellerPays = isUpgrade && funding === 'SELF' ? delta : 0;
   return { isUpgrade, fareSgd: fare, entitlementSgd: ent, deltaSgd: delta, funding, ntuAirfareSgd: ntuAirfare, travellerPaysSgd: travellerPays, deltaCostCentre: UPGRADE_DELTA_CC };
+}
+
+/** Total NTU-funded upgrade differential across a request's airfare lines — the amount that charges
+ *  the M6 cost centre (the entitlement stays on the chosen allocation). Self-funded deltas are the
+ *  traveller's, so they are excluded. */
+export function ntuUpgradeDeltaTotal(expenses: { category: string; sgdAmount: number; entitlementFareSgd?: number | null; upgradeFunding?: string | null }[]): number {
+  return r2(expenses.reduce((s, e) => {
+    if (e.category !== EXPENSE_CATEGORY.Airfare) return s;
+    const u = airfareUpgrade(e);
+    return s + (u.isUpgrade && u.funding === 'NTU' ? u.deltaSgd : 0);
+  }, 0));
 }

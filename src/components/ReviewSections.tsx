@@ -8,6 +8,8 @@ import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNigh
 import { guestSettlements } from '@/modules/pretrip/settlement';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
+import { ntuUpgradeDeltaTotal } from '@/modules/pretrip/upgrade';
+import { UPGRADE_DELTA_CC } from '@/data/charging';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { ENTITY_NAME } from '@/data/organisation';
@@ -140,7 +142,10 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const primaryCode = primary ? EcsCharging.code(primary.chargingCode) : null;
   const crossCharge = allocs.length > 1;
   const research = allocs.some((a) => EcsCharging.code(a.chargingCode)?.isResearch);
-  const amountFor = (pct: number) => fmtSgd((summary.ntuFunded * pct) / 100);
+  // #14 the NTU-funded class-upgrade differential charges M6, so the chosen accounts carry the
+  // entitlement portion (ntuFunded − delta) and M6 carries the delta.
+  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);
+  const amountFor = (pct: number) => fmtSgd(((summary.ntuFunded - m6Delta) * pct) / 100);
 
   const exViews = exceptionViews(req);
   const exImpact = exViews.reduce((s, e) => s + e.impactSgd, 0);
@@ -212,6 +217,13 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
             <div className="text-[13px] font-medium">{primary ? `${primary.chargingCode} · ${primaryCode?.name ?? ''}` : '—'}</div>
             <div className="text-[11px]">{primary ? `${primary.percent}% (${amountFor(primary.percent)})` : ''}{research && <span className="pill-warn ml-1">Research WBS</span>}</div>
           </div>
+          {m6Delta > 0 && (
+            <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
+              <div className="text-[11px] text-[var(--ecs-muted)]">Class-upgrade differential</div>
+              <div className="text-[13px] font-medium">{UPGRADE_DELTA_CC} <span className="pill-info ml-1">upgrade</span> {fmtSgd(m6Delta)}</div>
+              <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded — entitlement stays on the account(s) above</div>
+            </div>
+          )}
           <TileRow label="Cross-charge">
             {crossCharge ? <span className="pill-warn">Yes · {allocs.length} accounts</span> : 'No cross-charge'}
           </TileRow>
@@ -293,6 +305,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
   const { days } = daysToBook(req, bookingDeadlineDays);
   const validityEnd = req.authorisationExpiry ?? (req.startDate ? new Date(req.startDate.getTime() - bookingDeadlineDays * 86400000) : null);
   const pc = primaryCharging(req);
+  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential → M6
 
   return (
     <Card>
@@ -320,6 +333,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
         <Field label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</Field>
         <Field label="Primary Charging Account">
           {pc ? <span>{pc.code} · {pc.name} <span className="text-[var(--ecs-muted)]">({pc.pct}%{pc.research ? ' · research' : ''})</span></span> : '—'}
+          {m6Delta > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">+ class-upgrade differential {fmtSgd(m6Delta)} → {UPGRADE_DELTA_CC} (NTU-funded)</div>}
         </Field>
         <Field label="Personal Extension">
           {req.isGroup ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers` : (req.personalStart ? `${fmtDate(req.personalStart)} – ${fmtDate(req.personalEnd)}` : 'None')}
@@ -554,6 +568,8 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
   const primary = [...req.allocations].sort((a, b) => b.percent - a.percent)[0];
   const primaryDept = EcsIdentity.department(EcsCharging.code(primary?.chargingCode ?? '')?.departmentId ?? '')?.name;
   const others = req.allocations.filter((a) => a.id !== primary?.id);
+  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential → M6
+  const m6 = m6Delta > 0 ? EcsCharging.code(UPGRADE_DELTA_CC) : null;
   return (
     <Card title={heading(letter, 'Cost Allocation')}>
       <div className="grid md:grid-cols-4 gap-3 mb-3">
@@ -580,10 +596,22 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
                   <td className="td">{a.internalOrder ?? '—'}</td>
                   <td className="td">{a.isMain ? 'Yes' : 'No'}</td>
                   <td className="td text-right">{a.percent}%</td>
-                  <td className="td text-right whitespace-nowrap font-medium">{fmtSgd((amount * a.percent) / 100)}</td>
+                  <td className="td text-right whitespace-nowrap font-medium">{fmtSgd(((amount - m6Delta) * a.percent) / 100)}</td>
                 </tr>
               );
             })}
+            {m6 && (
+              <tr className="hover:bg-[var(--ecs-panel-2)]">
+                <td className="td">{m6.companyCode}</td>
+                <td className="td whitespace-nowrap">{m6.businessArea}</td>
+                <td className="td">{m6.type}</td>
+                <td className="td whitespace-nowrap">{UPGRADE_DELTA_CC} · {m6.name} <span className="pill-info ml-1">upgrade</span></td>
+                <td className="td">—</td>
+                <td className="td">No</td>
+                <td className="td text-right">—</td>
+                <td className="td text-right whitespace-nowrap font-medium">{fmtSgd(m6Delta)}</td>
+              </tr>
+            )}
           </tbody>
           <tfoot><tr className="font-semibold text-[var(--ecs-navy)]"><td className="td" colSpan={6}>Total estimated NTU-funded cost</td><td className="td text-right">{req.allocations.reduce((s, a) => s + a.percent, 0)}%</td><td className="td text-right">{fmtSgd(amount)}</td></tr></tfoot>
         </table>
