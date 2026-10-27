@@ -596,6 +596,25 @@ export async function updateClassJustification(id: string, fd: FormData) {
   revalidatePath(`/requests/${id}/review`);
 }
 
+/** §6.3 Resolve the outstanding policy justifications in one go from the Policy Review step — the
+ *  class-upgrade justification (request level) and each above-cap accommodation justification (the
+ *  line's note) — then re-run the policy checks so the hard stops clear without leaving the page. */
+export async function resolveJustifications(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  if (fd.has('classJustification')) {
+    await prisma.travelRequest.update({ where: { id }, data: { classJustification: (str(fd, 'classJustification') || '').trim() || null } });
+  }
+  for (const [k, v] of fd.entries()) {
+    if (k.startsWith('hotelNote_') && typeof v === 'string' && v.trim()) {
+      await prisma.estimatedExpense.update({ where: { id: k.slice('hotelNote_'.length) }, data: { notes: v.trim() } });
+    }
+  }
+  await persistPolicy(id);
+  await audit(id, 'AMEND', 'Policy justifications resolved from the Policy Review step');
+  revalidatePath(`/requests/${id}/policy`);
+  revalidatePath(`/requests/${id}/review`);
+}
+
 export async function addAccommodation(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
   const settings = await getSettings();

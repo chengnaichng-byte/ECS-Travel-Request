@@ -3,9 +3,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
-import { runPolicy } from '@/modules/pretrip/actions';
-import { EcsIdentity } from '@/shared/ecs/services';
-import { POLICY_OUTCOME } from '@/shared/enums';
+import { runPolicy, resolveJustifications } from '@/modules/pretrip/actions';
+import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
+import { currentPersonaId } from '@/shared/session';
+import { canEditRequest } from '@/modules/pretrip/guards';
+import { travelClasses } from '@/data/travelClass';
+import { POLICY_OUTCOME, REQUEST_STATUS } from '@/shared/enums';
 import { Card, Stepper, Empty } from '@/components/ui';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
 import { OutcomePill } from '@/components/StatusPill';
@@ -26,6 +29,14 @@ export default async function PolicyStep({ params }: { params: Promise<{ id: str
   const checks = req.policyChecks;
   const hardStop = checks.some((c) => c.outcome === POLICY_OUTCOME.HardStop);
 
+  // §6.3 justifications that can be resolved inline here (all at once), instead of going back a step.
+  const canEdit = canEditRequest(await currentPersonaId(), req) && (req.status === REQUEST_STATUS.Draft || req.status === REQUEST_STATUS.SentBack);
+  const className = (cid?: string | null) => travelClasses.find((c) => c.id === cid)?.name ?? cid ?? '';
+  const cityName = (code: string) => EcsReference.city(code)?.name ?? code;
+  const needClassJustification = checks.some((c) => c.code === 'CLASS_JUSTIFY');
+  const aboveCapHotels = req.expenses.filter((e) => e.accommodation && e.accommodation.exceptionOutcome === POLICY_OUTCOME.Exception && !(e.notes ?? '').trim());
+  const canResolve = canEdit && (needClassJustification || aboveCapHotels.length > 0);
+
   return (
     <div>
       <Stepper id={id} active="policy" requestNumber={req.requestNumber} status={req.status} />
@@ -33,6 +44,30 @@ export default async function PolicyStep({ params }: { params: Promise<{ id: str
       <div className="flex justify-end mb-3">
         <form action={runPolicy.bind(null, id)}><button className="btn-secondary">Re-run checks</button></form>
       </div>
+
+      {/* §6.3 Resolve the outstanding justifications here, all at once — no need to go back a step. */}
+      {canResolve && (
+        <Card title="Resolve to submit — justification required" className="mb-4">
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">Enter the justification for each item below and save. The checks re-run and these hard stops clear, without leaving this page. Exceptions still route to an approver.</p>
+          <form action={resolveJustifications.bind(null, id)} className="space-y-4">
+            {needClassJustification && (
+              <div>
+                <label className="label">Travel-class upgrade — <strong>{className(req.travelClassId)}</strong> is above your <strong>{className(req.entitledClassId) || 'entitlement'}</strong></label>
+                <p className="text-xs text-[var(--ecs-muted)] mb-1">A cabin above your entitlement requires a justification; the upgrade then routes to an approver.</p>
+                <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} required className="field" placeholder="e.g. overnight red-eye ahead of a same-day event; medical reason…" />
+              </div>
+            )}
+            {aboveCapHotels.map((e) => (
+              <div key={e.id}>
+                <label className="label">Accommodation above cap — <strong>{cityName(e.accommodation!.city)}</strong>: SGD {e.accommodation!.quotedNightly}/night exceeds the cap SGD {e.accommodation!.capNightly}/night{e.travellerId ? ` (${EcsIdentity.employee(e.travellerId)?.name})` : ''}</label>
+                <p className="text-xs text-[var(--ecs-muted)] mb-1">A rate above the cap requires a justification; it then routes to an approver.</p>
+                <textarea name={`hotelNote_${e.id}`} defaultValue={e.notes ?? ''} rows={2} required className="field" placeholder="e.g. conference venue hotel — cheaper options are 45+ min away…" />
+              </div>
+            ))}
+            <button className="btn-primary">Save justifications &amp; re-run checks</button>
+          </form>
+        </Card>
+      )}
 
       {checks.length === 0 && <Card title="Policy Review"><Empty>No checks yet. Save charging or click “Re-run checks”.</Empty></Card>}
 
