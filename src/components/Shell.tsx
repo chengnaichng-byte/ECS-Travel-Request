@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { href: '/finance/cta-charges', label: 'CTA Charges', icon: '◉' },
   { href: '/finance/cta-postings', label: 'CTA Accounting Entries', icon: '≡' },
   { href: '/reports', label: 'Reporting', icon: '▦' },
+  { href: '/policy', label: 'Travel Policy', icon: '§' },
   { href: '/visa-letters', label: 'Visa Letters', icon: '✉' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
   { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
