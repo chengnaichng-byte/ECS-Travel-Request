@@ -107,9 +107,13 @@
     </div>
 
     <div class="tiles">
-      <div class="tile fit"><div class="n">11</div><div class="l">Fit — built in the prototype</div></div>
-      <div class="tile part"><div class="n">3</div><div class="l">Partial — core built, defined gap</div></div>
-      <div class="tile gap"><div class="n">1</div><div class="l">Gap — to be built</div></div>
+      <div class="tile fit"><div class="n">15</div><div class="l">Fit — built in the prototype</div></div>
+      <div class="tile part"><div class="n">0</div><div class="l">Partial</div></div>
+      <div class="tile gap"><div class="n">0</div><div class="l">Gap</div></div>
+    </div>
+
+    <div class="note" style="border-left-color:var(--fit)">
+      <b>Update — the four open items are now built.</b> The remaining partials and the gap have been delivered: <b>#1</b> research PI self-approval, <b>#5</b> travel policy reference screen, and <b>#7 / #14</b> the travel-class upgrade-delta split (NTU-funded → M6; self-funded → traveller). Each card below notes what was built.
     </div>
 
     <div class="note">
@@ -128,11 +132,10 @@
   <section class="cat">
     <div class="cat-h"><span class="letter">A</span><h2>Approval Workflow &amp; DOA</h2></div>
 
-    <article class="req part">
-      <div class="req-top"><span class="req-no">A·1</span><span class="req-name">Research vs Non-Research</span><span class="pill">Partial</span></div>
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">A·1</span><span class="req-name">Research vs Non-Research</span><span class="pill">Fit</span></div>
       <p class="desc">Cater for different approval flows based on funding source. For research WBS, PIs can self-approve up to S$5,000.</p>
-      <div class="block f"><h4>Fit</h4><p>Funding-source routing is built: a research WBS routes to the <b>Research DOA</b> line instead of the standard DOA line, driven by the purpose/charging <code>isResearch</code> flag (demoed in scenario S02).</p></div>
-      <div class="block g"><h4>Gap &amp; clearing</h4><p>The PI self-approval band (research ≤ S$5,000 → PI self-approves) is not active: the self-approval limit setting exists but is dormant and the route builder always appends a DOA step.</p><p class="muted"><b>Clearing:</b> surface the existing ECS staff-master PI flag on the traveller; make the self-approval limit configurable; add a branch in the route builder — when <code>research &amp;&amp; traveller is the PI &amp;&amp; amount ≤ limit</code> → self-approved (no DOA step).</p></div>
+      <div class="block f"><h4>Fit</h4><p>Funding-source routing routes a research WBS to the <b>Research DOA</b> line (S02). The <b>research PI self-approval</b> band is now built and configurable in the approval workflow: a research request raised for a PI traveller (staff-master PI flag), within the self-approval limit (S$5,000), is self-approved — the <b>PI is the DOA</b>. Auto-granted on submission when the PI raised it; a delegate-raised one waits in the PI's approval queue. Over the limit or non-PI routes to the Research DOA as before (demoed: S33 self-approved, S02 to DOA).</p></div>
     </article>
 
     <article class="req fit">
@@ -158,11 +161,10 @@
   <section class="cat">
     <div class="cat-h"><span class="letter">B</span><h2>Travel Policy &amp; Eligibility</h2></div>
 
-    <article class="req part">
-      <div class="req-top"><span class="req-no">B·5</span><span class="req-name">Policy Guidelines</span><span class="pill">Partial</span></div>
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">B·5</span><span class="req-name">Policy Guidelines</span><span class="pill">Fit</span></div>
       <p class="desc">Display applicable travel policies, guidelines and entitlements within the system.</p>
-      <div class="block f"><h4>Fit</h4><p>Entitlements (cabin class), caps (hotel/city), ODA rates and tiers, and live policy checks are surfaced <b>contextually</b> through the request flow (Trip / Estimates / Review), so the applicable rule is shown where it applies. The Config Viewer lists the policy-rule catalogue, caps and rates.</p></div>
-      <div class="block g"><h4>Gap &amp; clearing</h4><p>There is no standalone, browsable policy reference a traveller can consult independently of a live request.</p><p class="muted"><b>Clearing:</b> a "Travel Policy" reference screen rendering the entitlement matrix, caps, ODA rates and class rules as readable guidelines.</p></div>
+      <div class="block f"><h4>Fit</h4><p>A standalone, traveller-facing <b>Travel Policy</b> reference screen is now built (<code>/policy</code>): the class-entitlement matrix by policy group, accommodation caps (city + country), ODA rates and duration tiers, the policy checks grouped by hard-stop / exception / warning, and the booking &amp; payment guidelines — assembled from the same ECS masters the request flow enforces, so what a traveller reads is what the engine applies. Entitlements, caps and live checks also remain surfaced contextually through the request flow.</p></div>
     </article>
 
     <article class="req fit">
@@ -171,11 +173,10 @@
       <div class="block f"><h4>Fit</h4><p>Travel class entitlement is fully built and ECS-register-driven. Entitlement is derived per traveller per flight leg (policy group + minimum-hours threshold) and aggregated across the itinerary. It is enforced through the policy framework — above-entitlement raises an exception to approval (<code>CLASS</code>), requires a justification (<code>CLASS_JUSTIFY</code>), and a guest upgrade needs Provost authorisation (<code>CLASS_PROVOST</code>). The approved class is the ceiling sent to the TMC and carried into the claim. Demoed in S15.</p></div>
     </article>
 
-    <article class="req part">
-      <div class="req-top"><span class="req-no">B·7</span><span class="req-name">Personal Travel &amp; Upgrades</span><span class="pill">Partial</span></div>
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">B·7</span><span class="req-name">Personal Travel &amp; Upgrades</span><span class="pill">Fit</span></div>
       <p class="desc">Discuss on personal travel period as well as self-funded upgrades.</p>
-      <div class="block f"><h4>Fit</h4><p>Personal travel is fully modelled — personal legs and dates, excluded from ODA and from the accommodation budget, with the incremental personal cost computed and shown as traveller-borne. Class upgrades require a justification and route to approval, with the incremental cost computed.</p></div>
-      <div class="block g"><h4>Gap &amp; clearing</h4><p>A self-funded upgrade's delta is computed for display but not settled — there is no flag that caps NTU's charge/reimbursement at the entitlement and charges the delta to the traveller.</p><p class="muted"><b>Clearing:</b> an upgrade-funding choice (self-funded vs NTU-funded); self-funded → split the fare so NTU is charged the entitlement and the traveller bears the delta (excluded from reimbursement). Same build as #14.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Personal travel is fully modelled — personal legs and dates, excluded from ODA and from the accommodation budget, with the incremental personal cost shown as traveller-borne. <b>Self-funded upgrades</b> are now settled (built with #14): the airfare line captures the entitlement-class fare and a funding choice; a self-funded upgrade charges NTU the <b>entitlement only</b> and the traveller pays the TMC the delta directly — excluded from the NTU cost and from reimbursement. Demoed in S15b.</p></div>
     </article>
   </section>
 
@@ -228,11 +229,10 @@
       <div class="block f"><h4>Fit</h4><p>GST is built on the shared ECS ⇄ SAP tax codes (<code>IZ / IO / I9 / P9</code>) held in a GST code master and referenced by the expense-type master: airfare <code>IZ</code>, overseas hotel/visa <code>IO</code>, the agency fee as its own <code>I9</code> line. Per-charge GST (external tax amount) flows on the SAP CTA posting, driven from the TMC feed with store-and-validate.</p><p class="muted"><b>Clarification:</b> GST applies only to <b>actual expenses</b> — the CTA posting and the expense claim — never to the travel request. Pre-trip estimates are gross amounts with no GST computed; the estimate / approval-amount calculation applies no tax.</p></div>
     </article>
 
-    <article class="req gap">
-      <div class="req-top"><span class="req-no">D·14</span><span class="req-name">Charging Account for Upgrades</span><span class="pill">Gap</span></div>
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">D·14</span><span class="req-name">Charging Account for Upgrades</span><span class="pill">Fit</span></div>
       <p class="desc">Automatically default the incremental cost of NTU-funded upgrades to M6, while charging the standard entitlement to the original WBS/cost centre.</p>
-      <div class="block f"><h4>Fit</h4><p>The upgrade is detected and its incremental cost above entitlement is computed and displayed.</p></div>
-      <div class="block g"><h4>Gap &amp; clearing</h4><p>The automatic split charging is not built — the full fare still charges the original allocation; there is no rule routing the NTU-funded upgrade delta to a dedicated cost centre (M6).</p><p class="muted"><b>Clearing:</b> split the airfare line at the entitlement amount — entitlement → original WBS/CC, delta → M6 — within the existing per-line charging model. Pairs with #7 (self-funded → traveller; NTU-funded → M6) as a single build.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Now built. An above-entitlement airfare line captures the entitlement-class fare (a second quote) and the funding choice; for an <b>NTU-funded</b> upgrade the split is automatic — the <b>standard entitlement charges the original WBS / cost centre</b> and the <b>delta charges the fixed M6 cost centre</b>. Shown on the Charging step and reflected in the NTU-funded totals. Demoed in S15 (Business vs Economy → S$2,600 delta to M6).</p></div>
     </article>
 
     <article class="req fit">
