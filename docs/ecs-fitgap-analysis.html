@@ -123,7 +123,16 @@
     </div>
 
     <div class="note" style="border-left-color:var(--fit)">
-      <b>Update — the four open items are now built.</b> <b>#1</b> research PI self-approval, <b>#5</b> the Travel Policy reference screen, and <b>#7 / #14</b> how a travel-class upgrade's cost is charged — an NTU-funded upgrade to cost centre M6, a self-funded one to the traveller. Each card below explains how it works.
+      <b>Update — the four open items are now built.</b> <b>#1</b> research PI self-approval, <b>#5</b> the Travel Policy screen, and <b>#7 / #14</b> how a travel-class upgrade's cost is charged — an NTU-funded upgrade to cost centre M6, a self-funded one to the traveller. Each card below explains how it works.
+    </div>
+
+    <div class="note" style="border-left-color:var(--navy)">
+      <b>Later refinements from review feedback:</b>
+      <ul>
+        <li>The <b>Travel Policy</b> screen is now <b>trip-driven</b> — pick the traveller and destination and see the cabin class, hotel cap and allowance that apply to that trip (the full reference stays below).</li>
+        <li>A class-upgrade <b>justification is required where it is chosen</b> (when the airfare is added), and any outstanding justifications can be <b>entered together on the Policy Review step</b> and cleared in place, instead of going back a step.</li>
+        <li>The <b>upgrade-to-M6 split</b> now shows on <b>every charging screen</b> — the request's charging, the submit summary and the approver's cards — matching the SAP posting.</li>
+      </ul>
     </div>
 
     <div class="note">
@@ -157,7 +166,7 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">A·3</span><span class="req-name">Policy Exceptions</span><span class="pill">Fit</span></div>
       <p class="desc">Identify and route policy exceptions for approval upfront within the pre-trip system, and how these approved exceptions can flow into ECS without re-approval.</p>
-      <div class="block f"><h4>Fit</h4><p>Policy exceptions — a hotel above the cap, a class above entitlement, or an offline booking — are identified when the request is built and sent for exception approval before booking. Once approved, they are passed to the travel agent and carried into the expense claim for reference.</p><p>At the claim stage, what was already approved is <b>not re-approved</b>. The delegated-authority approval is granted automatically when the claim stays within the set tolerance (a percentage and a dollar limit over the approved amount), adds no new expense type, raises no new exception, and uses the same funding department. A fresh exception — an overspend beyond tolerance, or a line with no receipt — is the only thing that needs new approval.</p><p class="muted"><b>Possible enhancement:</b> let an administrator set each check's severity (block the request, warn only, or require exception approval) from a maintenance screen.</p></div>
+      <div class="block f"><h4>Fit</h4><p>Policy exceptions — a hotel above the cap, a class above entitlement, or an offline booking — are identified when the request is built and sent for exception approval before booking. Once approved, they are passed to the travel agent and carried into the expense claim for reference. The justification an exception needs (a class upgrade, an above-cap hotel) is required where the item is chosen, and any still outstanding can be entered together on the Policy Review step and cleared in place.</p><p>At the claim stage, what was already approved is <b>not re-approved</b>. The delegated-authority approval is granted automatically when the claim stays within the set tolerance (a percentage and a dollar limit over the approved amount), adds no new expense type, raises no new exception, and uses the same funding department. A fresh exception — an overspend beyond tolerance, or a line with no receipt — is the only thing that needs new approval.</p><p class="muted"><b>Possible enhancement:</b> let an administrator set each check's severity (block the request, warn only, or require exception approval) from a maintenance screen.</p></div>
     </article>
 
     <article class="req fit">
@@ -174,7 +183,7 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">B·5</span><span class="req-name">Policy Guidelines</span><span class="pill">Fit</span></div>
       <p class="desc">Display applicable travel policies, guidelines and entitlements within the system.</p>
-      <div class="block f"><h4>Fit</h4><p>A <b>Travel Policy</b> reference screen now lets anyone see the rules that apply: cabin-class entitlement by staff group, hotel caps by city and country, overseas daily allowance (ODA) rates and the long-stay step-downs, the policy checks (what blocks a request, what is only a warning, and what needs an exception), and the booking and payment rules. The figures come from the same policy tables the system enforces, so what a traveller reads is exactly what is applied. The relevant entitlements and caps also continue to appear as the request is built.</p></div>
+      <div class="block f"><h4>Fit</h4><p>A <b>Travel Policy</b> screen lets a traveller pick who is travelling and the destination, and shows the <b>cabin class, hotel cap and daily allowance that apply to that trip</b> — for example Premium Economy, a SGD 280/night cap and SGD 130/day to London. The full reference sits below it: entitlement by staff group, caps by city and country, ODA rates and the long-stay step-downs, the policy checks (what blocks a request, what is only a warning, and what needs an exception), and the booking and payment rules. The figures come from the same policy tables the system enforces, so what a traveller reads is exactly what is applied; the relevant entitlements and caps also appear as the request is built.</p></div>
     </article>
 
     <article class="req fit">
@@ -242,7 +251,7 @@
     <article class="req fit">
       <div class="req-top"><span class="req-no">D·14</span><span class="req-name">Charging Account for Upgrades</span><span class="pill">Fit</span></div>
       <p class="desc">Automatically default the incremental cost of NTU-funded upgrades to M6, while charging the standard entitlement to the original WBS/cost centre.</p>
-      <div class="block f"><h4>Fit</h4><p>Now built end-to-end. An above-entitlement airfare line captures the entitlement-class fare (a second quote) and the funding choice; for an <b>NTU-funded</b> upgrade the split is automatic — the <b>standard entitlement charges the original WBS / cost centre</b> and the <b>delta charges the fixed M6 cost centre</b>. It is shown on the Charging step, reflected in the NTU-funded totals, and <b>posted on the CTA / SAP journal</b>: the airfare debit splits into an entitlement line (original cost object) and an upgrade-differential line to M6, balancing against the clearing credit. Demoed in S15 (pre-trip charging) and S35 (booked → CTA posts CC-1000 $972 + M6 $2,106 = $3,078).</p></div>
+      <div class="block f"><h4>Fit</h4><p>Now built end-to-end. An above-entitlement airfare line captures the entitlement-class fare (a second quote) and the funding choice; for an <b>NTU-funded</b> upgrade the split is automatic — the <b>standard entitlement charges the original WBS / cost centre</b> and the <b>delta charges the fixed M6 cost centre</b>. It is shown on <b>every charging screen</b> — the request's Charging step, the submit summary and the approver's cards — reflected in the NTU-funded totals, and <b>posted on the CTA / SAP journal</b>: the airfare debit splits into an entitlement line (original cost object) and an upgrade-differential line to M6, balancing against the clearing credit. Demoed in S15 (pre-trip charging) and S35 (booked → CTA posts CC-1000 $972 + M6 $2,106 = $3,078).</p></div>
       <details class="howto">
         <summary>How it works</summary>
         <div class="howto-body">
