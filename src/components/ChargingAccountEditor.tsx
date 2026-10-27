@@ -20,6 +20,10 @@ export interface CostLineX {
   isShared: boolean;               // §13.14 shared apportioned line
   deptAllocs: { code: string; pct: number }[];  // auto-by-department preset (traveller home dept CC × share)
   initialAllocs?: { code: string; pct: number; io: string }[]; // stored split, if any
+  // #14 NTU-funded travel-class upgrade: this much of the line's net is the upgrade differential and is
+  // charged to the fixed cost centre below, not to the line's normal allocation (the rest is the entitlement).
+  upgradeDeltaSgd?: number;
+  upgradeDeltaCode?: string;       // the fixed cost centre the differential charges (M6)
 }
 
 interface ClaimRow { ba: string; code: string; io: string; pct: string; }
@@ -115,14 +119,18 @@ export function ChargingAccountEditor({
     return main.code ? [{ code: main.code, percent: 100, amount: total, io: '', isMain: true }] : [];
   }, [mode, rows, lineAllocs, lines, total, main.code]);
 
-  // Accounting Entries — per (account × expense type).
+  // Accounting Entries — per (account × expense type). #14 an NTU-funded travel-class upgrade
+  // differential is peeled off the airfare line to the fixed M6 cost centre (the entitlement stays on
+  // the line's normal allocation), so the Allocation Outcome matches what posts to SAP.
   const entries = useMemo(() => {
+    const deltaOf = (l: CostLineX) => l.upgradeDeltaSgd ?? 0;
+    const entNet = (l: CostLineX) => Math.max(l.net - deltaOf(l), 0);   // the entitlement portion of the line
     const netByType = new Map<string, number>();
-    for (const l of lines) netByType.set(l.typeId, (netByType.get(l.typeId) ?? 0) + l.net);
-    const out: { code: string; typeId: string; amount: number; percent: number; io: string; isMain: boolean }[] = [];
+    for (const l of lines) netByType.set(l.typeId, (netByType.get(l.typeId) ?? 0) + entNet(l));
+    const out: { code: string; typeId: string; amount: number; percent: number | null; io: string; isMain: boolean; label?: string }[] = [];
     if (mode === 'ITEM') {
       const map = new Map<string, number>();
-      for (const l of lines) for (const a of (lineAllocs[l.id] ?? [])) { if (!a.code) continue; const amt = l.net * ((Number(a.pct) || 0) / 100); map.set(`${a.code}|${l.typeId}`, (map.get(`${a.code}|${l.typeId}`) ?? 0) + amt); }
+      for (const l of lines) for (const a of (lineAllocs[l.id] ?? [])) { if (!a.code) continue; const amt = entNet(l) * ((Number(a.pct) || 0) / 100); map.set(`${a.code}|${l.typeId}`, (map.get(`${a.code}|${l.typeId}`) ?? 0) + amt); }
       const share = Object.fromEntries(effective.map((e) => [e.code, e.percent]));
       for (const [key, amt] of map) { const [code, typeId] = key.split('|'); if (amt > 0.005) out.push({ code, typeId, amount: Math.round(amt * 100) / 100, percent: share[code] ?? 0, io: '', isMain: code === main.code }); }
     } else {
@@ -130,6 +138,13 @@ export function ChargingAccountEditor({
         const amt = Math.round(net * (e.percent / 100) * 100) / 100;
         if (amt > 0.005) out.push({ code: e.code, typeId, amount: amt, percent: e.percent, io: e.io, isMain: e.isMain });
       }
+    }
+    // #14 append the upgrade differential to the fixed cost centre, outside the chosen allocation.
+    let deltaTotal = 0; let deltaCode = '';
+    for (const l of lines) if (deltaOf(l) > 0.005 && l.upgradeDeltaCode) { deltaTotal += deltaOf(l); deltaCode = l.upgradeDeltaCode; }
+    if (deltaTotal > 0.005 && deltaCode) {
+      for (const r of out) if (r.typeId === 'ET-AIR') r.label = 'Airfare — entitlement';
+      out.push({ code: deltaCode, typeId: 'ET-AIR', amount: Math.round(deltaTotal * 100) / 100, percent: null, io: '', isMain: false, label: 'Airfare — upgrade differential' });
     }
     return out.sort((a, b) => a.code.localeCompare(b.code) || a.typeId.localeCompare(b.typeId));
   }, [mode, effective, lines, lineAllocs, main.code]);
@@ -308,9 +323,9 @@ export function ChargingAccountEditor({
                       <td className="td font-medium whitespace-nowrap">{e.code}{a?.research && <span className="pill-warn ml-1">Research</span>}{a?.crossCharge && <span className="pill-info ml-1">X-charge</span>}</td>
                       <td className="td">{e.io || '—'}</td>
                       <td className="td">{t?.gl ?? '—'}</td>
-                      <td className="td">{t?.name ?? e.typeId}</td>
+                      <td className="td">{e.label ?? t?.name ?? e.typeId}{e.percent == null && <span className="pill-info ml-1">upgrade → M6</span>}</td>
                       <td className="td text-right whitespace-nowrap font-medium">{fmt(e.amount)}</td>
-                      <td className="td text-right">{e.percent}%</td>
+                      <td className="td text-right">{e.percent == null ? '—' : `${e.percent}%`}</td>
                       <td className="td">{e.isMain ? 'Yes' : 'No'}</td>
                       <td className="td">{t?.gst ?? '—'}</td>
                     </tr>

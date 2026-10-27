@@ -87,16 +87,27 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
     if (e.chargingCode) return [{ code: e.chargingCode, pct: 100, io: '' }];
     return undefined;
   };
-  const lines: CostLineX[] = req.expenses.map((e) => ({
-    id: e.id, typeId: e.expenseTypeId,
-    typeName: EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category,
-    net: Math.max(e.sgdAmount - e.sponsorSgd, 0),
-    category: e.category,
-    travellerName: e.travellerId ? memberKeyLabel(e.travellerId) : undefined,
-    isShared: e.isShared,
-    deptAllocs: deptAllocsFor(e),
-    initialAllocs: initialAllocsFor(e),
-  }));
+  const lines: CostLineX[] = req.expenses.map((e) => {
+    // #14/#7 travel-class upgrade on the airfare line: NTU is charged the full fare (NTU-funded) or the
+    // entitlement only (self-funded); an NTU-funded delta is routed to the fixed M6 cost centre below.
+    const up = e.category === EXPENSE_CATEGORY.Airfare
+      ? airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding })
+      : null;
+    const ntuGross = up?.isUpgrade ? up.ntuAirfareSgd : e.sgdAmount;
+    const deltaToM6 = up?.isUpgrade && up.funding === 'NTU' ? up.deltaSgd : 0;
+    return {
+      id: e.id, typeId: e.expenseTypeId,
+      typeName: EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category,
+      net: Math.max(ntuGross - e.sponsorSgd, 0),
+      category: e.category,
+      travellerName: e.travellerId ? memberKeyLabel(e.travellerId) : undefined,
+      isShared: e.isShared,
+      deptAllocs: deptAllocsFor(e),
+      initialAllocs: initialAllocsFor(e),
+      upgradeDeltaSgd: deltaToM6 || undefined,
+      upgradeDeltaCode: deltaToM6 ? up!.deltaCostCentre : undefined,
+    };
+  });
 
   // Derive the editor's initial mode from the stored chargingMode (migrating old values).
   const stored = req.chargingMode;
