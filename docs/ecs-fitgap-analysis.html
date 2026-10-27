@@ -1,0 +1,248 @@
+<title>Pre-Trip Fit-Gap Analysis</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: a single reading column of requirement cards grouped under four category bands;
+     navy/red NTU identity, status encoded as colour + pill on every requirement. */
+  :root{
+    --bg:#f5f7fa; --surface:#ffffff; --surface-2:#eef1f6; --fg:#1b2434; --muted:#596578;
+    --border:#d8dee7; --navy:#10294d; --red:#c8102e;
+    --fit:#15803d; --fit-bg:#e6f3ec; --partial:#b45309; --partial-bg:#fbf0df; --gap:#b4181d; --gap-bg:#fbe7e7;
+    --code-bg:#eef1f6;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0c131f; --surface:#141d2c; --surface-2:#1b2535; --fg:#e7ecf3; --muted:#9aa7bb;
+    --border:#283346; --navy:#a7c2ea; --red:#ff6f82;
+    --fit:#4ade80; --fit-bg:#132a1d; --partial:#fbbf24; --partial-bg:#2b2111; --gap:#f87171; --gap-bg:#2b1515;
+    --code-bg:#1b2535; color-scheme:dark;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0c131f; --surface:#141d2c; --surface-2:#1b2535; --fg:#e7ecf3; --muted:#9aa7bb;
+    --border:#283346; --navy:#a7c2ea; --red:#ff6f82;
+    --fit:#4ade80; --fit-bg:#132a1d; --partial:#fbbf24; --partial-bg:#2b2111; --gap:#f87171; --gap-bg:#2b1515;
+    --code-bg:#1b2535; color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.5;margin:0;
+    -webkit-font-smoothing:antialiased;font-size:15px}
+  .wrap{max-width:860px;margin:0 auto;
+    padding-left:max(18px,env(safe-area-inset-left,0px));
+    padding-right:max(18px,env(safe-area-inset-right,0px));
+    padding-block:0 64px}
+  code,.mono{font-family:var(--mono);font-size:.86em}
+  a{color:var(--red)}
+
+  /* Header */
+  header{padding-block:40px 24px;border-bottom:3px solid var(--navy)}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--red);font-weight:600;margin:0 0 10px}
+  h1{font-family:var(--serif);font-weight:600;font-size:clamp(28px,6vw,40px);line-height:1.08;
+    margin:0;color:var(--navy);text-wrap:balance;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:12px 0 0;max-width:62ch}
+  .meta{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:16px;font-size:13px;color:var(--muted)}
+  .meta b{color:var(--fg);font-weight:600}
+
+  /* Summary tiles */
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:26px}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 14px;
+    border-top:4px solid var(--c)}
+  .tile .n{font-family:var(--serif);font-size:34px;font-weight:600;line-height:1;color:var(--c);
+    font-variant-numeric:tabular-nums}
+  .tile .l{font-size:12.5px;color:var(--muted);margin-top:6px}
+  .tile.fit{--c:var(--fit)} .tile.part{--c:var(--partial)} .tile.gap{--c:var(--gap)}
+
+  .note{background:var(--surface-2);border:1px solid var(--border);border-left:3px solid var(--navy);
+    border-radius:8px;padding:14px 16px;margin-top:24px;font-size:13.5px;color:var(--muted)}
+  .note b{color:var(--fg)}
+  .note ul{margin:8px 0 0;padding-left:18px}
+  .note li{margin:3px 0}
+
+  /* Category band */
+  .cat{margin-top:40px}
+  .cat-h{display:flex;align-items:baseline;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+  .cat-h .letter{font-family:var(--serif);font-size:22px;font-weight:600;color:var(--red);width:1.2em}
+  .cat-h h2{font-family:var(--serif);font-size:20px;font-weight:600;margin:0;color:var(--navy)}
+
+  /* Requirement card */
+  .req{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-top:14px;
+    border-left:4px solid var(--c,var(--border))}
+  .req.fit{--c:var(--fit)} .req.part{--c:var(--partial)} .req.gap{--c:var(--gap)}
+  .req-top{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+  .req-no{font-family:var(--mono);font-size:12px;font-weight:600;color:#fff;background:var(--navy);
+    border-radius:6px;padding:3px 8px;flex:none}
+  .req-name{font-weight:600;font-size:16.5px;color:var(--fg);min-width:0}
+  .pill{margin-left:auto;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:4px 11px;border-radius:999px;color:var(--c);background:var(--c-bg);border:1px solid var(--c);flex:none}
+  .req.fit .pill{--c:var(--fit);--c-bg:var(--fit-bg)}
+  .req.part .pill{--c:var(--partial);--c-bg:var(--partial-bg)}
+  .req.gap .pill{--c:var(--gap);--c-bg:var(--gap-bg)}
+  .desc{margin:12px 0 0;padding:10px 14px;background:var(--surface-2);border-radius:8px;
+    font-style:italic;color:var(--fg);font-size:14px;border-left:2px solid var(--border)}
+  .desc::before{content:"Requirement  ";font-style:normal;font-family:var(--mono);font-size:10.5px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:4px}
+  .block{margin-top:14px}
+  .block h4{margin:0 0 5px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700}
+  .block.f h4{color:var(--fit)} .block.g h4{color:var(--gap)}
+  .req.part .block.g h4{color:var(--partial)}
+  .block p{margin:0;font-size:14px;color:var(--fg)}
+  .block p+p{margin-top:7px}
+  .muted{color:var(--muted)}
+  code{background:var(--code-bg);padding:1px 5px;border-radius:4px;border:1px solid var(--border)}
+
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--border);
+    font-size:12.5px;color:var(--muted)}
+  @media (max-width:520px){ .tiles{grid-template-columns:1fr 1fr} .pill{margin-left:0} }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">NTU ECS · In-House Pre-Trip System</p>
+    <h1>Pre-Trip Fit-Gap Analysis</h1>
+    <p class="sub">The system owner's 15 business requirements and queries, assessed against the current working prototype. Revised to reflect the clarifications given during review.</p>
+    <div class="meta">
+      <span><b>Source</b> Business Requirements &amp; Queries (e-mail)</span>
+      <span><b>Assessed</b> 27 Oct 2026</span>
+      <span><b>Prototype</b> Create → Approve → Book → Claim</span>
+    </div>
+
+    <div class="tiles">
+      <div class="tile fit"><div class="n">11</div><div class="l">Fit — built in the prototype</div></div>
+      <div class="tile part"><div class="n">3</div><div class="l">Partial — core built, defined gap</div></div>
+      <div class="tile gap"><div class="n">1</div><div class="l">Gap — to be built</div></div>
+    </div>
+
+    <div class="note">
+      <b>Interpretations applied from the review (so the assessment matches intent):</b>
+      <ul>
+        <li><b>#1</b> — the PI flag already exists in the staff master; the self-approval limit is to be configurable.</li>
+        <li><b>#6</b> — "travel eligibility" means <b>travel class entitlement</b>, sourced via ECS.</li>
+        <li><b>#11</b> — a non-NTU-agent booking is always self-paid and reimbursed by expense claim; no agent identity is captured.</li>
+        <li><b>#13</b> — GST applies to <b>actual expenses only</b> (CTA posting and claim), not to the travel request estimate.</li>
+        <li><b>#15</b> — "budget checks" means checks of <b>actual against the travel budget</b>.</li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- ============================ A ============================ -->
+  <section class="cat">
+    <div class="cat-h"><span class="letter">A</span><h2>Approval Workflow &amp; DOA</h2></div>
+
+    <article class="req part">
+      <div class="req-top"><span class="req-no">A·1</span><span class="req-name">Research vs Non-Research</span><span class="pill">Partial</span></div>
+      <p class="desc">Cater for different approval flows based on funding source. For research WBS, PIs can self-approve up to S$5,000.</p>
+      <div class="block f"><h4>Fit</h4><p>Funding-source routing is built: a research WBS routes to the <b>Research DOA</b> line instead of the standard DOA line, driven by the purpose/charging <code>isResearch</code> flag (demoed in scenario S02).</p></div>
+      <div class="block g"><h4>Gap &amp; clearing</h4><p>The PI self-approval band (research ≤ S$5,000 → PI self-approves) is not active: the self-approval limit setting exists but is dormant and the route builder always appends a DOA step.</p><p class="muted"><b>Clearing:</b> surface the existing ECS staff-master PI flag on the traveller; make the self-approval limit configurable; add a branch in the route builder — when <code>research &amp;&amp; traveller is the PI &amp;&amp; amount ≤ limit</code> → self-approved (no DOA step).</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">A·2</span><span class="req-name">Group &amp; Guest Bookings</span><span class="pill">Fit</span></div>
+      <p class="desc">Different approval routing for group and guest bookings, requiring only the relevant DOA approval.</p>
+      <div class="block f"><h4>Fit</h4><p>Group requests auto-route to the charging department's DOA line; guest requests route to the host-school DOA, with a Provost step added for a guest class upgrade (DD-25). Separation-of-duties (DD-28) escalates past any self-approval. Only the relevant DOA is engaged.</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">A·3</span><span class="req-name">Policy Exceptions</span><span class="pill">Fit</span></div>
+      <p class="desc">Identify and route policy exceptions for approval upfront within the pre-trip system, and how these approved exceptions can flow into ECS without re-approval.</p>
+      <div class="block f"><h4>Fit</h4><p>A data-driven policy engine detects exceptions upfront (hotel-above-cap, class-above-entitlement, offline booking) and routes them to the Exception Approver / DOA before booking. Approved exceptions are carried in the TMC hand-off (<code>approvedExceptions</code>) and into the expense claim as <b>Reference</b>.</p><p>At the claim, re-approval is actively avoided, not merely assumed. The DOA step is <b>auto-granted from the pre-trip approval</b> when the claim stays within the configured tolerance (reimbursable actual vs approved — both a % and an absolute limit), adds no new expense type, introduces no new policy exception, and keeps the same charging DOA. The Exception step re-fires <b>only for a new exception</b> — a fresh overspend beyond tolerance, or a line with no receipt; an exception already approved at pre-trip stays part of the approved baseline and is not reviewed again.</p><p class="muted"><b>Enhancement available:</b> each rule declares its outcome (hard-stop / warning / exception-approval) in the rule catalogue, but the engine currently fixes it. Having the engine honour the configured outcome, plus a maintenance screen, would make each check's severity admin-configurable.</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">A·4</span><span class="req-name">Approval for Changes</span><span class="pill">Fit</span></div>
+      <p class="desc">Determine when amendments, cost increases or rerouting require fresh approval.</p>
+      <div class="block f"><h4>Fit</h4><p>The amendment flow re-routes for approval on a material change; a configurable booking-deviation tolerance (% / absolute) decides reapproval versus log-only. Cost increases beyond tolerance and material rerouting trigger fresh approval.</p></div>
+    </article>
+  </section>
+
+  <!-- ============================ B ============================ -->
+  <section class="cat">
+    <div class="cat-h"><span class="letter">B</span><h2>Travel Policy &amp; Eligibility</h2></div>
+
+    <article class="req part">
+      <div class="req-top"><span class="req-no">B·5</span><span class="req-name">Policy Guidelines</span><span class="pill">Partial</span></div>
+      <p class="desc">Display applicable travel policies, guidelines and entitlements within the system.</p>
+      <div class="block f"><h4>Fit</h4><p>Entitlements (cabin class), caps (hotel/city), ODA rates and tiers, and live policy checks are surfaced <b>contextually</b> through the request flow (Trip / Estimates / Review), so the applicable rule is shown where it applies. The Config Viewer lists the policy-rule catalogue, caps and rates.</p></div>
+      <div class="block g"><h4>Gap &amp; clearing</h4><p>There is no standalone, browsable policy reference a traveller can consult independently of a live request.</p><p class="muted"><b>Clearing:</b> a "Travel Policy" reference screen rendering the entitlement matrix, caps, ODA rates and class rules as readable guidelines.</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">B·6</span><span class="req-name">Travel Eligibility (class entitlement)</span><span class="pill">Fit</span></div>
+      <p class="desc">CITS is building a travel eligibility system — possible integration to this system in future. <span class="muted">(Clarified: travel class entitlement, via ECS.)</span></p>
+      <div class="block f"><h4>Fit</h4><p>Travel class entitlement is fully built and ECS-register-driven. Entitlement is derived per traveller per flight leg (policy group + minimum-hours threshold) and aggregated across the itinerary. It is enforced through the policy framework — above-entitlement raises an exception to approval (<code>CLASS</code>), requires a justification (<code>CLASS_JUSTIFY</code>), and a guest upgrade needs Provost authorisation (<code>CLASS_PROVOST</code>). The approved class is the ceiling sent to the TMC and carried into the claim. Demoed in S15.</p></div>
+    </article>
+
+    <article class="req part">
+      <div class="req-top"><span class="req-no">B·7</span><span class="req-name">Personal Travel &amp; Upgrades</span><span class="pill">Partial</span></div>
+      <p class="desc">Discuss on personal travel period as well as self-funded upgrades.</p>
+      <div class="block f"><h4>Fit</h4><p>Personal travel is fully modelled — personal legs and dates, excluded from ODA and from the accommodation budget, with the incremental personal cost computed and shown as traveller-borne. Class upgrades require a justification and route to approval, with the incremental cost computed.</p></div>
+      <div class="block g"><h4>Gap &amp; clearing</h4><p>A self-funded upgrade's delta is computed for display but not settled — there is no flag that caps NTU's charge/reimbursement at the entitlement and charges the delta to the traveller.</p><p class="muted"><b>Clearing:</b> an upgrade-funding choice (self-funded vs NTU-funded); self-funded → split the fare so NTU is charged the entitlement and the traveller bears the delta (excluded from reimbursement). Same build as #14.</p></div>
+    </article>
+  </section>
+
+  <!-- ============================ C ============================ -->
+  <section class="cat">
+    <div class="cat-h"><span class="letter">C</span><h2>Booking Arrangements &amp; Flexibility</h2></div>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">C·8</span><span class="req-name">Multi-Leg Travel</span><span class="pill">Fit</span></div>
+      <p class="desc">Support multi-destination and multi-leg bookings within a single request, and how to flow into ECS.</p>
+      <div class="block f"><h4>Fit</h4><p>Multi-destination / multi-leg itineraries in one request (per-leg entitlement, per-city caps and ODA). It flows to the TMC as multiple PNRs and consolidates into a single ECS claim (1 request → N PNRs → 1 claim). Demoed in S14 (multi-leg) and S16 (multi-country).</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">C·9</span><span class="req-name">Group &amp; Guest Travel</span><span class="pill">Fit</span></div>
+      <p class="desc">Able to submit pre-trip approval for big groups and external guests.</p>
+      <div class="block f"><h4>Fit</h4><p>Group requests (multiple travellers, shared or own sub-itineraries, per-traveller entitlement and charging split) and external guest requests (no ECS profile; PDPA-safe capture via the TMC) are both built (DD-16, DD-21). Demoed in S11/S12 and the guest scenarios.</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">C·10</span><span class="req-name">Changes &amp; Cancellations</span><span class="pill">Fit</span></div>
+      <p class="desc">Allow cancellation, rerouting and amendments to approved bookings.</p>
+      <div class="block f"><h4>Fit</h4>
+        <p><b>Cancellation</b> is allowed from Approved, Amendment-in-progress or Expired (before approval the request is withdrawn instead). On cancel the Travel Authorisation is voided immediately and pending steps skipped. A <b>live TMC booking</b> sends a cancellation request to the TMC and holds at "Cancellation Requested" until the TMC confirms the fee/refund; with <b>no live booking</b> (not sent / self-booked / failed) it closes locally with no fee. On TMC confirmation the fee and refund are settled and the <b>CTA postings auto-reverse</b> (DD-31).</p>
+        <p><b>Amendments &amp; rerouting</b> are a free edit only while Draft or Sent Back. A material change on an approved (or pending) request moves it to "Amendment in progress" and <b>restarts approval</b> — the route is re-derived (DOA recomputed) and policy re-evaluated, the TA number retained; if the booking is already in flight an updated instruction is retransmitted to the TMC. Material changes today: destination / dates / class / booking method (rerouting), adding or removing a group traveller, and a failed booking reopening the itinerary.</p>
+        <p><b>Cost increases</b> force fresh approval on two paths — the booking-deviation check (booked vs approved beyond the configurable tolerance → reapproval) and route re-derivation against the new amount band at amendment.</p>
+      </div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">C·11</span><span class="req-name">Direct Bookings</span><span class="pill">Fit</span></div>
+      <p class="desc">Pre-trip approval via ECS but book with non-NTU agents. <span class="muted">(Clarified: always self-paid, reimbursed by expense claim.)</span></p>
+      <div class="block f"><h4>Fit</h4><p>The self-booked / offline method supports exactly this: the trip is approved in ECS, booked outside the NTU TMC with a non-NTU agent, paid by the traveller, and reimbursed through the expense claim. No TMC hand-off; the approved ceiling and class deviation are checked at claim.</p></div>
+    </article>
+  </section>
+
+  <!-- ============================ D ============================ -->
+  <section class="cat">
+    <div class="cat-h"><span class="letter">D</span><h2>Payment &amp; Financial Arrangements</h2></div>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">D·12</span><span class="req-name">Corporate Travel Account (CTA)</span><span class="pill">Fit</span></div>
+      <p class="desc">Re-explore flexible CTA usage, particularly for bookings requiring prepayment, including group and guest bookings, so as to remove the need for no-PO payment.</p>
+      <div class="block f"><h4>Fit</h4><p>CTA central settlement (DD-19) covers airfare and the per-trip chosen hotel, for individuals, groups and guests (DD-30, including a separate guest CTA). A maintainable CTA master resolves each account to its clearing GL; charges are captured and posted. The central lodge replaces no-PO payment.</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">D·13</span><span class="req-name">GST</span><span class="pill">Fit</span></div>
+      <p class="desc">Cater for appropriate GST treatment and coding for travel expenses.</p>
+      <div class="block f"><h4>Fit</h4><p>GST is built on the shared ECS ⇄ SAP tax codes (<code>IZ / IO / I9 / P9</code>) held in a GST code master and referenced by the expense-type master: airfare <code>IZ</code>, overseas hotel/visa <code>IO</code>, the agency fee as its own <code>I9</code> line. Per-charge GST (external tax amount) flows on the SAP CTA posting, driven from the TMC feed with store-and-validate.</p><p class="muted"><b>Clarification:</b> GST applies only to <b>actual expenses</b> — the CTA posting and the expense claim — never to the travel request. Pre-trip estimates are gross amounts with no GST computed; the estimate / approval-amount calculation applies no tax.</p></div>
+    </article>
+
+    <article class="req gap">
+      <div class="req-top"><span class="req-no">D·14</span><span class="req-name">Charging Account for Upgrades</span><span class="pill">Gap</span></div>
+      <p class="desc">Automatically default the incremental cost of NTU-funded upgrades to M6, while charging the standard entitlement to the original WBS/cost centre.</p>
+      <div class="block f"><h4>Fit</h4><p>The upgrade is detected and its incremental cost above entitlement is computed and displayed.</p></div>
+      <div class="block g"><h4>Gap &amp; clearing</h4><p>The automatic split charging is not built — the full fare still charges the original allocation; there is no rule routing the NTU-funded upgrade delta to a dedicated cost centre (M6).</p><p class="muted"><b>Clearing:</b> split the airfare line at the entitlement amount — entitlement → original WBS/CC, delta → M6 — within the existing per-line charging model. Pairs with #7 (self-funded → traveller; NTU-funded → M6) as a single build.</p></div>
+    </article>
+
+    <article class="req fit">
+      <div class="req-top"><span class="req-no">D·15</span><span class="req-name">Budgeting</span><span class="pill">Fit</span></div>
+      <p class="desc">Clarify budget checks, including tolerance levels. Pre-populate ODA? <span class="muted">(Clarified: checks of actual against the travel budget.)</span></p>
+      <div class="block f"><h4>Fit</h4><p>Actual-vs-travel-budget control is built across booking and claim: ODA is auto-populated (DD-29, answering "Pre-populate ODA?"); per-line variance (actual − approved) on every claim line; a configurable claim-level tolerance gate blocks a claim that exceeds the approved travel budget beyond the % / SGD tolerance and routes it for approval; remaining-budget tracking across multiple claims; and a booking-deviation check (booked vs approved + tolerance) at booking time.</p></div>
+    </article>
+  </section>
+
+  <footer>
+    Assessment of the prototype as at 27 Oct 2026. Status reflects what is demonstrable in the running build; "clearing" describes the change that would close each gap. Design-decision references (DD-nn) and scenario references (S-nn) point to the prototype's build spec and seeded demo scenarios.
+  </footer>
+</div>
