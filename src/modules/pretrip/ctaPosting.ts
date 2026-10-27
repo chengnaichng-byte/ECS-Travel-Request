@@ -19,6 +19,7 @@ import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { ctaAccountsMap } from './ctaMaster';
 import { lineSettlement } from './settlement';
 import { resolveSapTaxCode } from '@/data/gstCodes';
+import { airfareUpgrade, type AirfareUpgrade } from './upgrade';
 import { EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 
 export interface PostingLine {
@@ -72,10 +73,12 @@ interface Charge {
   feedSourced: boolean;
   gstMismatch: boolean;
   validationNote: string | null;
+  upgrade?: AirfareUpgrade | null;  // #14 airfare line's upgrade split (NTU delta → M6; self-funded → gross reduced to entitlement)
 }
 type FeedCharge = { type: string; expenseTypeId: string; amountSgd: number; gstCode: string; gstAmountSgd: number; gstClaimable: boolean };
-type BookingLike = { fare: number | null; taxes: number | null; fees: number | null; segments: { type: string; amount: number | null }[]; charges?: FeedCharge[] };
-type ReqLike = { travellerType: string | null; bookingArrangement: string | null; hotelSettlement: string | null };
+type BookingLike = { travellerId?: string | null; fare: number | null; taxes: number | null; fees: number | null; segments: { type: string; amount: number | null }[]; charges?: FeedCharge[] };
+type AirfareEstLike = { category: string; travellerId: string | null; sgdAmount: number; entitlementFareSgd: number | null; upgradeFunding: string | null };
+type ReqLike = { travellerType: string | null; bookingArrangement: string | null; hotelSettlement: string | null; expenses?: AirfareEstLike[] };
 
 const ELIGIBLE: string[] = [BOOKING_STATUS.Booked, BOOKING_STATUS.TravelCompleted];
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -113,6 +116,25 @@ function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
   const isGuest = req.travellerType === 'GUEST';
   const central = (cat: string) => isGuest || lineSettlement(req, cat) === 'CENTRAL';
 
+  // #14 the airfare line's travel-class upgrade (from the matching airfare estimate). The entitlement
+  // stays on the request's allocation; an NTU-funded delta posts to M6; a self-funded delta is
+  // traveller-direct, so the CTA sees the entitlement only (the charge gross is reduced).
+  const airEst = req.expenses?.find((e) => e.category === EXPENSE_CATEGORY.Airfare && (e.travellerId === (b.travellerId ?? null) || e.travellerId === null));
+  const up = airEst ? airfareUpgrade({ sgdAmount: airEst.sgdAmount, entitlementFareSgd: airEst.entitlementFareSgd, upgradeFunding: airEst.upgradeFunding }) : null;
+  const finalize = (charges: Charge[]): Charge[] => {
+    if (!up || !up.isUpgrade) return charges;
+    const air = charges.find((c) => c.chargeType === 'Airfare');
+    if (!air) return charges;
+    air.upgrade = up;
+    if (up.funding === 'SELF' && up.fareSgd > 0) {
+      // CTA is charged the entitlement only; the delta is settled by the traveller with the TMC.
+      const ratio = up.entitlementSgd / up.fareSgd;
+      air.grossSgd = r2(air.grossSgd * ratio);
+      air.gstAmountSgd = r2(air.gstAmountSgd * ratio);
+    }
+    return charges;
+  };
+
   // Primary: drive the posting from the feed's own charge rows (store-and-validate).
   if (b.charges && b.charges.length) {
     const out: Charge[] = [];
@@ -123,7 +145,7 @@ function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
       const v = validateGst(c.expenseTypeId, c.amountSgd, c.gstCode, c.gstAmountSgd, c.gstClaimable);
       out.push({ chargeType: meta.chargeType, expenseTypeId: c.expenseTypeId, grossSgd: r2(c.amountSgd), gstCode: c.gstCode, gstAmountSgd: r2(c.gstAmountSgd), feedSourced: true, gstMismatch: v.mismatch, validationNote: v.note });
     }
-    return out;
+    return finalize(out);
   }
 
   // Fallback: derive from fare/taxes/fees when the booking has no feed charge rows.
@@ -141,13 +163,13 @@ function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
   if (fees > 0 && airCentral) out.push(derive('Fee', 'ET-FEE', fees));
   const hotel = r2(b.segments.filter((s) => s.type === 'HOTEL').reduce((s, x) => s + (x.amount ?? 0), 0));
   if (hotel > 0 && central(EXPENSE_CATEGORY.Accommodation)) out.push(derive('Accommodation', 'ET-ACC', hotel));
-  return out;
+  return finalize(out);
 }
 
 /** DD-31 — post the settled CTA charges of a request to SAP on receipt (idempotent, one posting per
  *  booking + charge type). Creates a CtaPostingDocument with the SAP doc no, posting date and status. */
 export async function postCtaChargesForRequest(requestId: string): Promise<void> {
-  const req = await prisma.travelRequest.findUnique({ where: { id: requestId }, include: { allocations: true, bookings: { include: { segments: true, charges: true } } } });
+  const req = await prisma.travelRequest.findUnique({ where: { id: requestId }, include: { allocations: true, expenses: true, bookings: { include: { segments: true, charges: true } } } });
   if (!req) return;
   const ctaMap = await ctaAccountsMap();
   for (const b of req.bookings) {
@@ -185,7 +207,7 @@ export interface CtaPostingsView { postings: CtaPosting[]; totalDr: number; tota
 /** Build the accounting-entries report: the journal per settled CTA charge, with the posting
  *  lifecycle (date/status/doc) attached from the persisted CtaPostingDocument. */
 export async function computeCtaPostings(): Promise<CtaPostingsView> {
-  const bookings = await prisma.travelBooking.findMany({ include: { request: { include: { allocations: true } }, segments: true, charges: true }, orderBy: { id: 'asc' } });
+  const bookings = await prisma.travelBooking.findMany({ include: { request: { include: { allocations: true, expenses: true } }, segments: true, charges: true }, orderBy: { id: 'asc' } });
   const ctaMap = await ctaAccountsMap();
   const docs = await prisma.ctaPostingDocument.findMany();
   const docMap = new Map(docs.map((d) => [`${d.bookingId}:${d.chargeType}`, d]));
@@ -213,12 +235,19 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
       const tax = r2(c.gstAmountSgd);                 // external tax amount
       const net = r2(gross - tax);
       const lines: PostingLine[] = [];
+      // #14 NTU-funded upgrade — the entitlement portion charges the request's allocation; the delta
+      // portion charges the fixed M6 cost centre. (Self-funded already reduced the charge to the
+      // entitlement in chargesOf, so it falls through to the normal allocation split.)
+      const ntuUpgrade = c.upgrade && c.upgrade.isUpgrade && c.upgrade.funding === 'NTU' && c.upgrade.fareSgd > 0;
+      const entNet = ntuUpgrade ? r2(net * (c.upgrade!.entitlementSgd / c.upgrade!.fareSgd)) : net;
+      const deltaNet = ntuUpgrade ? r2(net - entNet) : 0;
       let running = 0;
       allocs.forEach((a, i) => {
-        const amt = i === allocs.length - 1 ? r2(net - running) : r2(net * (a.percent / 100));
+        const amt = i === allocs.length - 1 ? r2(entNet - running) : r2(entNet * (a.percent / 100));
         running = r2(running + amt);
-        lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? c.chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
+        lines.push({ side: 'DR', glAccount: gl, description: ntuUpgrade ? `${et?.name ?? c.chargeType} — entitlement` : `${et?.name ?? c.chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
       });
+      if (ntuUpgrade && deltaNet > 0) lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? c.chargeType} — upgrade differential`, costObject: c.upgrade!.deltaCostCentre, costObjectType: 'CC', percent: null, amountSgd: deltaNet });
       if (tax > 0) lines.push({ side: 'DR', glAccount: GST_INPUT_GL, description: `Input GST (${c.gstCode})`, costObject: null, costObjectType: null, percent: null, amountSgd: tax });
       lines.push({ side: 'CR', glAccount: clearingGl, description: `CTA clearing${b.ctaAccountId ? ` — ${b.ctaAccountId}` : ''}`, costObject: null, costObjectType: null, percent: null, amountSgd: gross });
       const dr = r2(lines.filter((l) => l.side === 'DR').reduce((s, l) => s + l.amountSgd, 0));
