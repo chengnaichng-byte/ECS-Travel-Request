@@ -172,8 +172,28 @@ export async function createDraft(fd: FormData) {
       bookingStatus: BOOKING_STATUS.NotSent,
     },
   });
+  // Seed the default charging allocation from the traveller's profile cost object, so the request
+  // always has a charging line (editable on the Charging step). Without this, going straight to
+  // Policy Review without opening the Charging step raises a "no charging allocation" hard stop even
+  // though the Charging step shows a default account. A Charging-step save replaces this row.
+  await seedDefaultCharging(req.id, traveller?.defaultChargingCode);
   await audit(req.id, 'CREATE', `Draft ${requestNumber} created for ${traveller?.name ?? travellerId}`, requestorId !== travellerId ? travellerId : null);
   redirect(`/requests/${req.id}/trip`);
+}
+
+/** Create a 100% main charging allocation from a cost-object code, if one is given and not already
+ *  present. Used at request creation so a draft is never left with no charging line. */
+async function seedDefaultCharging(requestId: string, code: string | undefined | null) {
+  if (!code) return;
+  if (await prisma.chargingAllocation.count({ where: { requestId } })) return;
+  const master = EcsCharging.code(code);
+  await prisma.chargingAllocation.create({
+    data: {
+      requestId, chargingCode: code, percent: 100, isMain: true,
+      chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea,
+      isResearch: master?.isResearch ?? false,
+    },
+  });
 }
 
 /** §8 Create a guest / non-employee travel request (AC7). The host (requestor) is an
@@ -202,6 +222,8 @@ export async function createGuestDraft(fd: FormData) {
       bookingStatus: BOOKING_STATUS.NotSent,
     },
   });
+  // §8 a guest's trip is charged to the host's department cost object — seed it as the default.
+  await seedDefaultCharging(req.id, host?.defaultChargingCode);
   await audit(req.id, 'CREATE', `Guest travel draft ${requestNumber} created for ${guestName}${str(fd, 'guestOrg') ? ` (${str(fd, 'guestOrg')})` : ''}`, null);
   redirect(`/requests/${req.id}/trip`);
 }
