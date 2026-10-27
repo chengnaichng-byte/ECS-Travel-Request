@@ -528,6 +528,19 @@ export async function addAirfare(id: string, fd: FormData) {
   const upFunding = (str(fd, 'upgradeFunding') || '').toUpperCase();
   const upgradeFunding = upFunding === 'NTU' || upFunding === 'SELF' ? upFunding : null;
   const tids = await travellerFanout(id, fd);
+  // §13.19 enforce the class-upgrade justification at the point of adding the airfare (individual
+  // lines). An airfare above the derived entitlement cannot be added without a justification — the
+  // requirement is resolved here, not deferred to a policy-review hard stop.
+  if (tids.length === 1 && tids[0] === null) {
+    const proposed = str(fd, 'proposedClassId');
+    const r = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true } });
+    const entitledId = r?.entitledClassId ?? 'TC-ECO';
+    if (proposed && EcsTravelClassRegister.rank(proposed) > EcsTravelClassRegister.rank(entitledId) && !(str(fd, 'classJustification') || '').trim()) {
+      const propName = EcsReference.travelClass(proposed)?.name ?? proposed;
+      const entName = EcsReference.travelClass(entitledId)?.name ?? 'your entitlement';
+      redirect(`/requests/${id}/estimates?error=${encodeURIComponent(`${propName} is above your ${entName} entitlement — enter a justification for the higher class before adding this airfare.`)}`);
+    }
+  }
   // §13.14 for a group, default each line's proposed class to that traveller's booked (entitled)
   // class so estimates match what each person will fly, without re-keying per traveller.
   const classByTraveller: Record<string, string | null> = {};
@@ -569,6 +582,18 @@ export async function addAirfare(id: string, fd: FormData) {
   }
   await audit(id, 'AMEND', `Airfare estimate added (${currency} ${foreign})${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
+  redirect(`/requests/${id}/estimates`);   // land on a clean URL (clears any prior ?error= banner)
+}
+
+/** §13.19 Update the class-upgrade justification on an existing airfare (individual) without
+ *  removing and re-adding the line. Used by the standalone justification field on the Estimates step. */
+export async function updateClassJustification(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const j = (str(fd, 'classJustification') || '').trim();
+  await prisma.travelRequest.update({ where: { id }, data: { classJustification: j || null } });
+  await audit(id, 'AMEND', j ? 'Class-upgrade justification updated' : 'Class-upgrade justification cleared');
+  revalidatePath(`/requests/${id}/estimates`);
+  revalidatePath(`/requests/${id}/review`);
 }
 
 export async function addAccommodation(id: string, fd: FormData) {

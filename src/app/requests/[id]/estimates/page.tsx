@@ -7,7 +7,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement } from '@/modules/pretrip/actions';
+import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest } from '@/modules/pretrip/traveller';
 import { isTmcArrangement } from '@/modules/pretrip/booking';
@@ -56,6 +56,12 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // §13.19 entitled class for this itinerary (individual) — the baseline above which the traveller
   // must justify an upgrade on the airfare line.
   const entitledClassName = travelClasses.find((c) => c.id === (req.entitledClassId ?? req.travelClassId))?.name ?? 'Economy';
+  // §13.19 an individual airfare above the derived entitlement needs a justification — detected here so
+  // the standalone field below lets it be resolved on this step (not deferred to a policy-review hard stop).
+  const classRank = (cid?: string | null) => travelClasses.find((c) => c.id === cid)?.rank ?? 1;
+  const hasAirfare = req.expenses.some((e) => e.category === EXPENSE_CATEGORY.Airfare);
+  const isClassUpgrade = !isGroup && !!req.travelClassId && !!req.entitledClassId && classRank(req.travelClassId) > classRank(req.entitledClassId) && hasAirfare;
+  const chosenClassName = travelClasses.find((c) => c.id === req.travelClassId)?.name ?? req.travelClassId ?? '';
   // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
@@ -124,6 +130,20 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
       <DuplicateWarning req={req} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request's estimates.</div>}
+
+      {/* §13.19 class-upgrade justification — resolved here, not at the policy-review hard stop */}
+      {isClassUpgrade && canEdit && (
+        <Card title="Class upgrade — justification required" className="mb-5">
+          <form action={updateClassJustification.bind(null, id)} className="space-y-2">
+            <p className="text-sm text-[var(--ecs-muted)]">You selected <strong>{chosenClassName}</strong>, above your entitlement of <strong>{entitledClassName}</strong> for this itinerary. A justification is required before the request can be submitted — enter it here (no need to remove and re-add the airfare).</p>
+            <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} required className="field" placeholder="e.g. overnight red-eye ahead of a same-day event; medical reason…" />
+            <div className="flex items-center gap-3">
+              <button className="btn-primary">Save justification</button>
+              {!(req.classJustification ?? '').trim() && <span className="pill-stop">Required to submit</span>}
+            </div>
+          </form>
+        </Card>
+      )}
 
       {/* Existing lines */}
       <Card title={`Estimated Travel Costs (${req.expenses.length})`} className="mb-5">
