@@ -90,6 +90,16 @@
   .muted{color:var(--muted)}
   code{background:var(--code-bg);padding:1px 5px;border-radius:4px;border:1px solid var(--border)}
 
+  .howto{margin-top:14px;border-top:1px solid var(--border);padding-top:10px}
+  .howto summary{cursor:pointer;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--fit);list-style:none}
+  .howto summary::-webkit-details-marker{display:none}
+  .howto summary::before{content:"▸  "}
+  .howto[open] summary::before{content:"▾  "}
+  .howto-body{margin-top:9px;font-size:13.5px;color:var(--muted)}
+  .howto-body p{margin:0 0 7px}
+  .howto-body p:last-child{margin:0}
+  .howto-body b{color:var(--fg)}
+
   footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--border);
     font-size:12.5px;color:var(--muted)}
   @media (max-width:520px){ .tiles{grid-template-columns:1fr 1fr} .pill{margin-left:0} }
@@ -233,6 +243,16 @@
       <div class="req-top"><span class="req-no">D·14</span><span class="req-name">Charging Account for Upgrades</span><span class="pill">Fit</span></div>
       <p class="desc">Automatically default the incremental cost of NTU-funded upgrades to M6, while charging the standard entitlement to the original WBS/cost centre.</p>
       <div class="block f"><h4>Fit</h4><p>Now built end-to-end. An above-entitlement airfare line captures the entitlement-class fare (a second quote) and the funding choice; for an <b>NTU-funded</b> upgrade the split is automatic — the <b>standard entitlement charges the original WBS / cost centre</b> and the <b>delta charges the fixed M6 cost centre</b>. It is shown on the Charging step, reflected in the NTU-funded totals, and <b>posted on the CTA / SAP journal</b>: the airfare debit splits into an entitlement line (original cost object) and an upgrade-differential line to M6, balancing against the clearing credit. Demoed in S15 (pre-trip charging) and S35 (booked → CTA posts CC-1000 $972 + M6 $2,106 = $3,078).</p></div>
+      <details class="howto">
+        <summary>How it works</summary>
+        <div class="howto-body">
+          <p><b>Capture.</b> An above-entitlement airfare line stores two quotes — the chosen fare and the entitlement-class fare — plus a funding choice (NTU / self). Delta = chosen − entitlement.</p>
+          <p><b>One split helper.</b> <code>airfareUpgrade()</code> derives the entitlement, delta, funding and the fixed <b>M6</b> cost centre; every stage reads it, so the logic never diverges.</p>
+          <p><b>Charging step.</b> A callout shows the split — entitlement → original WBS/CC, delta → M6 (NTU) or traveller (self) — and the NTU-funded totals exclude a self-funded delta.</p>
+          <p><b>CTA / SAP posting.</b> On central settlement the airfare debit splits: entitlement → the request's cost object, <b>delta → M6</b> as its own line, balancing the full clearing credit. Self-funded posts the entitlement only (the delta is traveller-direct, off the CTA).</p>
+          <p><b>Claim.</b> Self-funded reimbursable airfare is capped at the entitlement. Verified in S35 — CC-1000 $972 + M6 $2,106 = $3,078.</p>
+        </div>
+      </details>
     </article>
 
     <article class="req fit">
