@@ -9,22 +9,25 @@ import { PageTitle, Card, Empty } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CtaPostingsPage({ searchParams }: { searchParams: Promise<{ q?: string; cta?: string; type?: string; status?: string }> }) {
+export default async function CtaPostingsPage({ searchParams }: { searchParams: Promise<{ q?: string; cta?: string; type?: string; status?: string; tax?: string }> }) {
   const sp = await searchParams;
   const q = (sp.q ?? '').trim().toLowerCase();
   const ctaF = sp.cta ?? '';
   const typeF = sp.type ?? '';
   const statusF = sp.status ?? '';
+  const taxF = sp.tax ?? '';
 
   const { postings } = await computeCtaPostings();
   const ctaOptions = [...new Set(postings.map((p) => p.ctaAccountId).filter((x): x is string => !!x))].sort();
   const statusOptions = [...new Set(postings.map((p) => p.postingStatus))].sort();
+  const taxOptions = [...new Set(postings.map((p) => p.gstCode))].sort();
 
   const filtered = postings.filter((p) => {
     if (ctaF && p.ctaAccountId !== ctaF) return false;
     if (typeF && p.chargeType !== typeF) return false;
     if (statusF && p.postingStatus !== statusF) return false;
-    if (q && !`${p.requestNumber} ${p.authorisationNo ?? ''} ${p.travellerName} ${p.pnr ?? ''} ${p.sapDocNo ?? ''}`.toLowerCase().includes(q)) return false;
+    if (taxF && p.gstCode !== taxF) return false;
+    if (q && !`${p.requestNumber} ${p.authorisationNo ?? ''} ${p.travellerName} ${p.pnr ?? ''} ${p.invoiceNo ?? ''} ${p.sapDocNo ?? ''}`.toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -32,7 +35,10 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
   const totalDr = Math.round(rows.filter((r) => r.l.side === 'DR').reduce((s, r) => s + r.l.amountSgd, 0) * 100) / 100;
   const totalCr = Math.round(rows.filter((r) => r.l.side === 'CR').reduce((s, r) => s + r.l.amountSgd, 0) * 100) / 100;
   const balanced = Math.abs(totalDr - totalCr) < 0.005;
-  const active = q || ctaF || typeF || statusF;
+  const feedCount = filtered.filter((p) => p.feedSourced).length;
+  const derivedCount = filtered.filter((p) => !p.feedSourced).length;
+  const mismatchCount = filtered.filter((p) => p.gstMismatch).length;
+  const active = q || ctaF || typeF || statusF || taxF;
   const statusPill = (s: string) => s === 'Posted' ? 'pill-pass' : s === 'Failed' ? 'pill-stop' : s === 'Reversed' ? 'pill-warn' : 'pill-info';
 
   return (
@@ -43,8 +49,10 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
       <Card title="How each entry is computed">
         <ul className="text-sm text-[var(--ecs-muted)] space-y-1.5 list-disc pl-5">
           <li><strong>Trigger.</strong> A charge posts to SAP on receipt, once the feed reports it <strong>settled</strong> on the CTA; a booked-but-pending charge does not post until settled.</li>
-          <li><strong>Debit (expense).</strong> GL from the expense type (airfare <code>GL-6110</code>, accommodation <code>GL-6120</code>), split across the <strong>approved charging allocation</strong> (CC/WBS × %, cross charge). CTA air/hotel are <strong>ZP zero-rated</strong>, so no input-GST line.</li>
+          <li><strong>Debit (expense).</strong> GL from the expense type, split across the <strong>approved charging allocation</strong> (CC/WBS × %, cross charge).</li>
+          <li><strong>Tax code.</strong> Resolved from the expense type via the shared ECS ⇄ SAP GST logic: airfare <code>IZ</code> (zero-rated), hotel / car / visa <code>IO</code> (out-of-scope — no GST), agency / booking fee <code>I9</code> (9% claimable). The GST is extracted from the gross as the <strong>external tax amount</strong> and posts to the input-GST GL; the fee posts as its own line, never on the zero-rated airfare.</li>
           <li><strong>Credit (clearing).</strong> The <strong>credit GL</strong> of the charge&apos;s CTA account, from the CTA master — the full gross.</li>
+          <li><strong>Driven from the feed.</strong> Each charge is the TMC&apos;s own per-charge breakdown (<code>Feed</code>): its expense type, SAP tax code and GST amount are posted verbatim, keyed by the invoice number. ECS re-derives the tax via its own logic and flags a <strong>GST mismatch</strong> (store-and-validate). A booking with no feed rows falls back to ECS-<code>Derived</code> amounts.</li>
           <li><strong>Reversal.</strong> A later cancellation / refund posts the <strong>same entry reversed</strong> (auto-reversal).</li>
         </ul>
       </Card>
@@ -61,11 +69,15 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
           </div>
           <div>
             <label className="label">Charge type</label>
-            <select name="type" defaultValue={typeF} className="field w-40"><option value="">All</option><option value="Airfare">Airfare</option><option value="Accommodation">Accommodation</option></select>
+            <select name="type" defaultValue={typeF} className="field w-40"><option value="">All</option><option value="Airfare">Airfare</option><option value="Accommodation">Accommodation</option><option value="Fee">Fee</option></select>
           </div>
           <div>
             <label className="label">Posting status</label>
             <select name="status" defaultValue={statusF} className="field w-36"><option value="">All</option>{statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+          </div>
+          <div>
+            <label className="label">Tax code</label>
+            <select name="tax" defaultValue={taxF} className="field w-28"><option value="">All</option>{taxOptions.map((t) => <option key={t} value={t}>{t}</option>)}</select>
           </div>
           <button className="btn-primary">Apply</button>
           {active && <Link href="/finance/cta-postings" className="btn-ghost">Clear</Link>}
@@ -73,7 +85,7 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
       </Card>
 
       <div className="text-sm text-[var(--ecs-muted)]">
-        {rows.length} line(s) · {filtered.length} charge(s){active ? ` (filtered from ${postings.length})` : ''} · total Dr {fmtSgd(totalDr)} = total Cr {fmtSgd(totalCr)} {balanced ? <span className="pill-pass ml-1">balanced</span> : <span className="pill-stop ml-1">out of balance</span>}
+        {rows.length} line(s) · {filtered.length} charge(s){active ? ` (filtered from ${postings.length})` : ''} · <span className="pill-info">{feedCount} from feed</span> {derivedCount > 0 && <span className="pill-warn ml-1">{derivedCount} derived</span>} {mismatchCount > 0 && <span className="pill-stop ml-1">{mismatchCount} GST mismatch</span>} · total Dr {fmtSgd(totalDr)} = total Cr {fmtSgd(totalCr)} {balanced ? <span className="pill-pass ml-1">balanced</span> : <span className="pill-stop ml-1">out of balance</span>}
       </div>
 
       <Card title="Accounting entries (line items)">
@@ -81,7 +93,7 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
           <div className="overflow-x-auto">
             <table className="w-full text-sm whitespace-nowrap">
               <thead><tr>
-                <th className="th">Request</th><th className="th">TA</th><th className="th">Traveller</th><th className="th">PNR</th><th className="th">Type</th><th className="th">Charged</th><th className="th">CTA acct</th>
+                <th className="th">Request</th><th className="th">TA</th><th className="th">Traveller</th><th className="th">PNR</th><th className="th">Invoice</th><th className="th">Type</th><th className="th">Basis</th><th className="th">Tax code</th><th className="th text-right">Ext. tax</th><th className="th">Charged</th><th className="th">CTA acct</th>
                 <th className="th">Posting date</th><th className="th">Status</th><th className="th">SAP doc</th>
                 <th className="th">Dr/Cr</th><th className="th">GL account</th><th className="th">Description</th><th className="th">Cost object</th><th className="th text-right">Share %</th><th className="th text-right">Amount (SGD)</th>
               </tr></thead>
@@ -92,7 +104,11 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
                     <td className="td font-mono text-xs">{p.authorisationNo ?? '—'}</td>
                     <td className="td">{p.travellerName}</td>
                     <td className="td font-mono text-xs">{p.pnr ?? '—'}</td>
+                    <td className="td font-mono text-xs">{p.invoiceNo ?? '—'}</td>
                     <td className="td">{p.chargeType}{p.crossCharge && <span title="Cross-charged across cost objects" className="pill-info ml-1 text-[10px]">cross-charge</span>}</td>
+                    <td className="td">{p.feedSourced ? <span className="pill-info" title="Posted from the TMC feed's own charge breakdown">Feed</span> : <span className="pill-warn" title="No feed charge rows — derived from fare/taxes/fees">Derived</span>}{p.gstMismatch && <span className="pill-stop ml-1" title={p.validationNote ?? 'Feed GST disagrees with ECS logic'}>⚠ GST</span>}</td>
+                    <td className="td font-mono text-xs">{p.gstCode}</td>
+                    <td className="td text-right">{p.taxSgd > 0 ? fmtSgd(p.taxSgd) : '—'}</td>
                     <td className="td">{p.chargeDate ?? '—'}</td>
                     <td className="td font-mono text-xs">{p.ctaAccountId ?? '—'}</td>
                     <td className="td">{p.postingDate ?? '—'}</td>
@@ -108,7 +124,7 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
                 ))}
               </tbody>
               <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
-                <td className="td" colSpan={15}>Total · Dr {fmtSgd(totalDr)} = Cr {fmtSgd(totalCr)} {balanced ? '· balanced' : '· OUT OF BALANCE'}</td>
+                <td className="td" colSpan={19}>Total · Dr {fmtSgd(totalDr)} = Cr {fmtSgd(totalCr)} {balanced ? '· balanced' : '· OUT OF BALANCE'}</td>
                 <td className="td text-right">{fmtSgd(totalDr)}</td>
               </tr></tfoot>
             </table>

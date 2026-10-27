@@ -1,9 +1,15 @@
 // DD-31 CTA charge → SAP posting. A settled CTA charge posts to SAP on RECEIPT from the TMC (not at
-// claim). The entry per charge is:
+// claim). The posting is DRIVEN FROM THE FEED: each charge is the TMC's own per-charge breakdown
+// (BookingCharge, persisted from inbound.charges[]) — its expense-type mapping, SAP tax code and GST
+// amount are posted verbatim. ECS also re-derives the tax code/amount via its own GST logic and
+// flags a mismatch (store-and-validate), but posts the feed's figures. A booking with no feed charge
+// rows (legacy / a split PNR) falls back to deriving from fare/taxes/fees. The ECS settlement gate
+// still decides WHICH charges post centrally (lineSettlement). The entry per charge is:
 //   Dr  <expense GL>  (cost object)   net, split across the APPROVED charging allocation (cross charge)
-//   Dr  Input GST GL                  tax (only when GST-rated; CTA air/accom are ZP zero-rated)
+//   Dr  Input GST GL                  external tax amount (only when > 0; air IZ / hotel IO = 0; fee I9 = 9%)
 //   Cr  <CTA clearing GL>             gross (the credit side, from the CTA master)
-// On a later cancellation/refund the same entry is posted REVERSED (auto-reversal).
+// The SAP Reference is the feed invoice number (falls back to the PNR). On a later cancellation /
+// refund the same entry is posted REVERSED (auto-reversal).
 //
 // `postCtaChargesForRequest` persists a CtaPostingDocument per settled charge (idempotent) with the
 // SAP document number, posting date and status. `computeCtaPostings` builds the journal for the
@@ -12,6 +18,7 @@ import { prisma } from '@/shared/db';
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { ctaAccountsMap } from './ctaMaster';
 import { lineSettlement } from './settlement';
+import { resolveSapTaxCode } from '@/data/gstCodes';
 import { EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 
 export interface PostingLine {
@@ -31,17 +38,22 @@ export interface CtaPosting {
   authorisationNo: string | null;
   travellerName: string;
   pnr: string | null;
-  chargeType: 'Airfare' | 'Accommodation';
+  chargeType: 'Airfare' | 'Accommodation' | 'Fee';
   chargeDate: string | null;
   ctaAccountId: string | null;
   clearingGlAccount: string;
   grossSgd: number;
-  taxSgd: number;
+  taxSgd: number;              // external tax amount (GST) extracted from the gross
   netSgd: number;
-  gstCode: string;
+  gstCode: string;             // SAP tax code (IZ/IO/I9/P9) — the figure posted
   allocationNote: string;
   crossCharge: boolean;
-  source: string;
+  source: string;              // human-readable amount basis (e.g. "fare + taxes")
+  feedSourced: boolean;        // true = driven from the feed's BookingCharge; false = derived by ECS
+  gstMismatch: boolean;        // store-and-validate: feed's tax code/amount disagrees with ECS logic
+  validationNote: string | null;
+  invoiceNo: string | null;    // feed invoice number
+  sapReference: string | null; // SAP posting Reference = invoice no. (falls back to PNR)
   lines: PostingLine[];
   balanced: boolean;
   // posting lifecycle (from the persisted CtaPostingDocument)
@@ -51,8 +63,18 @@ export interface CtaPosting {
   isReversal: boolean;
 }
 
-interface Charge { chargeType: 'Airfare' | 'Accommodation'; expenseTypeId: string; grossSgd: number }
-type BookingLike = { fare: number | null; taxes: number | null; fees: number | null; segments: { type: string; amount: number | null }[] };
+interface Charge {
+  chargeType: 'Airfare' | 'Accommodation' | 'Fee';
+  expenseTypeId: string;
+  grossSgd: number;
+  gstCode: string;             // SAP tax code posted (feed's when feed-sourced, else ECS-derived)
+  gstAmountSgd: number;        // external tax amount posted
+  feedSourced: boolean;
+  gstMismatch: boolean;
+  validationNote: string | null;
+}
+type FeedCharge = { type: string; expenseTypeId: string; amountSgd: number; gstCode: string; gstAmountSgd: number; gstClaimable: boolean };
+type BookingLike = { fare: number | null; taxes: number | null; fees: number | null; segments: { type: string; amount: number | null }[]; charges?: FeedCharge[] };
 type ReqLike = { travellerType: string | null; bookingArrangement: string | null; hotelSettlement: string | null };
 
 const ELIGIBLE: string[] = [BOOKING_STATUS.Booked, BOOKING_STATUS.TravelCompleted];
@@ -60,21 +82,72 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const iso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 const GST_INPUT_GL = 'GL-GST-INPUT';
 
-/** The CTA (central-settled) charges carried by a booking. */
+/** Map a feed charge type to its ECS charge label + the settlement category that gates it. The
+ *  agency/booking fee follows the airfare's settlement (it is the service fee on the air booking). */
+function feedChargeMeta(t: string): { chargeType: 'Airfare' | 'Accommodation' | 'Fee'; category: string } | null {
+  if (t === 'AIRFARE') return { chargeType: 'Airfare', category: EXPENSE_CATEGORY.Airfare };
+  if (t === 'FEE') return { chargeType: 'Fee', category: EXPENSE_CATEGORY.Airfare };
+  if (t === 'ACCOMMODATION') return { chargeType: 'Accommodation', category: EXPENSE_CATEGORY.Accommodation };
+  return null;   // CAR / VISA not emitted by the prototype feed yet
+}
+
+/** Store-and-validate: re-derive the tax code + external tax amount via ECS's own GST logic and
+ *  compare to what the feed asserted. ECS posts the FEED's figures; a disagreement is flagged only. */
+function validateGst(expenseTypeId: string, grossSgd: number, feedCode: string, feedGstSgd: number, claimable: boolean): { mismatch: boolean; note: string | null } {
+  const et = EcsReference.expenseType(expenseTypeId);
+  const g = resolveSapTaxCode(et ?? { gstCode: 'IO' }, { claimable });
+  const expectedTax = g.ratePct > 0 ? r2((grossSgd * g.ratePct) / (100 + g.ratePct)) : 0;
+  const codeBad = g.code !== feedCode;
+  const taxBad = Math.abs(expectedTax - r2(feedGstSgd)) > 0.01;
+  if (!codeBad && !taxBad) return { mismatch: false, note: null };
+  const parts: string[] = [];
+  if (codeBad) parts.push(`tax code: feed ${feedCode} vs ECS ${g.code}`);
+  if (taxBad) parts.push(`GST: feed ${fmt(feedGstSgd)} vs ECS ${fmt(expectedTax)}`);
+  return { mismatch: true, note: parts.join('; ') };
+}
+
+/** The CTA (central-settled) charges carried by a booking. Driven from the feed's persisted
+ *  per-charge breakdown when present; otherwise derived from fare/taxes/fees. The ECS settlement
+ *  gate (lineSettlement) decides which charges post centrally in both paths. */
 function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
-  const out: Charge[] = [];
   const isGuest = req.travellerType === 'GUEST';
-  const air = r2((b.fare ?? 0) + (b.taxes ?? 0) + (b.fees ?? 0));
-  if (air > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Airfare) === 'CENTRAL')) out.push({ chargeType: 'Airfare', expenseTypeId: 'ET-AIR', grossSgd: air });
+  const central = (cat: string) => isGuest || lineSettlement(req, cat) === 'CENTRAL';
+
+  // Primary: drive the posting from the feed's own charge rows (store-and-validate).
+  if (b.charges && b.charges.length) {
+    const out: Charge[] = [];
+    for (const c of b.charges) {
+      const meta = feedChargeMeta(c.type);
+      if (!meta) continue;
+      if (!central(meta.category)) continue;            // ECS settlement gate still applies
+      const v = validateGst(c.expenseTypeId, c.amountSgd, c.gstCode, c.gstAmountSgd, c.gstClaimable);
+      out.push({ chargeType: meta.chargeType, expenseTypeId: c.expenseTypeId, grossSgd: r2(c.amountSgd), gstCode: c.gstCode, gstAmountSgd: r2(c.gstAmountSgd), feedSourced: true, gstMismatch: v.mismatch, validationNote: v.note });
+    }
+    return out;
+  }
+
+  // Fallback: derive from fare/taxes/fees when the booking has no feed charge rows.
+  const derive = (chargeType: 'Airfare' | 'Accommodation' | 'Fee', etId: string, gross: number): Charge => {
+    const et = EcsReference.expenseType(etId);
+    const g = resolveSapTaxCode(et ?? { gstCode: 'IO' }, { claimable: true });
+    const tax = g.ratePct > 0 ? r2((gross * g.ratePct) / (100 + g.ratePct)) : 0;
+    return { chargeType, expenseTypeId: etId, grossSgd: gross, gstCode: g.code, gstAmountSgd: tax, feedSourced: false, gstMismatch: false, validationNote: null };
+  };
+  const out: Charge[] = [];
+  const airCentral = central(EXPENSE_CATEGORY.Airfare);
+  const fare = r2((b.fare ?? 0) + (b.taxes ?? 0));   // airfare = fare + airline taxes (IZ)
+  if (fare > 0 && airCentral) out.push(derive('Airfare', 'ET-AIR', fare));
+  const fees = r2(b.fees ?? 0);                       // agency/booking fee — its own line (I9)
+  if (fees > 0 && airCentral) out.push(derive('Fee', 'ET-FEE', fees));
   const hotel = r2(b.segments.filter((s) => s.type === 'HOTEL').reduce((s, x) => s + (x.amount ?? 0), 0));
-  if (hotel > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL')) out.push({ chargeType: 'Accommodation', expenseTypeId: 'ET-ACC', grossSgd: hotel });
+  if (hotel > 0 && central(EXPENSE_CATEGORY.Accommodation)) out.push(derive('Accommodation', 'ET-ACC', hotel));
   return out;
 }
 
 /** DD-31 — post the settled CTA charges of a request to SAP on receipt (idempotent, one posting per
  *  booking + charge type). Creates a CtaPostingDocument with the SAP doc no, posting date and status. */
 export async function postCtaChargesForRequest(requestId: string): Promise<void> {
-  const req = await prisma.travelRequest.findUnique({ where: { id: requestId }, include: { allocations: true, bookings: { include: { segments: true } } } });
+  const req = await prisma.travelRequest.findUnique({ where: { id: requestId }, include: { allocations: true, bookings: { include: { segments: true, charges: true } } } });
   if (!req) return;
   const ctaMap = await ctaAccountsMap();
   for (const b of req.bookings) {
@@ -112,7 +185,7 @@ export interface CtaPostingsView { postings: CtaPosting[]; totalDr: number; tota
 /** Build the accounting-entries report: the journal per settled CTA charge, with the posting
  *  lifecycle (date/status/doc) attached from the persisted CtaPostingDocument. */
 export async function computeCtaPostings(): Promise<CtaPostingsView> {
-  const bookings = await prisma.travelBooking.findMany({ include: { request: { include: { allocations: true } }, segments: true }, orderBy: { id: 'asc' } });
+  const bookings = await prisma.travelBooking.findMany({ include: { request: { include: { allocations: true } }, segments: true, charges: true }, orderBy: { id: 'asc' } });
   const ctaMap = await ctaAccountsMap();
   const docs = await prisma.ctaPostingDocument.findMany();
   const docMap = new Map(docs.map((d) => [`${d.bookingId}:${d.chargeType}`, d]));
@@ -135,9 +208,9 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
     for (const c of chargesOf(b, req)) {
       const et = EcsReference.expenseType(c.expenseTypeId);
       const gl = et?.glAccount ?? 'GL-UNKNOWN';
-      const rate = et?.taxRatePct ?? 0;
+      // Driven from the charge's posted figures (the feed's when feed-sourced, else ECS-derived).
       const gross = r2(c.grossSgd);
-      const tax = rate > 0 ? r2((gross * rate) / (100 + rate)) : 0;
+      const tax = r2(c.gstAmountSgd);                 // external tax amount
       const net = r2(gross - tax);
       const lines: PostingLine[] = [];
       let running = 0;
@@ -146,18 +219,21 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
         running = r2(running + amt);
         lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? c.chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
       });
-      if (tax > 0) lines.push({ side: 'DR', glAccount: GST_INPUT_GL, description: `Input GST (${et?.gstCode})`, costObject: null, costObjectType: null, percent: null, amountSgd: tax });
+      if (tax > 0) lines.push({ side: 'DR', glAccount: GST_INPUT_GL, description: `Input GST (${c.gstCode})`, costObject: null, costObjectType: null, percent: null, amountSgd: tax });
       lines.push({ side: 'CR', glAccount: clearingGl, description: `CTA clearing${b.ctaAccountId ? ` — ${b.ctaAccountId}` : ''}`, costObject: null, costObjectType: null, percent: null, amountSgd: gross });
       const dr = r2(lines.filter((l) => l.side === 'DR').reduce((s, l) => s + l.amountSgd, 0));
       const cr = r2(lines.filter((l) => l.side === 'CR').reduce((s, l) => s + l.amountSgd, 0));
       const doc = docMap.get(`${b.id}:${c.chargeType}`);
+      const sapReference = b.invoiceNo ?? b.pnr;
       const base: CtaPosting = {
         bookingId: b.id, requestId: req.id, requestNumber: req.requestNumber, authorisationNo: req.authorisationNo,
         travellerName, pnr: b.pnr, chargeType: c.chargeType, chargeDate: iso(b.ctaChargeDate),
         ctaAccountId: b.ctaAccountId, clearingGlAccount: clearingGl,
-        grossSgd: gross, taxSgd: tax, netSgd: net, gstCode: et?.gstCode ?? '—',
+        grossSgd: gross, taxSgd: tax, netSgd: net, gstCode: c.gstCode,
         allocationNote: allocs.map((a) => `${a.code} ${a.percent}%`).join(' · '), crossCharge: allocs.length > 1,
-        source: c.chargeType === 'Airfare' ? `fare ${fmt(b.fare)} + taxes ${fmt(b.taxes)} + fees ${fmt(b.fees)}` : 'hotel segment total',
+        source: c.chargeType === 'Airfare' ? `fare ${fmt(b.fare)} + taxes ${fmt(b.taxes)}` : c.chargeType === 'Fee' ? `agency / booking fee ${fmt(b.fees)}` : 'hotel segment total',
+        feedSourced: c.feedSourced, gstMismatch: c.gstMismatch, validationNote: c.validationNote,
+        invoiceNo: b.invoiceNo, sapReference,
         lines, balanced: Math.abs(dr - cr) < 0.005,
         sapDocNo: doc?.sapDocNo ?? null, postingDate: doc?.postingDate ?? null, postingStatus: doc?.status ?? 'Not posted',
         isReversal: false,

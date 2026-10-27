@@ -3,8 +3,21 @@
 // layer that changes when the TMC changes; canonical model, workflow and TE linkage
 // stay unchanged.
 import { EcsReference } from '@/shared/ecs/services';
+import { resolveSapTaxCode } from '@/data/gstCodes';
 import { BOOKING_STATUS } from '@/shared/enums';
-import type { CanonicalOutbound, CanonicalInbound, OutboundMeta, InboundMeta } from './contract';
+import type { CanonicalOutbound, CanonicalInbound, InboundCharge, OutboundMeta, InboundMeta } from './contract';
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Build one per-charge CTA breakdown line with its SAP tax code + external tax amount, resolved
+ *  through the shared GST logic off the ECS expense-type master (gross is GST-inclusive). */
+function mkCharge(type: InboundCharge['type'], expenseTypeId: string, amountSgd: number, claimable = true): InboundCharge {
+  const et = EcsReference.expenseType(expenseTypeId);
+  const g = resolveSapTaxCode(et ?? { gstCode: 'IO' }, { claimable });
+  const gross = r2(amountSgd);
+  const gstAmountSgd = g.ratePct > 0 ? r2((gross * g.ratePct) / (100 + g.ratePct)) : 0;
+  return { type, expenseTypeId, amountSgd: gross, gstCode: g.code, gstAmountSgd, ...(type === 'FEE' ? { gstClaimable: claimable } : {}) };
+}
 
 /**
  * Build the canonical outbound hand-off from an approved request (§13.9).
@@ -95,19 +108,32 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
   const baseFare = (out.approvedCostCeilingSgd ?? 5000) * 0.6 * (1 + (opts?.overFarePct ?? 0) / 100);
   const pnrSeed = out.authorisationNumber.replace(/\D/g, '').slice(-4) || '0001';
   const prefix = opts?.pnrPrefix ?? 'PNR';
+  const fareSgd = Math.round(baseFare);
+  const taxesSgd = Math.round(baseFare * 0.12);
+  const feesSgd = 30;
+  // DD-31 per-charge breakdown the feed carries for the SAP posting: airfare (fare + airline taxes,
+  // IZ), the agency/booking fee as its OWN line (I9 9% claimable), and each hotel stay (IO). Each is
+  // resolved through the shared GST logic so the feed's tax code + GST amount agree with ECS's.
+  const charges: InboundCharge[] = [
+    mkCharge('AIRFARE', 'ET-AIR', fareSgd + taxesSgd),
+    mkCharge('FEE', 'ET-FEE', feesSgd, true),
+    ...hotel.map((s) => mkCharge('ACCOMMODATION', 'ET-ACC', (s.cappedNightlySgd ?? 0) * (s.nights ?? 0))),
+  ].filter((c) => c.amountSgd > 0);
   return {
     ...(meta ? { meta } : {}),
     authorisationNumber: out.authorisationNumber,
     pnr: `${prefix}${pnrSeed}`,
+    invoiceNumber: `INV-${pnrSeed}`,                    // DD-31 provider invoice no. (SAP posting Reference)
     ticketNumbers: air.map((_, i) => `TKT-${pnrSeed}-${i + 1}`),
     bookingStatus: BOOKING_STATUS.Booked,
     channel: out.bookingMethod,
-    fareSgd: Math.round(baseFare),
-    taxesSgd: Math.round(baseFare * 0.12),
-    feesSgd: 30,
+    fareSgd,
+    taxesSgd,
+    feesSgd,
     ctaAccountId: opts?.ctaAccountId ?? 'CTA-SG-SGD',   // DD-30 feed-reported CTA account (the card the charges hit)
     ctaCharged: opts?.charged ?? true,                  // DD-30 default: a confirmed TMC booking is ticketed/charged
     ctaChargeDate: opts?.charged === false ? null : (opts?.chargeDate ?? null),
+    charges,                                            // DD-31 authoritative per-charge CTA breakdown with GST
     segments: [
       ...air.map((s) => ({ type: 'AIR' as const, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, departDate: s.departDate, arriveDate: s.arriveDate ?? s.departDate })),
       ...hotel.map((s) => ({ type: 'HOTEL' as const, city: s.city, roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0) })),

@@ -13,7 +13,7 @@ import { REQUEST_STATUS, BOOKING_STATUS, BOOKING_METHOD } from '@/shared/enums';
 
 // Version stamped into each message's provenance header (§13.9). Bump when the
 // contract shape changes so downstream logs can correlate payloads to a contract.
-export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.0';
+export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.1';
 
 export type TeTreatment = 'LOCKED' | 'EDITABLE' | 'REFERENCE' | 'EXCLUDED';
 
@@ -100,6 +100,15 @@ export const CONTRACT_FIELDS: ContractField[] = [
   { key: 'teOtherLine', group: 'Claim lines', label: 'Other expense lines', source: 'expense(OTHER)', te: 'line', category: 'OTHER', defaultTe: 'EDITABLE' },
 
   { key: 'teBookedAmounts', group: 'Claim actuals', label: 'Booked amounts (from TMC feed)', source: 'booking.fare / taxes / fees', te: 'actual', defaultTe: 'REFERENCE', note: 'Inbound TMC actuals shown for estimate-to-actual (§13.17). Set Excluded for self-booked trips.' },
+
+  // ==================== CTA CHARGES — TMC FEED (DD-30 / DD-31) ====================
+  // The inbound datapoints the TMC feed carries for centrally-settled (CTA) charges, which ECS
+  // posts to SAP on receipt (Dr expense ⇄ Cr CTA clearing). Reference-only: not claim lines.
+  { key: 'ctaFeedAccount', group: 'CTA charges (feed)', label: 'CTA account lodged to', source: 'inbound.ctaAccountId', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-30 the CTA card the central charges hit → credit (clearing) GL via the CTA master.' },
+  { key: 'ctaFeedSettled', group: 'CTA charges (feed)', label: 'Settlement status + charge date', source: 'inbound.ctaCharged / ctaChargeDate', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-31 a charge posts to SAP only once the feed reports it settled (ticketed/charged) on the CTA.' },
+  { key: 'ctaFeedInvoice', group: 'CTA charges (feed)', label: 'Provider invoice number', source: 'inbound.invoiceNumber', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-31 SAP posting Reference for the journal (the PNR is used when absent).' },
+  { key: 'ctaFeedCharges', group: 'CTA charges (feed)', label: 'Per-charge breakdown (type · expense type · amount)', source: 'inbound.charges[]', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-31 one Dr line per expense type (airfare / fee / hotel / car / visa) — each maps to the ECS expense-type master for its GL; the agency fee is its own line, never folded into the zero-rated airfare.' },
+  { key: 'ctaFeedGst', group: 'CTA charges (feed)', label: 'Per-charge tax code + GST amount', source: 'inbound.charges[].gstCode / gstAmountSgd', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-31 SAP tax code (IZ / IO / I9 / P9) + external tax amount per charge. Resolved via the shared GST logic (src/data/gstCodes.ts); the I9 ↔ P9 fork follows the charging-account GST-claimable flag.' },
 ];
 
 // ============================ PARAMETER FILTERS (message guards) ============================

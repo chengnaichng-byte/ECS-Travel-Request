@@ -9,6 +9,7 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getContractSettings, tmcEnabledSet, prepopContract, getGuardSettings, evaluateFlow, guardRuleText } from '@/modules/pretrip/integration';
 import { assembleOutbound } from '@/modules/pretrip/tmcPayload';
+import { simulateInbound } from '@/integrations/tmc/adapter';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { CONTRACT_FIELDS, TE_TREATMENT_OPTIONS, GUARD_PARAM_OPTIONS, GUARD_PARAM_LABELS, guardEditable, CONTRACT_VERSION } from '@/config/integrationContracts';
 import { saveContractSettings, saveContractGuards } from '@/app/actions';
@@ -19,7 +20,7 @@ import { TreatmentPill } from '@/components/StatusPill';
 export const dynamic = 'force-dynamic';
 
 const TMC_GROUPS = ['Booking header', 'Itinerary', 'Accommodation', 'Charging & context', 'Guest (PDPA)'];
-const TE_GROUPS = ['Claim header', 'Claim lines', 'Claim actuals'];
+const TE_GROUPS = ['Claim header', 'Claim lines', 'Claim actuals', 'CTA charges (feed)'];
 
 export default async function IntegrationContractsPage({ searchParams }: { searchParams: Promise<{ preview?: string }> }) {
   const { preview } = await searchParams;
@@ -41,6 +42,9 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
   // Deterministic preview provenance (a real send stamps a fresh UUID + timestamp).
   const previewMeta = req ? { messageId: `preview-${req.requestNumber}`, sentAt: req.updatedAt.toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION } : undefined;
   const outbound = req ? assembleOutbound(req, tmcEnabledSet(resolved), previewMeta) : null;
+  // Deterministic inbound preview — the simulated TMC confirmation, so the per-charge CTA
+  // datapoints the feed carries for the SAP posting (DD-31) are visible beside the outbound.
+  const inbound = outbound ? simulateInbound(outbound, { chargeDate: req?.updatedAt.toISOString().slice(0, 10) ?? null }, { messageId: `preview-in-${req?.requestNumber}`, receivedAt: req?.updatedAt.toISOString() ?? '', correlationId: previewMeta?.messageId ?? null, sourceStatus: req?.status ?? '', contractVersion: CONTRACT_VERSION }) : null;
   const prep = req ? prepopulateClaim(req, req.travellerId, settings.airfareTreatment, prepopContract(resolved)) : null;
   const outGate = req ? evaluateFlow(req, 'OUTBOUND', guards) : null;
   const inGate = req ? evaluateFlow(req, 'INBOUND', guards) : null;
@@ -214,6 +218,12 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
                   </ul>
                 </div>
               ))}
+            </div>
+
+            <div className="mb-5">
+              <h3 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">← TMC booking confirmation (inbound feed)</h3>
+              <p className="text-[11px] text-[var(--ecs-muted)] mb-2">The datapoints the feed returns, incl. the DD-31 <code>charges[]</code> per-charge CTA breakdown (type · expense type · SAP tax code · GST amount) and <code>invoiceNumber</code> that drive the SAP posting.</p>
+              <pre className="text-xs bg-[var(--ecs-panel-2)] border border-[var(--ecs-border)] rounded p-3 overflow-x-auto max-h-[28rem]">{JSON.stringify(inbound, null, 2)}</pre>
             </div>
 
             <div className="grid lg:grid-cols-2 gap-5 items-start">

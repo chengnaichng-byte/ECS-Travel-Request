@@ -22,7 +22,7 @@ export interface CtaChargeRow {
   pnr: string | null;
   ticketNo: string | null;
   provider: string;
-  type: 'Airfare' | 'Accommodation';
+  type: 'Airfare' | 'Accommodation' | 'Fee';
   detail: string;
   chargeDate: string | null;   // date the charge posted to the CTA; null while pending settlement
   settled: boolean;
@@ -70,7 +70,7 @@ export async function listCtaCharges(): Promise<CtaChargesView> {
     if (!ELIGIBLE.includes(b.status)) continue;   // (1) booked/completed only
     const traveller = b.travellerId ?? req.travellerId;
     const cta = b.ctaAccountId ? ctaMap.get(b.ctaAccountId) : undefined;
-    const mk = (type: 'Airfare' | 'Accommodation', detail: string, amountSgd: number): CtaChargeRow => ({
+    const mk = (type: 'Airfare' | 'Accommodation' | 'Fee', detail: string, amountSgd: number): CtaChargeRow => ({
       requestId: req.id,
       requestNumber: req.requestNumber,
       authorisationNo: req.authorisationNo,
@@ -94,10 +94,15 @@ export async function listCtaCharges(): Promise<CtaChargesView> {
     // TMC-arranged and the hotel only when the requestor chose CTA settlement.
     const isGuest = req.travellerType === 'GUEST';
 
-    const airSgd = r2((b.fare ?? 0) + (b.taxes ?? 0) + (b.fees ?? 0));
-    if (airSgd > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Airfare) === 'CENTRAL')) {
+    const airCentral = isGuest || lineSettlement(req, EXPENSE_CATEGORY.Airfare) === 'CENTRAL';
+    const airSgd = r2((b.fare ?? 0) + (b.taxes ?? 0));   // fare + airline taxes; the agency fee is its own row
+    if (airSgd > 0 && airCentral) {
       const air = b.segments.find((s) => s.type === 'AIR');
       rows.push(mk('Airfare', air ? `${air.originCode ?? ''} → ${air.destCode ?? ''}` : (EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—'), airSgd));
+    }
+    const feeSgd = r2(b.fees ?? 0);
+    if (feeSgd > 0 && airCentral) {
+      rows.push(mk('Fee', 'Agency / booking fee', feeSgd));
     }
     const hotelSgd = r2(b.segments.filter((s) => s.type === 'HOTEL').reduce((s, x) => s + (x.amount ?? 0), 0));
     if (hotelSgd > 0 && (isGuest || lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL')) {

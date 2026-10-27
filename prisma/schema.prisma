@@ -378,6 +378,7 @@ model TravelBooking {
   travellerId   String?                     // §9.3 per-traveller booking in a group fan-out (AC15)
   tmcProviderId String?                     // multi-TMC: the provider that made this booking
   pnr           String?
+  invoiceNo     String?                     // DD-31 provider invoice number (feed) — the SAP posting Reference (falls back to PNR)
   ticketNo      String?
   channel       String?                     // TMC | SELF_BOOKED
   fare          Float?
@@ -389,6 +390,24 @@ model TravelBooking {
   ctaChargeDate DateTime?                   // DD-30 date the charge posted to the CTA (from the card/TMC feed) — what finance reconciles to the statement period
   status        String  @default("Booked")
   segments      BookingSegment[]
+  charges       BookingCharge[]
+}
+
+/// DD-31 BookingCharge — the per-charge CTA breakdown AS REPORTED BY THE TMC FEED (inbound.charges[]).
+/// This is the authoritative basis the CTA → SAP posting is driven from: one row per charge, each
+/// carrying the feed's expense-type mapping, SAP tax code and external tax (GST) amount. ECS posts
+/// these values verbatim and separately validates them against its own GST logic (store-and-validate);
+/// a booking with no charge rows (legacy / hand-built) falls back to deriving from fare/taxes/fees.
+model BookingCharge {
+  id            String  @id @default(cuid())
+  bookingId     String
+  booking       TravelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type          String                      // AIRFARE | ACCOMMODATION | FEE | CAR | VISA (feed charge type)
+  expenseTypeId String                      // ECS expense-type master id → debit GL + default tax code
+  amountSgd     Float                       // gross, GST-inclusive
+  gstCode       String                      // SAP tax code as asserted by the feed (IZ/IO/I9/P9)
+  gstAmountSgd  Float   @default(0)          // external tax amount (0 for IZ/IO)
+  gstClaimable  Boolean @default(true)       // fee lines: drives I9 (true) vs P9 (false)
 }
 
 /// §7.1 BookingSegment — booked air/hotel segment

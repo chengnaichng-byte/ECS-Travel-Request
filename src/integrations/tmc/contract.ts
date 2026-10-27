@@ -90,10 +90,26 @@ export interface GroupFanoutInbound {
   bookings: CanonicalInbound[];
 }
 
+/** DD-31 per-charge breakdown of the CTA-settled charges on this booking — the datapoints ECS posts
+ *  to SAP (one Dr expense line per charge ⇄ Cr CTA clearing). Each charge maps to the ECS expense-type
+ *  master for its GL and default tax code; the feed also asserts the SAP tax code and GST amount
+ *  (SAP's "external tax amount"), which ECS validates against its own GST logic (src/data/gstCodes.ts).
+ *  This replaces the single fare/taxes/fees aggregate as the authoritative posting basis: the agency
+ *  fee is its OWN line (I9 9% claimable), never rolled into the zero-rated (IZ) airfare. */
+export interface InboundCharge {
+  type: 'AIRFARE' | 'ACCOMMODATION' | 'FEE' | 'CAR' | 'VISA';
+  expenseTypeId: string;               // ECS expense-type master id → debit GL + default SAP tax code
+  amountSgd: number;                   // gross, GST-inclusive
+  gstCode: string;                     // SAP tax code (IZ zero-rated / IO out-of-scope / I9 / P9)
+  gstAmountSgd: number;                // external tax amount (0 for IZ / IO)
+  gstClaimable?: boolean;              // fee lines only: drives I9 (true) vs P9 (false)
+}
+
 export interface CanonicalInbound {
   meta?: InboundMeta;                  // provenance header (§13.9)
   authorisationNumber: string;
   pnr: string;
+  invoiceNumber?: string | null;       // DD-31 provider invoice number — SAP posting Reference (PNR used when absent)
   ticketNumbers: string[];
   bookingStatus: string;
   channel: string;
@@ -103,6 +119,7 @@ export interface CanonicalInbound {
   ctaAccountId?: string | null;        // DD-30 the CTA account the central charges were lodged to (feed-reported)
   ctaCharged?: boolean;                 // DD-30 the central charges have settled on the CTA (ticketed/charged), not just confirmed
   ctaChargeDate?: string | null;        // DD-30 date the charge posted to the CTA (ISO)
+  charges?: InboundCharge[];            // DD-31 per-charge CTA breakdown with GST — the SAP posting datapoints
   segments: {
     type: 'AIR' | 'HOTEL';
     origin?: string;

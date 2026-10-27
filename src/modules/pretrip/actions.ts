@@ -1267,6 +1267,9 @@ export async function receiveBooking(id: string, fd: FormData) {
       const mk = (tag: string, segs: typeof sim.segments, f: number, t: number, e: number) => ({ travellerId, inbound: {
         ...sim, pnr: `${sim.pnr}${suffix}-${tag}`, ticketNumbers: sim.ticketNumbers.map((tk: string) => `${tk}${suffix}-${tag}`),
         segments: segs, fareSgd: f, taxesSgd: t, feesSgd: e,
+        // DD-31: the feed's charges[] carry the FULL-PNR amounts; on a multi-city split each PNR
+        // instead derives its charges from its own split fare/taxes/fees (so amounts aren't doubled).
+        charges: undefined,
       } });
       return [
         mk('A', [...air.slice(0, mid), ...hotel], r2(sim.fareSgd * sh), r2(sim.taxesSgd * sh), r2(sim.feesSgd * sh)),
@@ -1297,7 +1300,7 @@ export async function receiveBooking(id: string, fd: FormData) {
     for (const { travellerId, inbound } of inbounds) {
       const booking = await tx.travelBooking.create({
         data: {
-          requestId: id, travellerId, tmcProviderId: providerId, pnr: inbound.pnr, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
+          requestId: id, travellerId, tmcProviderId: providerId, pnr: inbound.pnr, invoiceNo: inbound.invoiceNumber ?? null, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
           fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd,
           hotelRate: inbound.segments.find((s: { type: string }) => s.type === 'HOTEL')?.roomRateSgd, status: inbound.bookingStatus,
           ctaAccountId: inbound.ctaAccountId ?? null,   // DD-30 feed-reported CTA account the central charges hit
@@ -1306,6 +1309,10 @@ export async function receiveBooking(id: string, fd: FormData) {
       });
       for (const s of inbound.segments) {
         await tx.bookingSegment.create({ data: { bookingId: booking.id, type: s.type, originCode: s.origin, destCode: s.destination, bookedClassId: s.bookedClass, departDate: s.departDate ? new Date(s.departDate) : null, arriveDate: s.arriveDate ? new Date(s.arriveDate) : (s.departDate ? new Date(s.departDate) : null), amount: s.amountSgd ?? s.roomRateSgd } });
+      }
+      // DD-31 persist the feed's per-charge CTA breakdown — the authoritative basis for the SAP posting.
+      for (const c of inbound.charges ?? []) {
+        await tx.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true } });
       }
     }
     if (deviation) await tx.bookingDeviation.create({ data: { requestId: id, field: 'Airfare', approvedValue: approvedAir.toFixed(0), bookedValue: bookedAir.toFixed(0), material: true, action: 'Reapproval' } });
