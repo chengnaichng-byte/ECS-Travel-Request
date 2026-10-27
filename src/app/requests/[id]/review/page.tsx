@@ -6,7 +6,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { submitRequest, addAttachment } from '@/modules/pretrip/actions';
 import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
@@ -188,15 +188,26 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           <Card title="Charging">
             <table className="w-full text-sm">
               <tbody>
-                {req.allocations.map((a) => (
-                  <tr key={a.id} className="border-b border-[var(--ecs-border)] last:border-0">
-                    <td className="py-1.5">{a.chargingCode}</td>
-                    <td className="py-1.5 text-xs text-[var(--ecs-muted)]">{a.isResearch ? 'Research' : 'Non-research'}</td>
-                    <td className="py-1.5 text-right">{a.percent}%</td>
-                  </tr>
-                ))}
+                {req.allocations.map((a) => {
+                  const c = EcsCharging.code(a.chargingCode);
+                  return (
+                    <tr key={a.id} className="border-b border-[var(--ecs-border)] last:border-0 align-top">
+                      <td className="py-1.5">
+                        <div className="font-medium">{a.chargingCode}{a.isResearch && <span className="pill-warn ml-1 text-[10px]">Research WBS</span>}</div>
+                        <div className="text-xs text-[var(--ecs-muted)]">{c?.name ?? (a.isResearch ? 'Research' : 'Non-research')}</div>
+                      </td>
+                      <td className="py-1.5 text-right whitespace-nowrap">
+                        <div>{a.percent}%</div>
+                        <div className="text-xs text-[var(--ecs-muted)]">{fmtSgd((summary.ntuFunded * a.percent) / 100)}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+            {req.allocations.length > 1
+              ? <p className="text-xs text-[var(--ecs-muted)] mt-2">Cross-charge across {req.allocations.length} accounts · DOA from the highest-share account.</p>
+              : <p className="text-xs text-[var(--ecs-muted)] mt-2">NTU-funded {fmtSgd(summary.ntuFunded)} · 100% to this account.</p>}
           </Card>
         </div>
 
