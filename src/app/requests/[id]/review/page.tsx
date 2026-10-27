@@ -63,6 +63,8 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
     hasException: exceptions.length > 0,
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
+    researchPiSelfApproval: settings.researchPiSelfApproval,
+    selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
   });
   // §13.14 the DOA is traveller-selected (never pre-selected). Fixed middle steps (RO /
   // Funding Owner / Exception) are resolved server-side; the chevron visual adds the chosen

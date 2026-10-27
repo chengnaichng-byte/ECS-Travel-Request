@@ -973,19 +973,31 @@ export async function submitRequest(id: string, fd?: FormData) {
     crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
     guestUpgradeProvostId,
+    researchPiSelfApproval: settings.researchPiSelfApproval,
+    selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
     emergency: fresh.isEmergency ? { authoriserId: fresh.emergencyAuthoriserId, retrospective: fresh.isRetrospective } : undefined,
   });
-  const firstStatus = steps.length ? statusForStep(steps[0].roleType) : REQUEST_STATUS.PendingDOA;
+  // #1 Research PI self-approval — the DOA step is the traveller (the PI). When the PI raised the
+  // request themselves, that step is auto-granted on submission; a delegate-raised one stays Pending
+  // for the PI to approve from their queue.
+  const travellerIsRequestor = fresh.requestorId === fresh.travellerId;
+  const isPiSelfStep = (s: typeof steps[number]) => s.approverId === fresh.travellerId && s.roleType === APPROVER_ROLE.ResearchDOA && (s.note ?? '').includes('PI self-approval');
+  const autoGrant = (s: typeof steps[number]) => travellerIsRequestor && isPiSelfStep(s);
+  const pending = steps.filter((s) => !autoGrant(s));
+  const firstStatus = pending.length ? statusForStep(pending[0].roleType) : REQUEST_STATUS.Approved;
   // Atomic: approval amount + rebuilt route + status move together (no half-built route).
   await prisma.$transaction([
     prisma.travelRequest.update({ where: { id }, data: { approvalAmountSgd: summary.approvalAmount } }),
     prisma.approvalStep.deleteMany({ where: { requestId: id } }),
-    ...steps.map((s) => prisma.approvalStep.create({ data: { requestId: id, seq: s.seq, roleType: s.roleType, approverId: s.approverId, comments: s.note } })),
+    ...steps.map((s) => prisma.approvalStep.create({ data: { requestId: id, seq: s.seq, roleType: s.roleType, approverId: s.approverId, comments: autoGrant(s) ? `${s.note ?? ''} — self-approved on submission` : s.note, status: autoGrant(s) ? 'Approved' : 'Pending', decidedAt: autoGrant(s) ? new Date() : null } })),
     prisma.travelRequest.update({ where: { id }, data: { status: firstStatus } }),
   ]);
 
   await snapshot(fresh, 'SUBMISSION', false);
-  await audit(id, 'SUBMIT', `Submitted for approval — routed to ${steps.map((s) => s.roleType).join(' → ')}`, req.requestorId !== req.travellerId ? req.travellerId : null);
+  const routeText = steps.map((s) => autoGrant(s) ? `${s.roleType} (self-approved)` : s.roleType).join(' → ');
+  await audit(id, 'SUBMIT', `Submitted for approval — routed to ${routeText}`, req.requestorId !== req.travellerId ? req.travellerId : null);
+  // If the PI self-approval cleared the only step, finalize now (issue the Travel Authorisation + hand-off).
+  if (!pending.length) await finalizeApproval(id);
 
   // §4.8 notify the risk office when a high-risk destination is involved.
   if (highRisk) {

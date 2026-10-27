@@ -182,7 +182,7 @@ async function submit(id: string): Promise<FullRequest> {
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
   await prisma.travelRequest.update({ where: { id }, data: { approvalAmountSgd: summary.approvalAmount } });
   req = await loadRequest(id);
-  const steps = buildRoute(req!, { exceptionApproverRequired: settings.exceptionApproverRequired, sameRouteResearch: settings.sameRouteResearch, approvalAmount: summary.approvalAmount, hasException: hasException(checks), crossBaThresholdSgd: settings.crossBaThresholdSgd, roRequirement: settings.roRequirement });
+  const steps = buildRoute(req!, { exceptionApproverRequired: settings.exceptionApproverRequired, sameRouteResearch: settings.sameRouteResearch, approvalAmount: summary.approvalAmount, hasException: hasException(checks), crossBaThresholdSgd: settings.crossBaThresholdSgd, roRequirement: settings.roRequirement, researchPiSelfApproval: settings.researchPiSelfApproval, selfApprovalLimitSgd: settings.selfApprovalLimitSgd });
   await prisma.approvalStep.deleteMany({ where: { requestId: id } });
   for (const st of steps) await prisma.approvalStep.create({ data: { requestId: id, seq: st.seq, roleType: st.roleType, approverId: st.approverId, comments: st.note } });
   await prisma.travelRequestVersion.create({ data: { requestId: id, version: req!.currentVersion + 1, reason: 'SUBMISSION', approved: false, snapshot: JSON.stringify({ requestNumber: req!.requestNumber }) } });
@@ -399,6 +399,20 @@ export async function seedDemoScenarios() {
     charging: [{ code: 'WBS-R100', pct: 100 }],
   });
   await submit(s02); await approveAll(s02);
+
+  // S33 — #1 research PI self-approval: Dr Henry Ong (a Principal Investigator) raises a small
+  // research-WBS trip within the self-approval limit → the PI IS the DOA and self-approves (no
+  // separate DOA). The RO step still applies per config; the DOA step is the PI's own.
+  const s33 = await buildDraft({
+    requestorId: 'E-TRAV3', travellerId: 'E-TRAV3', purposeId: 'TP-OB-RES', isResearch: true,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: '2026-11-10', end: '2026-11-12',
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1200, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'TYO', nights: 2, quotedNightly: 300 },
+    oda: { country: 'JP', city: 'TYO', arrive: '2026-11-10', depart: '2026-11-12' },
+    charging: [{ code: 'WBS-R100', pct: 100 }],
+  });
+  await submit(s33); await approveAll(s33);
 
   // S11 — group conference trip (§13.16): PA raises for three travellers from two
   // departments to Tokyo; hotel shared, airfare & ODA individual; charging split 60/40.

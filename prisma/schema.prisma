@@ -34,6 +34,7 @@ model ModuleSettings {
   selfBookingEnabled     Boolean @default(true)   // §13.17
   // §43 Settings breadth
   selfApprovalLimitSgd   Int     @default(0)      // approval amount at/below which a traveller-approver self-approves (0 = never)
+  researchPiSelfApproval Boolean @default(true)   // #1 research-WBS trip raised for a PI traveller, within selfApprovalLimitSgd, is self-approved (PI is the DOA)
   attachmentMaxMb        Int     @default(7)      // §2 max upload size per file
   chargingSplitMode      String  @default("PERCENT") // §17 PERCENT | AMOUNT entry mode for charging
   declarationText        String  @default("I confirm that the trip is for official purposes, the estimated costs are reasonable, and the itinerary and personal travel days are accurate.")

@@ -20,7 +20,8 @@ export const moduleSettingsDefaults = {
   teAutoGrantToleranceAbsSgd: 500,  // §51 TE claim DOA auto-grant tolerance (SGD over approved)
   crossBaThresholdSgd: 500,         // §18 cross-business-area concurrence threshold (AC5)
   selfBookingEnabled: true,         // §13.17
-  selfApprovalLimitSgd: 0,          // §43 self-approval limit (0 = never self-approve)
+  selfApprovalLimitSgd: 5000,       // §43 self-approval limit (0 = never); the research PI self-approval band
+  researchPiSelfApproval: true,     // #1 research WBS raised for a PI traveller ≤ limit → self-approved (PI is the DOA)
   attachmentMaxMb: 7,               // §2 max upload size per file
   chargingSplitMode: 'PERCENT' as 'PERCENT' | 'AMOUNT', // §17 charging entry mode
   declarationText: 'I confirm that the trip is for official purposes, the estimated costs are reasonable, and the itinerary and personal travel days are accurate.',
@@ -43,6 +44,8 @@ export const decisionCatalogue = [
     effect: 'Absolute SGD cap for the TE claim DOA auto-grant tolerance above (§51).' },
   { key: 'sameRouteResearch', label: 'Same route for research & non-research', kind: 'boolean',
     effect: 'If off, research-charged requests route to the Research DOA line.' },
+  { key: 'researchPiSelfApproval', label: 'Research PI self-approval', kind: 'boolean',
+    effect: 'When on, a research-WBS request raised for a Principal Investigator (per the staff master PI flag), with an approval amount at/below the self-approval limit (below), is self-approved — the PI is the DOA. Applies to individual (non-group) requests; a PI-raised one is auto-granted on submission, a delegate-raised one waits in the PI’s approval queue.' },
   { key: 'crossBaThresholdSgd', label: 'Cross-BA concurrence threshold (SGD)', kind: 'number',
     effect: 'When charging spans more than one business area, each non-primary BA whose share exceeds this amount must concur (its DOA is added to the route); the primary-BA DOA still owns the request (§18, AC5).' },
   { key: 'expenseScope', label: 'Expense scope', kind: 'enum', options: ['MAJOR_ONLY', 'ALL'],

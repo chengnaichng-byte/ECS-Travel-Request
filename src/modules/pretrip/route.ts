@@ -93,7 +93,7 @@ function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id
 
 export function buildRoute(
   req: FullRequest,
-  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; emergency?: { authoriserId: string | null; retrospective: boolean } },
+  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean } },
 ): RouteStep[] {
   const steps: RouteStep[] = [];
   // §13.5 no one may approve a request they are travelling on OR raised — every step below routes
@@ -183,15 +183,28 @@ export function buildRoute(
 
   // DOA step — tier from amount band, line depends on research route.
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
-  const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
-  // §13.14 use the traveller's selected DOA when set (and not the traveller/requestor); else auto-pick.
-  let doaId: string | null; let doaNote: string;
-  if (req.selectedDoaId && !excluded.has(req.selectedDoaId)) {
-    doaId = req.selectedDoaId; doaNote = `${band.label} · traveller-selected`;
+  // #1 Research PI self-approval (configurable) — a research request raised for a Principal
+  // Investigator (staff-master PI flag), within the global self-approval limit, is self-approved:
+  // the DOA IS the traveller (the PI). This is the sanctioned exception to self-approval prevention,
+  // so the step is assigned to the traveller directly rather than escalated past them. Individual
+  // (non-group) requests only; submit auto-grants it when the PI raised it themselves.
+  const limit = opts.selfApprovalLimitSgd ?? 0;
+  const piSelfApprove = research && !req.isGroup && !!opts.researchPiSelfApproval
+    && limit > 0 && opts.approvalAmount <= limit
+    && EcsIdentity.employee(req.travellerId)?.isPi === true;
+  if (piSelfApprove) {
+    steps.push({ seq: seq++, roleType: APPROVER_ROLE.ResearchDOA, approverId: req.travellerId, note: `${band.label} · Research PI self-approval (≤ SGD ${limit.toLocaleString('en-SG')})` });
   } else {
-    const d = pickDoa(line, band.doaTierIndex, excluded); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · ');
+    const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
+    // §13.14 use the traveller's selected DOA when set (and not the traveller/requestor); else auto-pick.
+    let doaId: string | null; let doaNote: string;
+    if (req.selectedDoaId && !excluded.has(req.selectedDoaId)) {
+      doaId = req.selectedDoaId; doaNote = `${band.label} · traveller-selected`;
+    } else {
+      const d = pickDoa(line, band.doaTierIndex, excluded); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · ');
+    }
+    steps.push({ seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: doaId, note: doaNote });
   }
-  steps.push({ seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: doaId, note: doaNote });
 
   // §13.x / DD-23 emergency = the SAME route, ratified retrospectively (book-first). Flag every
   // step so the approver sees the booking was authorised ahead of their decision.

@@ -18,6 +18,7 @@ export interface Employee {
   businessArea?: string;             // SAP business area (cost context)
   defaultChargingCode?: string;      // default CC/WBS pre-filled on new requests
   travelEligible?: boolean;          // HR travel eligibility flag
+  isPi?: boolean;                    // #1 Principal Investigator flag (from the ECS staff master) — drives research PI self-approval
 }
 
 /** §7 derive a default ntu.edu.sg email from the display name (mock HR). */
@@ -28,9 +29,9 @@ function ntuEmail(name: string): string {
 const baseEmployees: Employee[] = [
   { id: 'E-TRAV',  name: 'Dr Alice Tan',      title: 'Senior Lecturer',            departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
   { id: 'E-TRAV2', name: 'Dr Grace Ho',        title: 'Lecturer',                   departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
-  { id: 'E-TRAV3', name: 'Dr Henry Ong',       title: 'Research Fellow',            departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH' },
+  { id: 'E-TRAV3', name: 'Dr Henry Ong',       title: 'Research Fellow',            departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH', isPi: true },
   { id: 'E-TRAV4', name: 'Dr Jason Lee',       title: 'Assistant Professor',        departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
-  { id: 'E-TRAV5', name: 'Dr Karen Yeo',       title: 'Senior Research Fellow',     departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH' },
+  { id: 'E-TRAV5', name: 'Dr Karen Yeo',       title: 'Senior Research Fellow',     departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH', isPi: true },
   { id: 'E-TRAV6', name: 'Dr Leon Tan',        title: 'Lecturer',                   departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
   { id: 'E-TRAV7', name: 'Dr Mabel Ng',        title: 'Research Fellow',            departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH' },
   { id: 'E-TRAV8', name: 'Dr Nadia Rahman',    title: 'Senior Lecturer',            departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
