@@ -9,6 +9,7 @@ import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, 
 import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
+import { getActiveWorkflowScenario } from '@/modules/pretrip/workflowConfig';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { employees } from '@/data/employees';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
@@ -69,6 +70,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
     roRequirement: settings.roRequirement,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
+    workflowScenario: await getActiveWorkflowScenario(),
   });
   // §13.14 the DOA is traveller-selected (never pre-selected). Fixed middle steps (RO /
   // Funding Owner / Exception) are resolved server-side; the chevron visual adds the chosen

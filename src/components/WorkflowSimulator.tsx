@@ -3,8 +3,8 @@
 // the approval route (approving levels) it resolves. Pure client-side: it runs the same engine the
 // server routes with, so "what would approve this?" is answerable without raising a request.
 import { useMemo, useState } from 'react';
-import { compileScenario, type WorkflowScenario } from '@/config/workflowScenario';
-import { resolveRoute, type FactDef, type Ctx, type ScalarValue } from '@/modules/pretrip/workflowRules';
+import { evaluateScenario, type WorkflowScenario } from '@/config/workflowScenario';
+import { type FactDef, type Ctx, type ScalarValue } from '@/modules/pretrip/workflowRules';
 
 const ROLE_LABEL: Record<string, string> = {
   ADDITIONAL_APPROVER: 'Additional Approver', RO: 'Reporting Officer', FUNDING_OWNER: 'Funding Owner',
@@ -14,8 +14,7 @@ const ROLE_LABEL: Record<string, string> = {
 export function WorkflowSimulator({ scenario, facts, defaults }: { scenario: WorkflowScenario; facts: FactDef[]; defaults: Ctx }) {
   const [ctx, setCtx] = useState<Ctx>(defaults);
   const set = (k: string, v: ScalarValue) => setCtx((c) => ({ ...c, [k]: v }));
-  const tree = useMemo(() => compileScenario(scenario), [scenario]);
-  const result = useMemo(() => resolveRoute(tree, ctx), [tree, ctx]);
+  const result = useMemo(() => evaluateScenario(scenario, ctx), [scenario, ctx]);
 
   return (
     <div className="grid lg:grid-cols-2 gap-5">
@@ -43,9 +42,7 @@ export function WorkflowSimulator({ scenario, facts, defaults }: { scenario: Wor
 
       <div>
         <h4 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Resolved approval route</h4>
-        {result.outcome === 'BLOCK' ? (
-          <p className="text-sm text-amber-700">Blocked — {result.reason}</p>
-        ) : result.steps.length === 0 ? (
+        {result.steps.length === 0 ? (
           <p className="text-sm text-[var(--ecs-muted)]">No approval step applies to these facts.</p>
         ) : (
           <ol className="space-y-1">

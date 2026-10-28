@@ -11,6 +11,7 @@ import { computeSummary } from './pricing';
 import { evaluatePolicies, hasException } from './policy';
 import { upgradeCheckCtx } from './upgradeConfig';
 import { evaluateConfiguredPolicies } from './policyConfigEval';
+import { getActiveWorkflowScenario } from './workflowConfig';
 import { buildRoute } from './route';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { getContractSettings, tmcEnabledSet } from './integration';
@@ -71,6 +72,7 @@ export async function applyMaterialAmendment(id: string, reason: string) {
     roRequirement: settings.roRequirement,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
+    workflowScenario: await getActiveWorkflowScenario(),
   });
   await prisma.approvalStep.deleteMany({ where: { requestId: id } });
   for (const s of steps) {

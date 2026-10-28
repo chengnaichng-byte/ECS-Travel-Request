@@ -24,6 +24,7 @@ import { hasEmergencyApproval, emergencyMethodAllowed, withinEmergencyWindow, le
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
 import { evaluateConfiguredPolicies } from './policyConfigEval';
+import { getActiveWorkflowScenario } from './workflowConfig';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipientFor } from '@/config/visaLetter';
 import { randomUUID } from 'node:crypto';
@@ -1083,6 +1084,7 @@ export async function submitRequest(id: string, fd?: FormData) {
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
     emergency: fresh.isEmergency ? { authoriserId: fresh.emergencyAuthoriserId, retrospective: fresh.isRetrospective } : undefined,
+    workflowScenario: await getActiveWorkflowScenario(),
   });
   // #1 Research PI self-approval — the DOA step is the traveller (the PI). When the PI raised the
   // request themselves, that step is auto-granted on submission; a delegate-raised one stays Pending

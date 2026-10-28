@@ -7,8 +7,8 @@ import { EcsIdentity, EcsCharging, EcsWorkflow, EcsRoles } from '@/shared/ecs/se
 import { APPROVER_ROLE, ROLE } from '@/shared/enums';
 import type { FullRequest } from './queries';
 import { isGuestRequest } from './traveller';
-import { resolveRoute, type Ctx, type RouteStepSpec } from './workflowRules';
-import { compileScenario, TR_STANDARD_SCENARIO, type WorkflowScenario } from '@/config/workflowScenario';
+import { type Ctx, type RouteStepSpec } from './workflowRules';
+import { evaluateScenario, TR_STANDARD_SCENARIO, type WorkflowScenario } from '@/config/workflowScenario';
 
 export interface RouteStep {
   seq: number;
@@ -94,7 +94,7 @@ function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id
   return { id: line[idx], note };
 }
 
-export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean } };
+export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean }; workflowScenario?: WorkflowScenario };
 
 /** §2.3 Gather the closed FACTS the workflow engine evaluates, from the request + settings. Presence
  *  facts already apply §13.5 self-approval exclusion so a step the originator would fill is not raised. */
@@ -190,9 +190,9 @@ export function buildRoute(req: FullRequest, opts: RouteOpts): RouteStep[] {
   // §13.5 no one may approve a request they are travelling on OR raised.
   const excluded = selfApprovalSet(req);
   const facts = gatherWorkflowFacts(req, opts, excluded);
-  const resolved = resolveRoute(compileScenario(activeWorkflowScenario()), facts);
-  if (resolved.outcome === 'BLOCK') return [];
-  return resolveSpecs(resolved.steps, req, opts, excluded);
+  const scenario = opts.workflowScenario ?? activeWorkflowScenario();
+  const { steps } = evaluateScenario(scenario, facts);
+  return resolveSpecs(steps, req, opts, excluded);
 }
 
 /** First pending step in a route determines the request's Pending-* status. */

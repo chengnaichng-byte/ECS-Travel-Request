@@ -12,6 +12,7 @@ import { evaluatePolicies, hasException, hasHardStop } from './policy';
 import { ensureUpgradeConfigSeed, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, defaultAccountForBA, upgradeCheckCtx } from './upgradeConfig';
 import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { buildRoute, statusForStep } from './route';
+import { getActiveWorkflowScenario } from './workflowConfig';
 import { sharedLegs } from './group';
 import { HOTEL_SETTLEMENT } from './settlement';
 import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
@@ -196,7 +197,7 @@ async function submit(id: string): Promise<FullRequest> {
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
   await prisma.travelRequest.update({ where: { id }, data: { approvalAmountSgd: summary.approvalAmount } });
   req = await loadRequest(id);
-  const steps = buildRoute(req!, { exceptionApproverRequired: settings.exceptionApproverRequired, sameRouteResearch: settings.sameRouteResearch, approvalAmount: summary.approvalAmount, hasException: hasException(checks), crossBaThresholdSgd: settings.crossBaThresholdSgd, roRequirement: settings.roRequirement, researchPiSelfApproval: settings.researchPiSelfApproval, selfApprovalLimitSgd: settings.selfApprovalLimitSgd });
+  const steps = buildRoute(req!, { exceptionApproverRequired: settings.exceptionApproverRequired, sameRouteResearch: settings.sameRouteResearch, approvalAmount: summary.approvalAmount, hasException: hasException(checks), crossBaThresholdSgd: settings.crossBaThresholdSgd, roRequirement: settings.roRequirement, researchPiSelfApproval: settings.researchPiSelfApproval, selfApprovalLimitSgd: settings.selfApprovalLimitSgd, workflowScenario: await getActiveWorkflowScenario() });
   await prisma.approvalStep.deleteMany({ where: { requestId: id } });
   for (const st of steps) await prisma.approvalStep.create({ data: { requestId: id, seq: st.seq, roleType: st.roleType, approverId: st.approverId, comments: st.note } });
   await prisma.travelRequestVersion.create({ data: { requestId: id, version: req!.currentVersion + 1, reason: 'SUBMISSION', approved: false, snapshot: JSON.stringify({ requestNumber: req!.requestNumber }) } });

@@ -393,6 +393,7 @@ model WorkflowScenario {
   effectiveTo   DateTime
   enabled       Boolean  @default(true)
   tiersJson     String                        // JSON ApprovalTier[]
+  decisionPointsJson String @default("[]")    // JSON DecisionPoint[]
   version       Int      @default(1)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

@@ -1,30 +1,49 @@
-// §6.2 ECS-structured TR approval-workflow configuration. Mirrors the ECS "Workflow configurations"
-// screen: a named, effective-dated, enable-able Workflow SCENARIO → ordered Approval TIERS (an amount
-// range, optionally with extra TR conditions) → ordered Approving LEVELS (an approval level + a
-// resolver + an optional named approver, each gated by a TR condition). The scenario compiles to the
-// pure decision-tree engine (workflowRules.ts). The default below REPRODUCES route.ts exactly and is
-// the extension point for TR (add a tier, a level, or a condition without touching code).
+// §6.2 ECS-structured TR approval-workflow configuration, mirroring the ECS "Edit workflow rule"
+// screen: a named, effective-dated Workflow SCENARIO with two sections —
+//   • Approval TIERS — the amount-band base route: "Total expense amount from X to Y" → ordered
+//     Approving LEVELS (level + resolver + optional approver).
+//   • Decision POINTS — conditional modifiers applied on top of the base: ANDed Field/Operator/Value
+//     conditions → Actions that SKIP / ADD / REPLACE an approver (e.g. Skip RO, Add Exception approver,
+//     Replace DOA with the traveller for PI self-approval).
+// The seeded TR_STANDARD scenario reproduces route.ts EXACTLY and is the extension point for TR.
 import { APPROVER_ROLE } from '@/shared/enums';
-import type { BoolExpr, ResolverType, RuleNode, RouteStepSpec } from '@/modules/pretrip/workflowRules';
+import type { BoolExpr, Condition, ResolverType, RouteStepSpec, Ctx, TraceEntry } from '@/modules/pretrip/workflowRules';
+import { evalExpr, exprText } from '@/modules/pretrip/workflowRules';
 
 export interface ApprovingLevel {
   seq: number;
   level: string;            // ECS "Approving Level" — the APPROVER_ROLE the step carries
   resolver: ResolverType;   // how the approver is resolved
   resolverLabel: string;    // ECS resolver wording, e.g. "All users with DOA role"
-  ref?: string;             // RELATIONSHIP ref / ROLE code / FIXED key
+  ref?: string;
   approverId?: string;      // optional specific approver (ECS "Approver")
-  condition?: BoolExpr;     // TR extension — when this level applies (undefined = always)
+  order?: number;           // precedence in the final route
   note?: string;
 }
 
 export interface ApprovalTier {
   seq: number;
-  label: string;
   amountFrom: number;
   amountTo: number | null;  // null = no upper bound
-  condition?: BoolExpr;     // TR extension — an extra gate on the whole tier
   levels: ApprovingLevel[];
+}
+
+export type DecisionVerb = 'SKIP' | 'ADD' | 'REPLACE';
+export interface DecisionAction {
+  verb: DecisionVerb;
+  targetLevel: string;      // the APPROVER_ROLE to skip / replace, or the role an ADD carries
+  resolver?: ResolverType;  // ADD/REPLACE: how to resolve the (new) approver
+  resolverLabel?: string;
+  ref?: string;
+  approverId?: string;      // ADD/REPLACE with a specific named approver
+  order?: number;           // ADD: precedence placement
+  note?: string;
+}
+export interface DecisionPoint {
+  seq: number;
+  label?: string;
+  conditions: Condition[];  // ANDed (ECS "Condition(s)")
+  actions: DecisionAction[];
 }
 
 export interface WorkflowScenario {
@@ -34,22 +53,31 @@ export interface WorkflowScenario {
   effectiveTo: string;
   enabled: boolean;
   tiers: ApprovalTier[];
+  decisionPoints: DecisionPoint[];
 }
 
-// The research-PI self-approval gate (#1), reused to make the DOA level its complement.
-const PI_SELF_APPROVAL: BoolExpr = {
-  all: [
-    { fact: 'researchRoute', op: 'is', value: true },
-    { fact: 'isGroup', op: 'is', value: false },
-    { fact: 'researchPiSelfApproval', op: 'is', value: true },
-    { fact: 'travellerIsPI', op: 'is', value: true },
-    { fact: 'selfApprovalLimitSgd', op: 'gt', value: 0 },
-    { fact: 'approvalAmount', op: 'lte', value: { fact: 'selfApprovalLimitSgd' } },
-  ],
-};
+// Canonical precedence so the final route keeps the §6.2 order regardless of how steps were added:
+// Additional → RO → cross-charge Funding Owner → cross-BA concurrence → Exception → Provost → DOA.
+export function defaultOrder(roleType: string, ref?: string): number {
+  if (roleType === APPROVER_ROLE.AdditionalApprover) return 10;
+  if (roleType === APPROVER_ROLE.RO) return 20;
+  if (roleType === APPROVER_ROLE.FundingOwner) return ref === 'CROSS_BA' ? 40 : 30;
+  if (roleType === APPROVER_ROLE.Exception) return 50;
+  if (roleType === APPROVER_ROLE.Provost) return 60;
+  return 70; // DOA / Research DOA
+}
 
-// Default TR workflow scenario — one tier spanning all amounts (the DOA level self-selects its tier
-// by amount band), with the ordered approving levels that reproduce the hand-coded route in route.ts.
+const PI_SELF_APPROVAL: Condition[] = [
+  { fact: 'researchRoute', op: 'is', value: true },
+  { fact: 'isGroup', op: 'is', value: false },
+  { fact: 'researchPiSelfApproval', op: 'is', value: true },
+  { fact: 'travellerIsPI', op: 'is', value: true },
+  { fact: 'selfApprovalLimitSgd', op: 'gt', value: 0 },
+  { fact: 'approvalAmount', op: 'lte', value: { fact: 'selfApprovalLimitSgd' } },
+];
+
+// Default TR scenario — base tier RO → DOA for all amounts, with the decision points that reproduce
+// the hand-coded route in route.ts.
 export const TR_STANDARD_SCENARIO: WorkflowScenario = {
   code: 'TR_STANDARD',
   name: 'Travel Request Approval Workflow',
@@ -58,49 +86,59 @@ export const TR_STANDARD_SCENARIO: WorkflowScenario = {
   enabled: true,
   tiers: [
     {
-      seq: 1, label: 'All travel requests', amountFrom: 0, amountTo: null,
+      seq: 1, amountFrom: 0, amountTo: null,
       levels: [
-        { seq: 1, level: APPROVER_ROLE.AdditionalApprover, resolver: 'FIXED', ref: 'ADDITIONAL', resolverLabel: 'Requestor-selected additional approver',
-          condition: { fact: 'additionalApproverPresent', op: 'is', value: true }, note: 'Additional approver added by requestor' },
-        { seq: 2, level: APPROVER_ROLE.RO, resolver: 'RELATIONSHIP', ref: 'RO', resolverLabel: 'RO of traveller from Workday',
-          condition: { any: [ { fact: 'roRequirement', op: 'eq', value: 'ALWAYS' }, { all: [ { fact: 'roRequirement', op: 'eq', value: 'INDIVIDUAL_ONLY' }, { fact: 'isGroup', op: 'is', value: false } ] } ] }, note: 'Reporting Officer' },
-        { seq: 3, level: APPROVER_ROLE.FundingOwner, resolver: 'RELATIONSHIP', ref: 'FUNDING_OWNER', resolverLabel: 'Cross-charge account funding owner',
-          condition: { fact: 'crossChargeFundingOwnerPresent', op: 'is', value: true }, note: 'Cross-charge funding owner concurrence' },
-        { seq: 4, level: APPROVER_ROLE.FundingOwner, resolver: 'RELATIONSHIP', ref: 'CROSS_BA', resolverLabel: 'Non-primary BA funding owner / DOA (over threshold)',
-          condition: { fact: 'crossBaCount', op: 'gt', value: 1 }, note: 'Cross-BA concurrence' },
-        { seq: 5, level: APPROVER_ROLE.Exception, resolver: 'ROLE', ref: 'EXCEPTION_APPROVER', resolverLabel: 'All users with Exception Approver role',
-          condition: { all: [ { fact: 'hasPolicyException', op: 'is', value: true }, { fact: 'exceptionApproverRequired', op: 'is', value: true } ] }, note: 'Policy exception review' },
-        { seq: 6, level: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)',
-          condition: { fact: 'guestUpgradeProvostPresent', op: 'is', value: true }, note: 'Guest travel-class upgrade — Provost authorisation (§8 / DD-25)' },
-        { seq: 7, level: APPROVER_ROLE.ResearchDOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)',
-          condition: PI_SELF_APPROVAL, note: 'Research PI self-approval' },
-        { seq: 8, level: APPROVER_ROLE.DOA, resolver: 'BAND_DOA', resolverLabel: 'DOA of highest-charging dept by amount band',
-          condition: { not: PI_SELF_APPROVAL }, note: 'Delegation of Authority' },
+        { seq: 1, level: APPROVER_ROLE.RO, resolver: 'RELATIONSHIP', ref: 'RO', resolverLabel: 'RO of traveller from Workday', order: 20, note: 'Reporting Officer' },
+        { seq: 2, level: APPROVER_ROLE.DOA, resolver: 'BAND_DOA', resolverLabel: 'DOA of highest-charging dept by amount band', order: 70, note: 'Delegation of Authority' },
       ],
     },
   ],
+  decisionPoints: [
+    { seq: 1, label: 'Skip RO when the RO step is not configured', conditions: [{ fact: 'roRequirement', op: 'eq', value: 'NEVER' }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
+    { seq: 2, label: 'Skip RO for a group request (RO is individual-only)', conditions: [{ fact: 'roRequirement', op: 'eq', value: 'INDIVIDUAL_ONLY' }, { fact: 'isGroup', op: 'is', value: true }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
+    { seq: 3, label: 'Add the requestor-selected Additional Approver', conditions: [{ fact: 'additionalApproverPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.AdditionalApprover, resolver: 'FIXED', ref: 'ADDITIONAL', resolverLabel: 'Requestor-selected additional approver', order: 10 }] },
+    { seq: 4, label: 'Add the cross-charge funding owner', conditions: [{ fact: 'crossChargeFundingOwnerPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.FundingOwner, resolver: 'RELATIONSHIP', ref: 'FUNDING_OWNER', resolverLabel: 'Cross-charge account funding owner', order: 30 }] },
+    { seq: 5, label: 'Add cross-business-area concurrence', conditions: [{ fact: 'crossBaCount', op: 'gt', value: 1 }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.FundingOwner, resolver: 'RELATIONSHIP', ref: 'CROSS_BA', resolverLabel: 'Non-primary BA funding owner / DOA (over threshold)', order: 40 }] },
+    { seq: 6, label: 'Add the Exception Approver when a policy exception needs one', conditions: [{ fact: 'hasPolicyException', op: 'is', value: true }, { fact: 'exceptionApproverRequired', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Exception, resolver: 'ROLE', ref: 'EXCEPTION_APPROVER', resolverLabel: 'All users with Exception Approver role', order: 50 }] },
+    { seq: 7, label: 'Add the Provost for a guest travel-class upgrade', conditions: [{ fact: 'guestUpgradeProvostPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)', order: 60 }] },
+    { seq: 8, label: 'Replace the DOA with the traveller for research PI self-approval', conditions: PI_SELF_APPROVAL, actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.DOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)', note: 'Research PI self-approval' }] },
+  ],
 };
 
-/** Compile an ECS-structured scenario to the pure decision-tree engine. Each tier becomes a decision
- *  on its amount range (+ any tier condition); its levels become an ordered sequence of per-level
- *  decisions that each emit one step spec when their condition holds. */
-export function compileScenario(s: WorkflowScenario): RuleNode {
-  const route = (l: ApprovingLevel): RuleNode => ({
-    kind: 'route',
-    steps: [{ resolver: l.resolver, ref: l.ref, roleType: l.level, approverId: l.approverId, note: l.note, requirement: l.condition ? 'CONDITIONAL' : 'REQUIRED' } as RouteStepSpec],
-  });
-  const tierNodes: RuleNode[] = s.tiers.map((tier) => {
-    const amountGate: BoolExpr = tier.amountTo == null
-      ? { fact: 'approvalAmount', op: 'gte', value: tier.amountFrom }
-      : { all: [ { fact: 'approvalAmount', op: 'gte', value: tier.amountFrom }, { fact: 'approvalAmount', op: 'lte', value: tier.amountTo } ] };
-    const gate: BoolExpr = tier.condition ? { all: [amountGate, tier.condition] } : amountGate;
-    const levelSeq: RuleNode = {
-      kind: 'sequence', label: tier.label,
-      nodes: tier.levels.map((l) => l.condition
-        ? ({ kind: 'decision', label: l.level, when: l.condition, then: route(l), otherwise: { kind: 'skip' } } as RuleNode)
-        : route(l)),
-    };
-    return { kind: 'decision', label: tier.label, when: gate, then: levelSeq, otherwise: { kind: 'skip' } } as RuleNode;
-  });
-  return { kind: 'sequence', label: s.name, nodes: tierNodes };
+export function defaultScenarioFor(code: string): WorkflowScenario | null {
+  return code === 'TR_STANDARD' ? TR_STANDARD_SCENARIO : null;
+}
+
+export interface ScenarioEval { steps: RouteStepSpec[]; trace: TraceEntry[] }
+
+/** Evaluate a scenario against a request's facts → the ordered approval step SPECS + a decision trace.
+ *  1) pick the amount tier → base level specs; 2) apply each decision point (Skip/Add/Replace) in
+ *  order; 3) sort by canonical precedence. route.ts then resolves each spec to concrete approver(s). */
+export function evaluateScenario(s: WorkflowScenario, ctx: Ctx): ScenarioEval {
+  const trace: TraceEntry[] = [];
+  const amount = Number(ctx.approvalAmount ?? 0);
+  const tier = s.tiers.find((t) => amount >= t.amountFrom && (t.amountTo == null || amount <= t.amountTo)) ?? s.tiers[0];
+  if (tier) trace.push({ text: `Amount tier: SGD ${tier.amountFrom.toLocaleString('en-SG')} – ${tier.amountTo == null ? '∞' : tier.amountTo.toLocaleString('en-SG')}`, result: true });
+
+  let specs: RouteStepSpec[] = (tier?.levels ?? []).map((l) => ({ resolver: l.resolver, ref: l.ref, roleType: l.level, approverId: l.approverId, note: l.note, order: l.order ?? defaultOrder(l.level, l.ref) }));
+
+  for (const dp of s.decisionPoints) {
+    const match = dp.conditions.length > 0 && evalExpr({ all: dp.conditions } as BoolExpr, ctx);
+    trace.push({ text: dp.label ?? exprText({ all: dp.conditions } as BoolExpr), result: match });
+    if (!match) continue;
+    for (const a of dp.actions) {
+      if (a.verb === 'SKIP') {
+        specs = specs.filter((sp) => sp.roleType !== a.targetLevel);
+      } else if (a.verb === 'REPLACE') {
+        specs = specs.map((sp) => sp.roleType === a.targetLevel
+          ? { ...sp, resolver: a.resolver ?? sp.resolver, ref: a.ref ?? (a.resolver ? undefined : sp.ref), roleType: a.targetLevel, approverId: a.approverId ?? sp.approverId, note: a.note ?? sp.note }
+          : sp);
+      } else { // ADD
+        specs.push({ resolver: a.resolver ?? 'ROLE', ref: a.ref, roleType: a.targetLevel, approverId: a.approverId, note: a.note, order: a.order ?? defaultOrder(a.targetLevel, a.ref) });
+      }
+    }
+  }
+
+  specs.sort((x, y) => (x.order ?? 999) - (y.order ?? 999));
+  return { steps: specs, trace };
 }
