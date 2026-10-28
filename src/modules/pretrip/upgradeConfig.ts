@@ -153,6 +153,33 @@ export async function setUpgradeAccountActive(id: string, active: boolean): Prom
   await prisma.upgradeDeltaAccount.update({ where: { id }, data: { active } });
 }
 
+export interface UpgradeAccountImportRow { code?: string; name?: string; businessArea?: string; companyCode?: string; active?: boolean; isDefault?: boolean }
+
+/** Full-replace the M6 account master from an uploaded list (Excel). Validates, de-duplicates by code
+ *  (last wins), enforces at most one default per BA, then atomically replaces every row. Returns the
+ *  number of accounts written and any rows skipped for missing required fields. */
+export async function replaceUpgradeAccounts(rows: UpgradeAccountImportRow[]): Promise<{ count: number; skipped: number }> {
+  const seenDefault = new Set<string>();
+  const byCode = new Map<string, { code: string; name: string; businessArea: string; companyCode: string; active: boolean; isDefault: boolean }>();
+  let skipped = 0;
+  for (const r of rows) {
+    const code = String(r.code ?? '').trim();
+    const name = String(r.name ?? '').trim();
+    const businessArea = String(r.businessArea ?? '').trim();
+    if (!code || !name || !businessArea) { skipped++; continue; }
+    let isDefault = r.isDefault === true || String(r.isDefault).toLowerCase() === 'true' || String(r.isDefault).toLowerCase() === 'yes';
+    if (isDefault) { if (seenDefault.has(businessArea)) isDefault = false; else seenDefault.add(businessArea); }
+    const active = !(r.active === false || String(r.active).toLowerCase() === 'false' || String(r.active).toLowerCase() === 'no' || String(r.active).toLowerCase() === 'inactive');
+    byCode.set(code, { code, name, businessArea, companyCode: String(r.companyCode ?? '1000').trim() || '1000', active, isDefault });
+  }
+  const data = [...byCode.values()];
+  await prisma.$transaction([
+    prisma.upgradeDeltaAccount.deleteMany({}),
+    ...data.map((d) => prisma.upgradeDeltaAccount.create({ data: d })),
+  ]);
+  return { count: data.length, skipped };
+}
+
 // ---- Policy-engine context -------------------------------------------------------------------
 // The policy engine (pure) can't read the DB, so persistPolicy / amend / demo fetch this and pass it.
 export interface UpgradeCheckCtx {

@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { currentPersona } from '@/shared/session';
 import { ROLE } from '@/shared/enums';
-import { addUpgradeAccount, setUpgradeAccountActive } from '@/modules/pretrip/upgradeConfig';
+import { addUpgradeAccount, setUpgradeAccountActive, replaceUpgradeAccounts, type UpgradeAccountImportRow } from '@/modules/pretrip/upgradeConfig';
 
 async function isAdmin(): Promise<boolean> {
   const p = await currentPersona();
@@ -27,4 +27,15 @@ export async function toggleUpgradeAccountAction(id: string, active: boolean) {
   if (!(await isAdmin())) return;
   await setUpgradeAccountActive(id, active);
   revalidatePath('/setup/upgrade-accounts');
+}
+
+/** Full-replace the M6 account master from an uploaded Excel sheet (rows parsed client-side). */
+export async function replaceUpgradeAccountsAction(rowsJson: string): Promise<{ count: number; skipped: number } | null> {
+  if (!(await isAdmin())) return null;
+  let rows: UpgradeAccountImportRow[];
+  try { rows = JSON.parse(rowsJson); } catch { return null; }
+  if (!Array.isArray(rows) || rows.length === 0) return { count: 0, skipped: 0 };
+  const res = await replaceUpgradeAccounts(rows);
+  revalidatePath('/setup/upgrade-accounts');
+  return res;
 }
