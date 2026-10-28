@@ -4,7 +4,7 @@
     {
       "name": "pretrip",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["--prefix", "C:/dev/ecs-pretrip", "run", "dev"],
       "port": 3000
     }
   ]
