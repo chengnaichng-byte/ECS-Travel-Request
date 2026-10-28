@@ -13,8 +13,7 @@ import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { employees } from '@/data/employees';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
-import { ntuUpgradeDeltaTotal } from '@/modules/pretrip/upgrade';
-import { UPGRADE_DELTA_CC } from '@/data/charging';
+import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretrip/upgrade';
 import { isHighRisk } from '@/modules/pretrip/risk';
 import { findDuplicateRequests } from '@/modules/pretrip/duplicates';
 import { bookingsForAuthorisation, legPnrMap } from '@/modules/pretrip/tmcRetrieval';
@@ -41,7 +40,9 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   if (!req) notFound();
   const settings = await getSettings();
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
-  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential charged to M6
+  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential total
+  const m6Rows = ntuUpgradeDeltaByAccount(req.expenses); // #14 per selected M6 account
+  const m6CodeLabel = m6Rows.map((m) => m.code ?? 'M6').join(', ');
   const hardStops = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.HardStop);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
   // §13.x duplicate / overlap warning — a true duplicate (same destination) hard-blocks submit;
@@ -206,23 +207,23 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
                     </tr>
                   );
                 })}
-                {m6Delta > 0 && (
-                  <tr className="border-b border-[var(--ecs-border)] last:border-0 align-top">
+                {m6Rows.map((m) => (
+                  <tr key={m.code ?? 'm6'} className="border-b border-[var(--ecs-border)] last:border-0 align-top">
                     <td className="py-1.5">
-                      <div className="font-medium">{UPGRADE_DELTA_CC}<span className="pill-info ml-1 text-[10px]">upgrade</span></div>
+                      <div className="font-medium">{m.code ?? 'M6'}<span className="pill-info ml-1 text-[10px]">upgrade</span></div>
                       <div className="text-xs text-[var(--ecs-muted)]">NTU-funded class-upgrade differential</div>
                     </td>
                     <td className="py-1.5 text-right whitespace-nowrap">
                       <div>—</div>
-                      <div className="text-xs text-[var(--ecs-muted)]">{fmtSgd(m6Delta)}</div>
+                      <div className="text-xs text-[var(--ecs-muted)]">{fmtSgd(m.amount)}</div>
                     </td>
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
             {req.allocations.length > 1
-              ? <p className="text-xs text-[var(--ecs-muted)] mt-2">Cross-charge across {req.allocations.length} accounts · DOA from the highest-share account.{m6Delta > 0 && ` Upgrade differential to ${UPGRADE_DELTA_CC}.`}</p>
-              : <p className="text-xs text-[var(--ecs-muted)] mt-2">NTU-funded {fmtSgd(summary.ntuFunded)}{m6Delta > 0 ? ` · entitlement to this account, ${fmtSgd(m6Delta)} upgrade to ${UPGRADE_DELTA_CC}` : ' · 100% to this account'}.</p>}
+              ? <p className="text-xs text-[var(--ecs-muted)] mt-2">Cross-charge across {req.allocations.length} accounts · DOA from the highest-share account.{m6Delta > 0 && ` Upgrade differential to ${m6CodeLabel}.`}</p>
+              : <p className="text-xs text-[var(--ecs-muted)] mt-2">NTU-funded {fmtSgd(summary.ntuFunded)}{m6Delta > 0 ? ` · entitlement to this account, ${fmtSgd(m6Delta)} upgrade to ${m6CodeLabel}` : ' · 100% to this account'}.</p>}
           </Card>
         </div>
 

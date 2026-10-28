@@ -33,10 +33,10 @@ export const chargingCodes: ChargingCode[] = [
   { code: 'WBS-R200', name: 'AI Grant Beta',             type: 'WBS', subType: 'PROJECT',   departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: true, active: true, fundingOwnerId: 'E-RDIR' },
   { code: 'WBS-R300', name: 'AI Grant Gamma (closed)',   type: 'WBS', subType: 'PROJECT',   departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: true, active: false, validTo: '2025-12-31', fundingOwnerId: 'E-RDIR' },
   { code: 'CC-XCHG',  name: 'Cross-Charge Shared Pool',  type: 'CC',  departmentId: 'SCH-CS', companyCode: '1000', businessArea: 'BA-CS', isResearch: false, active: true, crossCharge: true, fundingOwnerId: 'E-DOA' },
-  // #14 fixed central cost centre that the incremental cost of an NTU-funded travel-class upgrade
-  // defaults to (the standard entitlement stays on the original WBS / cost centre).
-  { code: 'M6', name: 'NTU-Funded Upgrade Differential', type: 'CC', departmentId: 'SCH-CS', companyCode: '1000', businessArea: 'BA-CS', isResearch: false, active: true },
 ];
 
-// #14 the single cost centre NTU-funded upgrade deltas are charged to.
-export const UPGRADE_DELTA_CC = 'M6';
+// #14 The NTU-funded travel-class upgrade differential no longer charges a single fixed cost centre.
+// The M6 (upgrade-differential) accounts are a runtime-editable master grouped by Business Area
+// (prisma UpgradeDeltaAccount, seeded in src/modules/pretrip/upgradeConfig.ts); the traveller selects
+// the correct account for the governing BA on the charging step. The standard entitlement stays on
+// the original WBS / cost centre.

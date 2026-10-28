@@ -77,7 +77,7 @@ interface Charge {
 }
 type FeedCharge = { type: string; expenseTypeId: string; amountSgd: number; gstCode: string; gstAmountSgd: number; gstClaimable: boolean };
 type BookingLike = { travellerId?: string | null; fare: number | null; taxes: number | null; fees: number | null; segments: { type: string; amount: number | null }[]; charges?: FeedCharge[] };
-type AirfareEstLike = { category: string; travellerId: string | null; sgdAmount: number; entitlementFareSgd: number | null; upgradeFunding: string | null };
+type AirfareEstLike = { category: string; travellerId: string | null; sgdAmount: number; entitlementFareSgd: number | null; upgradeFunding: string | null; upgradeDeltaCode: string | null };
 type ReqLike = { travellerType: string | null; bookingArrangement: string | null; hotelSettlement: string | null; expenses?: AirfareEstLike[] };
 
 const ELIGIBLE: string[] = [BOOKING_STATUS.Booked, BOOKING_STATUS.TravelCompleted];
@@ -120,7 +120,7 @@ function chargesOf(b: BookingLike, req: ReqLike): Charge[] {
   // stays on the request's allocation; an NTU-funded delta posts to M6; a self-funded delta is
   // traveller-direct, so the CTA sees the entitlement only (the charge gross is reduced).
   const airEst = req.expenses?.find((e) => e.category === EXPENSE_CATEGORY.Airfare && (e.travellerId === (b.travellerId ?? null) || e.travellerId === null));
-  const up = airEst ? airfareUpgrade({ sgdAmount: airEst.sgdAmount, entitlementFareSgd: airEst.entitlementFareSgd, upgradeFunding: airEst.upgradeFunding }) : null;
+  const up = airEst ? airfareUpgrade({ sgdAmount: airEst.sgdAmount, entitlementFareSgd: airEst.entitlementFareSgd, upgradeFunding: airEst.upgradeFunding, upgradeDeltaCode: airEst.upgradeDeltaCode }) : null;
   const finalize = (charges: Charge[]): Charge[] => {
     if (!up || !up.isUpgrade) return charges;
     const air = charges.find((c) => c.chargeType === 'Airfare');

@@ -9,6 +9,7 @@ import { getSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber, nextClaimNumber } from './numbering';
 import { computeAccommodation, computeOda, computeOdaTiered, computeSummary } from './pricing';
 import { evaluatePolicies, hasException, hasHardStop } from './policy';
+import { ensureUpgradeConfigSeed, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, defaultAccountForBA, upgradeCheckCtx } from './upgradeConfig';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
 import { HOTEL_SETTLEMENT } from './settlement';
@@ -22,6 +23,17 @@ import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKI
 
 const YEAR = 2026;
 const day = (iso: string) => new Date(iso + 'T00:00:00Z');
+
+/** #14 Model B upgrade line fields — derive the entitlement from the chosen fare + the configured
+ *  uplift % for the class step, and (for an NTU-funded delta) route to the governing BA's default M6
+ *  account. Keeps the demo consistent with the live capture (addAirfare). */
+async function upgradeLineFields(fareSgd: number, fromClassId: string, toClassId: string, funding: 'NTU' | 'SELF', ba: string) {
+  await ensureUpgradeConfigSeed();
+  const pct = upliftPctFrom(await listUpliftRates(), fromClassId, toClassId);
+  const entitlementFareSgd = deriveEntitlementSgd(fareSgd, pct);
+  const upgradeDeltaCode = funding === 'NTU' ? (defaultAccountForBA(await listUpgradeAccounts(), ba)?.code ?? null) : null;
+  return { entitlementFareSgd, upgradeFunding: funding, upgradeDeltaCode };
+}
 
 interface Charge { code: string; pct: number }
 interface ScenarioInput {
@@ -170,7 +182,7 @@ async function submit(id: string): Promise<FullRequest> {
   // can be Approved/Booked/Claimed for the demo). The DATE_PAST rule (a NEW request can't be raised
   // for a trip that already started) does not apply to these fixtures, so it is exempt here — the
   // live submit (submitRequest / policy.ts) still enforces it in full.
-  const checks = evaluatePolicies(req, settings.approvalAmountBasis).filter((c) => c.code !== 'DATE_PAST');
+  const checks = evaluatePolicies(req, settings.approvalAmountBasis, await upgradeCheckCtx(settings)).filter((c) => c.code !== 'DATE_PAST');
   // Mirror the live submit guard: a scenario must not submit with an unresolved hard stop (e.g. an
   // above-cap hotel or class upgrade with no justification) — fail loudly so bad seed data is caught.
   if (hasHardStop(checks)) {
@@ -862,8 +874,8 @@ async function buildS15() {
   for (const [seq, o, d, dep] of [[1, 'SIN', 'HND', '2026-11-16'], [2, 'HND', 'SIN', '2026-11-19']] as [number, string, string, string][]) {
     await prisma.itineraryLeg.create({ data: { requestId: id, seq, originCode: o, destCode: d, departDate: day(dep), arriveDate: day(dep), transportMode: 'AIR', durationHours: 7, nights: seq === 1 ? 3 : 0, travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', chosenClassId: 'TC-BIZ' } });
   }
-  // #7/#14 NTU-funded upgrade: Business 3800 vs Economy entitlement 1200 → delta 2600 charged to M6.
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800, entitlementFareSgd: 1200, upgradeFunding: 'NTU' } });
+  // #7/#14 NTU-funded upgrade: Business 3800, Economy entitlement derived via the ECO→BIZ uplift %; the delta charges the BA-CS M6 account.
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800, ...(await upgradeLineFields(3800, 'TC-ECO', 'TC-BIZ', 'NTU', 'BA-CS')) } });
   const c = computeAccommodation({ cityCode: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, basis: settings.hotelEstimateBasis });
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
@@ -893,8 +905,8 @@ async function buildS15b() {
   for (const [seq, o, d, dep] of [[1, 'SIN', 'HND', '2026-12-01'], [2, 'HND', 'SIN', '2026-12-04']] as [number, string, string, string][]) {
     await prisma.itineraryLeg.create({ data: { requestId: id, seq, originCode: o, destCode: d, departDate: day(dep), arriveDate: day(dep), transportMode: 'AIR', durationHours: 7, nights: seq === 1 ? 3 : 0, travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', chosenClassId: 'TC-BIZ' } });
   }
-  // #7 self-funded: Business 3800 vs Economy entitlement 1200 → delta 2600 paid by the traveller to the TMC.
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800, entitlementFareSgd: 1200, upgradeFunding: 'SELF' } });
+  // #7 self-funded: Business 3800, Economy entitlement derived; the traveller pays the TMC the delta directly (no M6).
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800, ...(await upgradeLineFields(3800, 'TC-ECO', 'TC-BIZ', 'SELF', 'BA-CS')) } });
   const c = computeAccommodation({ cityCode: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, basis: settings.hotelEstimateBasis });
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
@@ -924,8 +936,8 @@ async function buildS35() {
   for (const [seq, o, d, dep] of [[1, 'SIN', 'LHR', '2026-12-08'], [2, 'LHR', 'SIN', '2026-12-11']] as [number, string, string, string][]) {
     await prisma.itineraryLeg.create({ data: { requestId: id, seq, originCode: o, destCode: d, departDate: day(dep), arriveDate: day(dep), transportMode: 'AIR', durationHours: 13, nights: seq === 1 ? 3 : 0, travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', chosenClassId: 'TC-BIZ' } });
   }
-  // #14 NTU-funded: Business 3800 vs Economy entitlement 1200 → delta 2600, charged to M6 on posting.
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'LHR', proposedClassId: 'TC-BIZ', fareCeiling: 3800, entitlementFareSgd: 1200, upgradeFunding: 'NTU' } });
+  // #14 NTU-funded: Business 3800, Economy entitlement derived; the delta charges the BA-CS M6 account on posting.
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'LHR', proposedClassId: 'TC-BIZ', fareCeiling: 3800, ...(await upgradeLineFields(3800, 'TC-ECO', 'TC-BIZ', 'NTU', 'BA-CS')) } });
   const c = computeAccommodation({ cityCode: 'LON', nights: 3, personalNights: 0, quotedNightly: 260, basis: settings.hotelEstimateBasis });
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'LON', nights: 3, personalNights: 0, quotedNightly: 260, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });

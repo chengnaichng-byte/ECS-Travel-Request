@@ -22,6 +22,8 @@ export const moduleSettingsDefaults = {
   selfBookingEnabled: true,         // §13.17
   selfApprovalLimitSgd: 5000,       // §43 self-approval limit (0 = never); the research PI self-approval band
   researchPiSelfApproval: true,     // #1 research WBS raised for a PI traveller ≤ limit → self-approved (PI is the DOA)
+  upgradeDeltaRoutingEnabled: true,    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account
+  upgradeDeltaSelectionRequired: true, // #14 when the governing BA has >1 M6 account the traveller must pick one
   attachmentMaxMb: 7,               // §2 max upload size per file
   chargingSplitMode: 'PERCENT' as 'PERCENT' | 'AMOUNT', // §17 charging entry mode
   declarationText: 'I confirm that the trip is for official purposes, the estimated costs are reasonable, and the itinerary and personal travel days are accurate.',
@@ -46,6 +48,10 @@ export const decisionCatalogue = [
     effect: 'If off, research-charged requests route to the Research DOA line.' },
   { key: 'researchPiSelfApproval', label: 'Research PI self-approval', kind: 'boolean',
     effect: 'When on, a research-WBS request raised for a Principal Investigator (per the staff master PI flag), with an approval amount at/below the self-approval limit (below), is self-approved — the PI is the DOA. Applies to individual (non-group) requests; a PI-raised one is auto-granted on submission, a delegate-raised one waits in the PI’s approval queue.' },
+  { key: 'upgradeDeltaRoutingEnabled', label: 'Travel-class upgrade differential → M6 routing', kind: 'boolean',
+    effect: 'When on, the NTU-funded differential of a travel-class upgrade is charged to a separate M6 (upgrade-differential) account for the governing business area — selected on the Charging step — while the entitlement stays on the original WBS/CC. When off, the whole NTU-funded fare charges the normal allocation (#14).' },
+  { key: 'upgradeDeltaSelectionRequired', label: 'Require M6 account selection when the BA has several', kind: 'boolean',
+    effect: 'When on, if the governing business area offers more than one M6 account the traveller must pick which the upgrade differential charges (a hard stop until set); a BA with a single account auto-selects. When off, the BA default account is applied automatically (#14).' },
   { key: 'crossBaThresholdSgd', label: 'Cross-BA concurrence threshold (SGD)', kind: 'number',
     effect: 'When charging spans more than one business area, each non-primary BA whose share exceeds this amount must concur (its DOA is added to the route); the primary-BA DOA still owns the request (§18, AC5).' },
   { key: 'expenseScope', label: 'Expense scope', kind: 'enum', options: ['MAJOR_ONLY', 'ALL'],

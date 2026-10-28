@@ -262,16 +262,13 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledClassName}</strong> for this itinerary. Choosing a higher proposed class requires a justification.</p>
               </div>
             )}
-            {/* #7/#14 travel-class upgrade split — the entitlement-class fare (second quote) and who
-                funds the delta. Only meaningful when the proposed class is above entitlement. */}
+            {/* #14 travel-class upgrade — only the funding choice is captured here. The entitlement fare
+                and the upgrade differential are DERIVED (Model B) from the configured uplift % for the
+                class step; the M6 account the NTU-funded delta charges is selected on the Charging step. */}
             {!isGroup && (
               <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 space-y-2">
-                <label className="label">Above entitlement? Entitlement-class fare &amp; upgrade funding (#7/#14)</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input name="entitlementFare" label={`Entitlement-class fare (${entitledClassName})`} type="number" />
-                  <Select name="upgradeFunding" label="Upgrade funded by" defaultValue="NTU" opts={[['NTU', 'NTU — delta to M6'], ['SELF', 'Self-funded — traveller pays the TMC']]} />
-                </div>
-                <p className="text-xs text-[var(--ecs-muted)]">Only if the proposed class is above your entitlement. Enter the fare at the entitled class; the difference is the upgrade delta. <strong>NTU-funded</strong> charges the delta to cost centre <strong>M6</strong> (the entitlement stays on your WBS/CC); <strong>self-funded</strong> means you settle the delta with the TMC directly (not reimbursed).</p>
+                <Select name="upgradeFunding" label="If above entitlement — upgrade funded by" defaultValue="NTU" opts={[['NTU', 'NTU — differential charged to an M6 account'], ['SELF', 'Self-funded — traveller pays the TMC']]} />
+                <p className="text-xs text-[var(--ecs-muted)]">Only applies when the proposed class is above your <strong>{entitledClassName}</strong> entitlement. The entitlement fare and the upgrade differential are derived automatically from the configured uplift&nbsp;% for the class step (entitlement = chosen fare ÷ (1&nbsp;+&nbsp;uplift&nbsp;%)); the entitlement stays on your WBS/CC. <strong>NTU-funded</strong> charges the differential to an M6 account — select which on the Charging step; <strong>self-funded</strong> means you settle the differential with the TMC directly (not reimbursed).</p>
               </div>
             )}
             {/* §8 / DD-25 Guest travel-class upgrade — a guest booked above Economy needs a host-school

@@ -8,8 +8,7 @@ import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNigh
 import { guestSettlements } from '@/modules/pretrip/settlement';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
-import { ntuUpgradeDeltaTotal } from '@/modules/pretrip/upgrade';
-import { UPGRADE_DELTA_CC } from '@/data/charging';
+import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretrip/upgrade';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { ENTITY_NAME } from '@/data/organisation';
@@ -220,7 +219,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           {m6Delta > 0 && (
             <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
               <div className="text-[11px] text-[var(--ecs-muted)]">Class-upgrade differential</div>
-              <div className="text-[13px] font-medium">{UPGRADE_DELTA_CC} <span className="pill-info ml-1">upgrade</span> {fmtSgd(m6Delta)}</div>
+              <div className="text-[13px] font-medium">{ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} <span className="pill-info ml-1">upgrade</span> {fmtSgd(m6Delta)}</div>
               <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded — entitlement stays on the account(s) above</div>
             </div>
           )}
@@ -333,7 +332,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
         <Field label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</Field>
         <Field label="Primary Charging Account">
           {pc ? <span>{pc.code} · {pc.name} <span className="text-[var(--ecs-muted)]">({pc.pct}%{pc.research ? ' · research' : ''})</span></span> : '—'}
-          {m6Delta > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">+ class-upgrade differential {fmtSgd(m6Delta)} → {UPGRADE_DELTA_CC} (NTU-funded)</div>}
+          {m6Delta > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">+ class-upgrade differential {fmtSgd(m6Delta)} → {ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} (NTU-funded)</div>}
         </Field>
         <Field label="Personal Extension">
           {req.isGroup ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers` : (req.personalStart ? `${fmtDate(req.personalStart)} – ${fmtDate(req.personalEnd)}` : 'None')}
@@ -568,8 +567,11 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
   const primary = [...req.allocations].sort((a, b) => b.percent - a.percent)[0];
   const primaryDept = EcsIdentity.department(EcsCharging.code(primary?.chargingCode ?? '')?.departmentId ?? '')?.name;
   const others = req.allocations.filter((a) => a.id !== primary?.id);
-  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential → M6
-  const m6 = m6Delta > 0 ? EcsCharging.code(UPGRADE_DELTA_CC) : null;
+  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential total
+  const m6Rows = ntuUpgradeDeltaByAccount(req.expenses); // #14 per selected M6 account (usually one)
+  const primaryMaster = EcsCharging.code(primary?.chargingCode ?? '');
+  const m6Company = primaryMaster?.companyCode ?? primary?.companyCode ?? '1000';
+  const m6BA = primaryMaster?.businessArea ?? primary?.businessArea ?? '—';
   return (
     <Card title={heading(letter, 'Cost Allocation')}>
       <div className="grid md:grid-cols-4 gap-3 mb-3">
@@ -600,18 +602,18 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
                 </tr>
               );
             })}
-            {m6 && (
-              <tr className="hover:bg-[var(--ecs-panel-2)]">
-                <td className="td">{m6.companyCode}</td>
-                <td className="td whitespace-nowrap">{m6.businessArea}</td>
-                <td className="td">{m6.type}</td>
-                <td className="td whitespace-nowrap">{UPGRADE_DELTA_CC} · {m6.name} <span className="pill-info ml-1">upgrade</span></td>
+            {m6Rows.map((m) => (
+              <tr key={m.code ?? 'm6'} className="hover:bg-[var(--ecs-panel-2)]">
+                <td className="td">{m6Company}</td>
+                <td className="td whitespace-nowrap">{m6BA}</td>
+                <td className="td">CC</td>
+                <td className="td whitespace-nowrap">{m.code ?? '—'} · NTU-Funded Upgrade Differential <span className="pill-info ml-1">upgrade</span></td>
                 <td className="td">—</td>
                 <td className="td">No</td>
                 <td className="td text-right">—</td>
-                <td className="td text-right whitespace-nowrap font-medium">{fmtSgd(m6Delta)}</td>
+                <td className="td text-right whitespace-nowrap font-medium">{fmtSgd(m.amount)}</td>
               </tr>
-            )}
+            ))}
           </tbody>
           <tfoot><tr className="font-semibold text-[var(--ecs-navy)]"><td className="td" colSpan={6}>Total estimated NTU-funded cost</td><td className="td text-right">{req.allocations.reduce((s, a) => s + a.percent, 0)}%</td><td className="td text-right">{fmtSgd(amount)}</td></tr></tfoot>
         </table>

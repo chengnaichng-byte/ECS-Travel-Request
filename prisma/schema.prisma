@@ -35,6 +35,8 @@ model ModuleSettings {
   // §43 Settings breadth
   selfApprovalLimitSgd   Int     @default(0)      // approval amount at/below which a traveller-approver self-approves (0 = never)
   researchPiSelfApproval Boolean @default(true)   // #1 research-WBS trip raised for a PI traveller, within selfApprovalLimitSgd, is self-approved (PI is the DOA)
+  upgradeDeltaRoutingEnabled Boolean @default(true)    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account (off = keep it on the original allocation)
+  upgradeDeltaSelectionRequired Boolean @default(true) // #14 when the governing BA has >1 M6 account the traveller must pick one (hard stop until set); a single-account BA auto-selects
   attachmentMaxMb        Int     @default(7)      // §2 max upload size per file
   chargingSplitMode      String  @default("PERCENT") // §17 PERCENT | AMOUNT entry mode for charging
   declarationText        String  @default("I confirm that the trip is for official purposes, the estimated costs are reasonable, and the itinerary and personal travel days are accurate.")
@@ -288,9 +290,11 @@ model EstimatedExpense {
   proposedClassId String?
   fareCeiling    Float?
   handoffStatus  String?
-  // #7/#14 travel-class upgrade — the second (entitlement-class) quote and how the delta is funded.
-  entitlementFareSgd Float?                  // the entitlement-class fare (second quote); delta = sgdAmount - this
-  upgradeFunding  String?                    // NTU (delta → M6) | SELF (traveller pays the TMC the delta directly)
+  // #7/#14 travel-class upgrade. entitlementFareSgd is DERIVED (Model B): entitlement = sgdAmount / (1 + upliftPct(step)),
+  // so delta = sgdAmount - entitlement. It is stored here so every downstream reader works unchanged.
+  entitlementFareSgd Float?                  // derived entitlement-class fare; delta = sgdAmount - this
+  upgradeFunding  String?                    // NTU (delta → M6 account) | SELF (traveller pays the TMC the delta directly)
+  upgradeDeltaCode String?                   // #14 traveller-selected M6 (upgrade-differential) account for an NTU-funded delta
 
   accommodation  AccommodationEstimate?
   oda            ODAEstimate?
@@ -345,6 +349,35 @@ model ChargingAllocation {
   amountSgd     Float?                       // §17 amount-split entry (converted to percent at save)
   internalOrder String?                      // §17 SAP Internal Order (optional) on this allocation line
   isMain        Boolean @default(false)      // §17 the main charging account (ECS "Main charging account flag")
+}
+
+/// #14 UpgradeDeltaAccount — runtime-editable master of the M6 (upgrade-differential) accounts,
+/// grouped by Business Area. The NTU-funded travel-class upgrade differential posts to one of these;
+/// the traveller selects the correct account for the governing BA on the charging step (a BA with a
+/// single account auto-selects). Multiple accounts may exist per BA, so per charging account too.
+model UpgradeDeltaAccount {
+  id           String  @id @default(cuid())
+  code         String  @unique
+  name         String
+  companyCode  String  @default("1000")
+  businessArea String
+  active       Boolean @default(true)
+  isDefault    Boolean @default(false)      // the default pick for its BA (used when auto-selecting)
+  createdAt    DateTime @default(now())
+}
+
+/// #14 UpgradeUpliftRate — runtime-editable uplift % schedule (Model B). The NTU-funded upgrade
+/// differential is derived from the chosen fare: entitlement = chosenFare / (1 + pct), so
+/// delta = chosenFare − entitlement. pct is the uplift OVER the entitlement for the (from → to)
+/// class step; one active row per class-step pair.
+model UpgradeUpliftRate {
+  id          String  @id @default(cuid())
+  fromClassId String
+  toClassId   String
+  pct         Float                         // uplift fraction over entitlement, e.g. 0.5 = 50%
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+  @@unique([fromClassId, toClassId])
 }
 
 /// §7.1 PolicyCheck — result of common + pre-trip policy rules (§6.3)

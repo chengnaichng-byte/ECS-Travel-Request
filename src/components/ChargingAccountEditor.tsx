@@ -323,7 +323,7 @@ export function ChargingAccountEditor({
                       <td className="td font-medium whitespace-nowrap">{e.code}{a?.research && <span className="pill-warn ml-1">Research</span>}{a?.crossCharge && <span className="pill-info ml-1">X-charge</span>}</td>
                       <td className="td">{e.io || '—'}</td>
                       <td className="td">{t?.gl ?? '—'}</td>
-                      <td className="td">{e.label ?? t?.name ?? e.typeId}{e.percent == null && <span className="pill-info ml-1">upgrade → M6</span>}</td>
+                      <td className="td">{e.label ?? t?.name ?? e.typeId}{e.percent == null && <span className="pill-info ml-1">upgrade → {e.code}</span>}</td>
                       <td className="td text-right whitespace-nowrap font-medium">{fmt(e.amount)}</td>
                       <td className="td text-right">{e.percent == null ? '—' : `${e.percent}%`}</td>
                       <td className="td">{e.isMain ? 'Yes' : 'No'}</td>

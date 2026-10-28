@@ -79,6 +79,8 @@ export async function Shell({ children }: { children: React.ReactNode }) {
             <div className="mb-1"><NavLinks items={[
               { href: '/setup/provosts', label: 'Provost List (guest upgrades)', icon: '◈' },
               { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
+              { href: '/setup/upgrade-accounts', label: 'Upgrade Differential (M6) Accounts', icon: '▲' },
+              { href: '/setup/upgrade-rates', label: 'Upgrade Uplift Rates', icon: '％' },
             ]} /></div>
             <ul className="space-y-0.5">
               {STUBS.map((s) => (

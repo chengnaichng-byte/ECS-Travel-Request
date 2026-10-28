@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest, type FullRequest } from '@/modules/pretrip/queries';
-import { saveCharging } from '@/modules/pretrip/actions';
+import { saveCharging, setUpgradeDeltaAccount } from '@/modules/pretrip/actions';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
@@ -16,8 +16,10 @@ import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName } from '@/modules/pretrip/traveller';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { airfareUpgrade } from '@/modules/pretrip/upgrade';
+import { listUpgradeAccounts, accountsForBA, effectiveDeltaCode } from '@/modules/pretrip/upgradeConfig';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
+import { UpgradeDeltaPicker, type UpgradePickLine } from '@/components/UpgradeDeltaPicker';
 import { Card, Stepper, Empty } from '@/components/ui';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
 
@@ -38,12 +40,29 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
   const canEdit = canEditRequest(await currentPersonaId(), req);
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
 
-  // #7/#14 travel-class upgrade split — derived from the airfare line's entitlement-class fare + funding.
-  const mainCode = (req.allocations.find((a) => a.isMain) ?? req.allocations[0])?.chargingCode ?? null;
+  // #14 travel-class upgrade split — the entitlement is derived (Model B); the NTU-funded differential
+  // routes to a traveller-selected M6 account from the governing BA's pool.
+  const mainAllocRow = req.allocations.find((a) => a.isMain) ?? req.allocations[0];
+  const mainCode = mainAllocRow?.chargingCode ?? null;
+  const govBA = mainAllocRow?.businessArea ?? null;
+  const upgradeAccounts = await listUpgradeAccounts();
+  const m6Pool = accountsForBA(upgradeAccounts, govBA);
+  const govBAName = businessAreas.find((b) => b.code === govBA)?.name ?? govBA ?? '—';
   const upgradeLines = req.expenses
     .filter((e) => e.category === EXPENSE_CATEGORY.Airfare)
-    .map((e) => ({ e, u: airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding }) }))
+    .map((e) => ({ e, u: airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding, upgradeDeltaCode: e.upgradeDeltaCode }) }))
     .filter((x) => x.u.isUpgrade);
+  // #14 the NTU-funded upgrade lines needing an M6 account selection (self-funded deltas never charge NTU).
+  const m6PickLines: UpgradePickLine[] = upgradeLines
+    .filter((x) => x.u.funding === 'NTU')
+    .map(({ e, u }) => ({
+      expenseId: e.id,
+      route: `${e.originCode ?? ''} → ${e.destCode ?? ''}`,
+      fromClassName: EcsReference.travelClass(req.entitledClassId ?? 'TC-ECO')?.name ?? 'Economy',
+      toClassName: EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? '',
+      fareSgd: u.fareSgd, entitlementSgd: u.entitlementSgd, deltaSgd: u.deltaSgd, upliftPct: u.upliftPct,
+      currentCode: e.upgradeDeltaCode ?? null,
+    }));
 
   const defaultAccount = EcsIdentity.employee(req.travellerId)?.defaultChargingCode ?? EcsIdentity.employee(req.requestorId)?.defaultChargingCode ?? chargingCodes[0]?.code ?? '';
   // §8 a guest member has no Workday department — their share is charged to the host's
@@ -91,10 +110,13 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
     // #14/#7 travel-class upgrade on the airfare line: NTU is charged the full fare (NTU-funded) or the
     // entitlement only (self-funded); an NTU-funded delta is routed to the fixed M6 cost centre below.
     const up = e.category === EXPENSE_CATEGORY.Airfare
-      ? airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding })
+      ? airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding, upgradeDeltaCode: e.upgradeDeltaCode })
       : null;
     const ntuGross = up?.isUpgrade ? up.ntuAirfareSgd : e.sgdAmount;
     const deltaToM6 = up?.isUpgrade && up.funding === 'NTU' ? up.deltaSgd : 0;
+    // the differential charges the selected M6 account, or the auto-resolved one (single-account BA);
+    // null when a choice is still required (the picker above prompts it and policy hard-stops).
+    const deltaCode = deltaToM6 ? effectiveDeltaCode(upgradeAccounts, govBA, settings.upgradeDeltaSelectionRequired, e.upgradeDeltaCode) : null;
     return {
       id: e.id, typeId: e.expenseTypeId,
       typeName: EcsReference.expenseType(e.expenseTypeId)?.name ?? e.category,
@@ -104,8 +126,8 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
       isShared: e.isShared,
       deptAllocs: deptAllocsFor(e),
       initialAllocs: initialAllocsFor(e),
-      upgradeDeltaSgd: deltaToM6 || undefined,
-      upgradeDeltaCode: deltaToM6 ? up!.deltaCostCentre : undefined,
+      upgradeDeltaSgd: deltaToM6 && deltaCode ? deltaToM6 : undefined,
+      upgradeDeltaCode: deltaCode ?? undefined,
     };
   });
 
@@ -130,12 +152,12 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
 
       {upgradeLines.length > 0 && (
         <Card title="Travel-class upgrade — charging split (#7 / #14)" className="mb-5">
-          <p className="text-xs text-[var(--ecs-muted)] mb-3">The standard entitlement charges the original WBS / cost centre; the upgrade differential is funded as chosen on the airfare line.</p>
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">The entitlement is derived from the chosen fare and the configured uplift&nbsp;% (Model B) and charges the original WBS / cost centre; the NTU-funded differential charges a selected M6 account for the governing business area. With cross-charging, the amount distributed across the allocation is the total less the M6 differential.</p>
           <div className="space-y-4">
             {upgradeLines.map(({ e, u }) => (
               <div key={e.id} className="text-sm">
                 <div className="font-medium mb-1">{e.originCode} → {e.destCode} · {EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? ''}
-                  <span className="text-[var(--ecs-muted)] font-normal"> — chosen {fmtSgd(u.fareSgd)}, entitlement {fmtSgd(u.entitlementSgd)}, delta {fmtSgd(u.deltaSgd)}</span>
+                  <span className="text-[var(--ecs-muted)] font-normal"> — chosen {fmtSgd(u.fareSgd)}, entitlement {fmtSgd(u.entitlementSgd)}, differential {fmtSgd(u.deltaSgd)}{u.upliftPct != null ? ` · ${Math.round(u.upliftPct * 100)}% uplift` : ''}</span>
                 </div>
                 <table className="w-full text-sm">
                   <tbody>
@@ -148,7 +170,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
                       <td className="td">Upgrade differential</td>
                       <td className="td text-right tabular-nums">{fmtSgd(u.deltaSgd)}</td>
                       <td className="td">{u.funding === 'NTU'
-                        ? <>→ cost centre <strong>M6</strong> <span className="pill-info ml-1">NTU-funded</span></>
+                        ? <>→ M6 account {u.deltaCostCentre ? <strong>{u.deltaCostCentre}</strong> : <em>select below</em>} <span className="pill-info ml-1">NTU-funded</span></>
                         : <>→ <strong>traveller</strong> — paid to the TMC directly, not reimbursed <span className="pill-warn ml-1">self-funded</span></>}</td>
                     </tr>
                   </tbody>
@@ -156,6 +178,16 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
               </div>
             ))}
           </div>
+          {settings.upgradeDeltaRoutingEnabled && m6PickLines.length > 0 && (
+            <div className="mt-4 border-t border-[var(--ecs-border)] pt-4">
+              <h4 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Upgrade differential (M6) account — {govBAName}</h4>
+              {m6Pool.length === 0 ? (
+                <p className="text-sm text-amber-700">No active M6 account is configured for business area {govBA ?? '—'}. Add one in <Link className="underline" href="/setup/upgrade-accounts">Setup → Upgrade Differential Accounts</Link>.</p>
+              ) : (
+                <UpgradeDeltaPicker requestId={id} lines={m6PickLines} pool={m6Pool.map((a) => ({ code: a.code, name: a.name }))} canEdit={canEdit} govBAName={govBAName} action={setUpgradeDeltaAccount} />
+              )}
+            </div>
+          )}
         </Card>
       )}
 
@@ -167,7 +199,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
               <tbody>
                 {req.expenses.map((e) => {
                   // #7 a self-funded airfare upgrade delta is traveller-paid — exclude it from the line's NTU-funded figure.
-                  const u = e.category === EXPENSE_CATEGORY.Airfare ? airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding }) : null;
+                  const u = e.category === EXPENSE_CATEGORY.Airfare ? airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding, upgradeDeltaCode: e.upgradeDeltaCode }) : null;
                   const selfDelta = u?.isUpgrade && u.funding === 'SELF' ? u.travellerPaysSgd : 0;
                   const ntu = Math.max(e.sgdAmount - e.sponsorSgd - selfDelta, 0);
                   return (

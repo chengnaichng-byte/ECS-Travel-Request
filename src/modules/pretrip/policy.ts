@@ -10,6 +10,8 @@ import { policyThresholds as PT } from '@/config/policyThresholds';
 import { ruleActive } from '@/config/policyRules';
 import { highRiskDestinationsForRequest } from './risk';
 import { isGuestRequest } from './traveller';
+import { airfareUpgrade } from './upgrade';
+import type { UpgradeCheckCtx } from './upgradeConfig';
 
 export interface EvaluatedCheck {
   code: string;
@@ -19,7 +21,7 @@ export interface EvaluatedCheck {
   travellerId?: string | null;
 }
 
-export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string): EvaluatedCheck[] {
+export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string, upgradeCtx?: UpgradeCheckCtx): EvaluatedCheck[] {
   const checks: EvaluatedCheck[] = [];
   const now = new Date();
 
@@ -78,6 +80,26 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string):
 
   if (req.expenses.length === 0) {
     checks.push({ code: 'ESTIMATE', label: 'Estimated costs', outcome: POLICY_OUTCOME.HardStop, detail: 'At least one estimated cost line is required.' });
+  }
+
+  // #14 NTU-funded travel-class upgrade differential → M6 account. The amount is derived (Model B);
+  // only the account routing needs the traveller's choice. Hard-stop when the governing BA offers
+  // more than one M6 account and none is selected (or has none configured, or an invalid one).
+  if (ruleActive('UPGRADE_M6', now) && upgradeCtx?.enabled) {
+    const govBA = (req.allocations.find((a) => a.isMain) ?? req.allocations[0])?.businessArea ?? null;
+    const pool = upgradeCtx.accounts.filter((a) => a.active && a.businessArea === govBA);
+    for (const e of req.expenses) {
+      if (e.category !== EXPENSE_CATEGORY.Airfare) continue;
+      const u = airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding, upgradeDeltaCode: e.upgradeDeltaCode });
+      if (!u.isUpgrade || u.funding !== 'NTU') continue;
+      if (pool.length === 0) {
+        checks.push({ code: 'UPGRADE_M6', label: 'No upgrade-differential (M6) account configured', outcome: POLICY_OUTCOME.HardStop, detail: `No active M6 account is configured for business area ${govBA ?? '—'} — add one in Setup → Upgrade Differential Accounts.`, travellerId: e.travellerId });
+      } else if (e.upgradeDeltaCode && !pool.some((a) => a.code === e.upgradeDeltaCode)) {
+        checks.push({ code: 'UPGRADE_M6', label: 'Upgrade-differential account not valid for this BA', outcome: POLICY_OUTCOME.HardStop, detail: `${e.upgradeDeltaCode} is not an active M6 account for business area ${govBA ?? '—'} — reselect one on the Charging step.`, travellerId: e.travellerId });
+      } else if (!e.upgradeDeltaCode && pool.length > 1 && upgradeCtx.selectionRequired) {
+        checks.push({ code: 'UPGRADE_M6', label: 'Select the upgrade-differential (M6) account', outcome: POLICY_OUTCOME.HardStop, detail: `The NTU-funded upgrade differential must be charged to an M6 account — select one for business area ${govBA ?? '—'} on the Charging step.`, travellerId: e.travellerId });
+      }
+    }
   }
 
   // ---- Exceptions -------------------------------------------------------------

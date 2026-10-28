@@ -22,6 +22,7 @@ import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest } from './traveller';
 import { hasEmergencyApproval, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from './emergency';
 import { ruleActive } from '@/config/policyRules';
+import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipientFor } from '@/config/visaLetter';
 import { randomUUID } from 'node:crypto';
@@ -68,7 +69,7 @@ async function persistPolicy(id: string): Promise<{ hardStop: boolean; exception
   const req = await loadRequest(id);
   if (!req) return { hardStop: false, exception: false };
   const settings = await getSettings();
-  const checks = evaluatePolicies(req, settings.approvalAmountBasis);
+  const checks = evaluatePolicies(req, settings.approvalAmountBasis, await upgradeCheckCtx(settings));
 
   // §25/§40 duplicate / overlapping-trip check — evaluated here (not in the pure engine)
   // because it must look across sibling requests. A guest has no cross-request identity.
@@ -544,24 +545,32 @@ export async function addAirfare(id: string, fd: FormData) {
   const now = new Date();
   const sgd = EcsFx.toSgd(foreign, currency, now); // §13.4 converted at the entry-date rate; re-locked at submission
   const spForeign = num(fd, 'sponsorship');
-  // #7/#14 travel-class upgrade — the entitlement-class fare (second quote) and the delta funding.
-  const entFare = num(fd, 'entitlementFare');
-  const entFareSgd = entFare > 0 ? EcsFx.toSgd(entFare, currency, now) : null;
   const upFunding = (str(fd, 'upgradeFunding') || '').toUpperCase();
   const upgradeFunding = upFunding === 'NTU' || upFunding === 'SELF' ? upFunding : null;
+  // #14 Model B — the entitlement fare is DERIVED from the chosen fare and the configured uplift %
+  // for the class step (entitled → proposed): entitlement = chosen / (1 + pct), delta = chosen −
+  // entitlement. No second quote is captured; a missing rate for the step blocks the add.
+  const proposed = str(fd, 'proposedClassId');
+  const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true } });
+  const entitledId = reqRow?.entitledClassId ?? 'TC-ECO';
+  const isClassUpgrade = !!proposed && EcsTravelClassRegister.rank(proposed) > EcsTravelClassRegister.rank(entitledId);
+  let entFareSgd: number | null = null;
+  if (isClassUpgrade) {
+    const pct = upliftPctFrom(await listUpliftRates(), entitledId, proposed);
+    if (pct == null) {
+      const fromN = EcsReference.travelClass(entitledId)?.name ?? entitledId;
+      const toN = EcsReference.travelClass(proposed)?.name ?? proposed;
+      redirect(`/requests/${id}/estimates?error=${encodeURIComponent(`No upgrade uplift rate is configured for ${fromN} → ${toN} — add it in Setup → Upgrade Uplift Rates before adding this airfare.`)}`);
+    }
+    entFareSgd = deriveEntitlementSgd(sgd, pct);
+  }
   const tids = await travellerFanout(id, fd);
   // §13.19 enforce the class-upgrade justification at the point of adding the airfare (individual
-  // lines). An airfare above the derived entitlement cannot be added without a justification — the
-  // requirement is resolved here, not deferred to a policy-review hard stop.
-  if (tids.length === 1 && tids[0] === null) {
-    const proposed = str(fd, 'proposedClassId');
-    const r = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true } });
-    const entitledId = r?.entitledClassId ?? 'TC-ECO';
-    if (proposed && EcsTravelClassRegister.rank(proposed) > EcsTravelClassRegister.rank(entitledId) && !(str(fd, 'classJustification') || '').trim()) {
-      const propName = EcsReference.travelClass(proposed)?.name ?? proposed;
-      const entName = EcsReference.travelClass(entitledId)?.name ?? 'your entitlement';
-      redirect(`/requests/${id}/estimates?error=${encodeURIComponent(`${propName} is above your ${entName} entitlement — enter a justification for the higher class before adding this airfare.`)}`);
-    }
+  // lines) — resolved here, not deferred to a policy-review hard stop.
+  if (tids.length === 1 && tids[0] === null && isClassUpgrade && !(str(fd, 'classJustification') || '').trim()) {
+    const propName = EcsReference.travelClass(proposed)?.name ?? proposed;
+    const entName = EcsReference.travelClass(entitledId)?.name ?? 'your entitlement';
+    redirect(`/requests/${id}/estimates?error=${encodeURIComponent(`${propName} is above your ${entName} entitlement — enter a justification for the higher class before adding this airfare.`)}`);
   }
   // §13.14 for a group, default each line's proposed class to that traveller's booked (entitled)
   // class so estimates match what each person will fly, without re-keying per traveller.
@@ -591,7 +600,6 @@ export async function addAirfare(id: string, fd: FormData) {
   // records the request-level class + any higher-class justification here (groups book each
   // traveller at their own entitlement, so they have no single chosen class to justify).
   if (tids.length === 1 && tids[0] === null) {
-    const proposed = str(fd, 'proposedClassId');
     await prisma.travelRequest.update({
       where: { id },
       data: {
@@ -903,10 +911,31 @@ export async function saveCharging(id: string, fd: FormData) {
     });
   }
   await audit(id, 'AMEND', raw.mode === 'ITEM' ? 'Charging allocated per expense item (cross-charge)' : raw.mode === 'CLAIM' ? 'Charging allocated at claim level' : 'Charging allocation saved');
+  // #14 resolve the M6 account on NTU-funded upgrade lines (auto when the governing BA has one;
+  // left unset — hard stop — when a choice is required) before re-running policy.
+  await applyDefaultDeltaCodes(id);
   await persistPolicy(id);
   if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   revalidatePath(`/requests/${id}/charging`);
   redirect(`/requests/${id}/policy`);
+}
+
+/** #14 Set (or clear) the traveller-selected M6 account for an NTU-funded upgrade airfare line, from
+ *  the Charging step. Validates the account belongs to the line's governing BA, then re-runs policy so
+ *  the hard stop clears without leaving the page. */
+export async function setUpgradeDeltaAccount(id: string, expenseId: string, code: string) {
+  if (!(await requireEdit(id))) return;
+  const req = await prisma.travelRequest.findUnique({ where: { id }, include: { allocations: true } });
+  const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId } });
+  if (!req || !exp || exp.requestId !== id) return;
+  const govBA = (req.allocations.find((a) => a.isMain) ?? req.allocations[0])?.businessArea ?? null;
+  const pool = accountsForBA(await listUpgradeAccounts(), govBA);
+  const next = code && pool.some((a) => a.code === code) ? code : null;
+  await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { upgradeDeltaCode: next } });
+  await audit(id, 'AMEND', next ? `Upgrade differential routed to ${next}` : 'Upgrade differential account cleared');
+  await persistPolicy(id);
+  revalidatePath(`/requests/${id}/charging`);
+  revalidatePath(`/requests/${id}/policy`);
 }
 
 /* ----------------------------------------------------- policy review (TR-10) */
