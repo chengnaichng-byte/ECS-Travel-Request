@@ -6,6 +6,9 @@
 import { EcsIdentity, EcsCharging, EcsWorkflow, EcsRoles } from '@/shared/ecs/services';
 import { APPROVER_ROLE, ROLE } from '@/shared/enums';
 import type { FullRequest } from './queries';
+import { isGuestRequest } from './traveller';
+import { resolveRoute, type Ctx, type RouteStepSpec } from './workflowRules';
+import { compileScenario, TR_STANDARD_SCENARIO, type WorkflowScenario } from '@/config/workflowScenario';
 
 export interface RouteStep {
   seq: number;
@@ -91,130 +94,105 @@ function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id
   return { id: line[idx], note };
 }
 
-export function buildRoute(
-  req: FullRequest,
-  opts: { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean } },
-): RouteStep[] {
+export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean } };
+
+/** §2.3 Gather the closed FACTS the workflow engine evaluates, from the request + settings. Presence
+ *  facts already apply §13.5 self-approval exclusion so a step the originator would fill is not raised. */
+export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded: Set<string>): Ctx {
+  const baSet = new Set<string>();
+  for (const a of req.allocations) { const ba = EcsCharging.code(a.chargingCode)?.businessArea; if (ba) baSet.add(ba); }
+  const crossChargeFO = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.crossCharge && c.fundingOwnerId);
+  return {
+    approvalAmount: opts.approvalAmount,
+    isGroup: req.isGroup,
+    researchRoute: isResearchRequest(req) && !opts.sameRouteResearch,
+    travellerIsPI: EcsIdentity.employee(req.travellerId)?.isPi === true,
+    isGuest: isGuestRequest(req),
+    hasPolicyException: opts.hasException,
+    crossBaCount: baSet.size,
+    crossChargeFundingOwnerPresent: !!(crossChargeFO?.fundingOwnerId && !excluded.has(crossChargeFO.fundingOwnerId)),
+    additionalApproverPresent: !!(req.additionalApproverId && !excluded.has(req.additionalApproverId)),
+    guestUpgradeProvostPresent: !!(opts.guestUpgradeProvostId && !excluded.has(opts.guestUpgradeProvostId)),
+    isEmergency: !!opts.emergency,
+    roRequirement: opts.roRequirement,
+    exceptionApproverRequired: opts.exceptionApproverRequired,
+    researchPiSelfApproval: !!opts.researchPiSelfApproval,
+    selfApprovalLimitSgd: opts.selfApprovalLimitSgd ?? 0,
+    crossBaThresholdSgd: opts.crossBaThresholdSgd,
+  };
+}
+
+/** Resolve the engine's ordered step SPECS into concrete approval steps — reporting-line escalation,
+ *  amount-band DOA tier, research line, cross-BA fan-out (0..N) and self-approval prevention all live
+ *  here (the engine decides WHICH steps apply; this decides WHO fills each). */
+function resolveSpecs(specs: RouteStepSpec[], req: FullRequest, opts: RouteOpts, excluded: Set<string>): RouteStep[] {
   const steps: RouteStep[] = [];
-  // §13.5 no one may approve a request they are travelling on OR raised — every step below routes
-  // past anyone in this set (escalating up the line where a single-holder step would otherwise land
-  // on them). Approver-only personas can't reach here at all (guards.canCreateTravelRequest).
-  const excluded = selfApprovalSet(req);
-  const deptId = highestChargingDept(req);
-  const dept = EcsIdentity.department(deptId);
+  const used = new Set<string>();   // approvers already on the route (cross-BA dedup, §13.5)
+  const dept = EcsIdentity.department(highestChargingDept(req));
   const research = isResearchRequest(req) && !opts.sameRouteResearch;
-
-  let seq = 1;
-
-  // §13.x / DD-23 Emergency / retrospective lane — the emergency lane NO LONGER compresses the
-  // route. It changes the TIMING of approval (book-first, ratified after the fact), never the SET
-  // of approvers: the full workflow below is built exactly as for a standard request, so an
-  // emergency cannot be used to skip the Additional / RO / cross-charge / Exception / DOA steps.
-  // Each step is a retrospective ratification; the note (appended at the end) flags that to the
-  // approver and in the audit trail. The authorising officer's e-mail authorises the book-first
-  // hand-off; it is not itself a route step.
-  const emergency = !!opts.emergency;
-
-  // Pre-trip route (§51 configurable): Traveller → (optional Additional Approver, chosen by
-  // the traveller — any AD person) → (Exception Approver when configured) → DOA. No RO step.
-  // The Additional Approver is only inserted if one was selected and is not the traveller
-  // (self-approval guard, §48).
-  if (req.additionalApproverId && !excluded.has(req.additionalApproverId)) {
-    steps.push({ seq: seq++, roleType: APPROVER_ROLE.AdditionalApprover, approverId: req.additionalApproverId, note: 'Additional approver added by requestor' });
-  }
-
-  // RO decision point (configurable — §51 workflow configuration): ALWAYS, INDIVIDUAL_ONLY
-  // (present for individual requests, dropped for a group request), or NEVER. Resolved as the
-  // traveller's Reporting Officer; when that RO is the traveller or the requestor, it escalates up
-  // the reporting line to the next eligible officer (self-approval re-route, §13.5).
-  const roNeeded = opts.roRequirement === 'ALWAYS' || (opts.roRequirement === 'INDIVIDUAL_ONLY' && !req.isGroup);
-  if (roNeeded) {
-    const ro = resolveRoStep(req.travellerId, excluded);
-    if (ro.id) {
-      steps.push({ seq: seq++, roleType: APPROVER_ROLE.RO, approverId: ro.id, note: ro.escalated ? 'Reporting Officer (escalated — self-approval prevention)' : 'Reporting Officer' });
-    }
-  }
-
-  // Funding Owner for cross-charge requiring owner approval (§6.2).
-  const crossCharge = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.crossCharge && c.fundingOwnerId);
-  if (crossCharge?.fundingOwnerId && !excluded.has(crossCharge.fundingOwnerId)) {
-    steps.push({ seq: seq++, roleType: APPROVER_ROLE.FundingOwner, approverId: crossCharge.fundingOwnerId, note: 'Cross-charge funding owner concurrence' });
-  }
-
-  // §18 Cross-business-area concurrence (AC5). When charging spans more than one BA, the
-  // primary-BA DOA still owns the request, but every other BA whose cost share exceeds the
-  // configured threshold must concur (that BA department's tier-1 DOA / funding owner).
-  const baShare: Record<string, number> = {};
-  for (const a of req.allocations) {
-    const ba = EcsCharging.code(a.chargingCode)?.businessArea;
-    if (ba) baShare[ba] = (baShare[ba] ?? 0) + a.percent;
-  }
-  const basByShare = Object.entries(baShare).sort((x, y) => y[1] - x[1]);
-  if (basByShare.length > 1) {
-    for (const [ba, pct] of basByShare.slice(1)) {
-      const baAmount = opts.approvalAmount * (pct / 100);
-      if (baAmount <= opts.crossBaThresholdSgd) continue;
-      const code = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.businessArea === ba);
-      const baDept = code?.departmentId ? EcsIdentity.department(code.departmentId) : undefined;
-      // Candidate concurring approver: the BA's funding owner, else its DOA line. Pick the first who
-      // is not in the self-approval set and not already on the route (§13.5 re-route).
-      const candidates = [code?.fundingOwnerId, ...(baDept?.doaLine ?? [])].filter(Boolean) as string[];
-      const approver = candidates.find((a) => !excluded.has(a) && !steps.some((s) => s.approverId === a)) ?? null;
-      if (approver) {
-        steps.push({ seq: seq++, roleType: APPROVER_ROLE.FundingOwner, approverId: approver, note: `Cross-BA concurrence — ${ba} share SGD ${baAmount.toFixed(0)} over SGD ${opts.crossBaThresholdSgd} threshold` });
-      }
-    }
-  }
-
-  // Exception approver inserted before DOA when a policy exception exists AND the
-  // exception-routing setting is on; otherwise the exception is surfaced to the DOA (§26).
-  if (opts.hasException && opts.exceptionApproverRequired) {
-    // Pick the first exception approver who is not the traveller/requestor (§13.5 re-route).
-    const exc = EcsRoles.employeesWithRole(ROLE.ExceptionApprover).find((e) => !excluded.has(e.id));
-    if (exc) steps.push({ seq: seq++, roleType: APPROVER_ROLE.Exception, approverId: exc.id, note: 'Policy exception review' });
-  }
-
-  // §8 / DD-25 Guest travel-class upgrade — the selected Provost authorises the upgrade ahead of
-  // the host DOA (the DOA still owns the cost). Inserted only for a guest upgrade with a chosen
-  // Provost; the policy hard-stop guarantees a Provost is selected before submission.
-  if (opts.guestUpgradeProvostId && !excluded.has(opts.guestUpgradeProvostId)) {
-    steps.push({ seq: seq++, roleType: APPROVER_ROLE.Provost, approverId: opts.guestUpgradeProvostId, note: 'Guest travel-class upgrade — Provost authorisation (§8 / DD-25)' });
-  }
-
-  // DOA step — tier from amount band, line depends on research route.
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
-  // #1 Research PI self-approval (configurable) — a research request raised for a Principal
-  // Investigator (staff-master PI flag), within the global self-approval limit, is self-approved:
-  // the DOA IS the traveller (the PI). This is the sanctioned exception to self-approval prevention,
-  // so the step is assigned to the traveller directly rather than escalated past them. Individual
-  // (non-group) requests only; submit auto-grants it when the PI raised it themselves.
-  const limit = opts.selfApprovalLimitSgd ?? 0;
-  const piSelfApprove = research && !req.isGroup && !!opts.researchPiSelfApproval
-    && limit > 0 && opts.approvalAmount <= limit
-    && EcsIdentity.employee(req.travellerId)?.isPi === true;
-  if (piSelfApprove) {
-    steps.push({ seq: seq++, roleType: APPROVER_ROLE.ResearchDOA, approverId: req.travellerId, note: `${band.label} · Research PI self-approval (≤ SGD ${limit.toLocaleString('en-SG')})` });
-  } else {
-    const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
-    // §13.14 use the traveller's selected DOA when set (and not the traveller/requestor); else auto-pick.
-    let doaId: string | null; let doaNote: string;
-    if (req.selectedDoaId && !excluded.has(req.selectedDoaId)) {
-      doaId = req.selectedDoaId; doaNote = `${band.label} · traveller-selected`;
-    } else {
-      const d = pickDoa(line, band.doaTierIndex, excluded); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · ');
+  let seq = 1;
+  const push = (roleType: string, approverId: string | null, note: string) => { if (approverId) used.add(approverId); steps.push({ seq: seq++, roleType, approverId, note }); };
+
+  for (const spec of specs) {
+    // ECS "Approver" — a specific named approver pinned on the level overrides the resolver.
+    if (spec.approverId && !excluded.has(spec.approverId)) { push(spec.roleType, spec.approverId, spec.note ?? 'Named approver'); continue; }
+
+    if (spec.resolver === 'FIXED' && spec.ref === 'ADDITIONAL') {
+      if (req.additionalApproverId && !excluded.has(req.additionalApproverId)) push(APPROVER_ROLE.AdditionalApprover, req.additionalApproverId, spec.note ?? 'Additional approver added by requestor');
+    } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'RO') {
+      const ro = resolveRoStep(req.travellerId, excluded);
+      if (ro.id) push(APPROVER_ROLE.RO, ro.id, ro.escalated ? 'Reporting Officer (escalated — self-approval prevention)' : 'Reporting Officer');
+    } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'FUNDING_OWNER') {
+      const cc = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.crossCharge && c.fundingOwnerId);
+      if (cc?.fundingOwnerId && !excluded.has(cc.fundingOwnerId)) push(APPROVER_ROLE.FundingOwner, cc.fundingOwnerId, 'Cross-charge funding owner concurrence');
+    } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'CROSS_BA') {
+      const baShare: Record<string, number> = {};
+      for (const a of req.allocations) { const ba = EcsCharging.code(a.chargingCode)?.businessArea; if (ba) baShare[ba] = (baShare[ba] ?? 0) + a.percent; }
+      for (const [ba, pct] of Object.entries(baShare).sort((x, y) => y[1] - x[1]).slice(1)) {
+        const baAmount = opts.approvalAmount * (pct / 100);
+        if (baAmount <= opts.crossBaThresholdSgd) continue;
+        const code = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.businessArea === ba);
+        const baDept = code?.departmentId ? EcsIdentity.department(code.departmentId) : undefined;
+        const candidates = [code?.fundingOwnerId, ...(baDept?.doaLine ?? [])].filter(Boolean) as string[];
+        const approver = candidates.find((a) => !excluded.has(a) && !used.has(a)) ?? null;
+        if (approver) push(APPROVER_ROLE.FundingOwner, approver, `Cross-BA concurrence — ${ba} share SGD ${baAmount.toFixed(0)} over SGD ${opts.crossBaThresholdSgd} threshold`);
+      }
+    } else if (spec.resolver === 'ROLE' && spec.ref === 'EXCEPTION_APPROVER') {
+      const exc = EcsRoles.employeesWithRole(ROLE.ExceptionApprover).find((e) => !excluded.has(e.id));
+      if (exc) push(APPROVER_ROLE.Exception, exc.id, 'Policy exception review');
+    } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'PROVOST') {
+      if (opts.guestUpgradeProvostId && !excluded.has(opts.guestUpgradeProvostId)) push(APPROVER_ROLE.Provost, opts.guestUpgradeProvostId, 'Guest travel-class upgrade — Provost authorisation (§8 / DD-25)');
+    } else if (spec.resolver === 'SELF') {
+      // #1 the sanctioned exception to self-approval prevention — the PI is the DOA (assigned directly).
+      push(APPROVER_ROLE.ResearchDOA, req.travellerId, `${band.label} · Research PI self-approval (≤ SGD ${(opts.selfApprovalLimitSgd ?? 0).toLocaleString('en-SG')})`);
+    } else if (spec.resolver === 'BAND_DOA') {
+      const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
+      let doaId: string | null; let doaNote: string;
+      if (req.selectedDoaId && !excluded.has(req.selectedDoaId)) { doaId = req.selectedDoaId; doaNote = `${band.label} · traveller-selected`; }
+      else { const d = pickDoa(line, band.doaTierIndex, excluded); doaId = d.id; doaNote = [band.label, d.note].filter(Boolean).join(' · '); }
+      push(research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, doaId, doaNote);
     }
-    steps.push({ seq: seq++, roleType: research ? APPROVER_ROLE.ResearchDOA : APPROVER_ROLE.DOA, approverId: doaId, note: doaNote });
   }
 
-  // §13.x / DD-23 emergency = the SAME route, ratified retrospectively (book-first). Flag every
-  // step so the approver sees the booking was authorised ahead of their decision.
-  if (emergency) {
-    for (const s of steps) {
-      s.note = s.note ? `${s.note} · retrospective ratification (emergency book-first, DD-23)` : 'Retrospective ratification (emergency book-first, DD-23)';
-    }
-  }
-
+  // §13.x / DD-23 emergency = the SAME route, ratified retrospectively (book-first). Flag every step.
+  if (opts.emergency) for (const s of steps) s.note = s.note ? `${s.note} · retrospective ratification (emergency book-first, DD-23)` : 'Retrospective ratification (emergency book-first, DD-23)';
   return steps;
+}
+
+/** The active TR workflow scenario (Phase 1: the seeded default; a stored/edited scenario drives it
+ *  in a later phase). Kept as a function so the source is a single place to swap. */
+export function activeWorkflowScenario(): WorkflowScenario {
+  return TR_STANDARD_SCENARIO;
+}
+
+export function buildRoute(req: FullRequest, opts: RouteOpts): RouteStep[] {
+  // §13.5 no one may approve a request they are travelling on OR raised.
+  const excluded = selfApprovalSet(req);
+  const facts = gatherWorkflowFacts(req, opts, excluded);
+  const resolved = resolveRoute(compileScenario(activeWorkflowScenario()), facts);
+  if (resolved.outcome === 'BLOCK') return [];
+  return resolveSpecs(resolved.steps, req, opts, excluded);
 }
 
 /** First pending step in a route determines the request's Pending-* status. */

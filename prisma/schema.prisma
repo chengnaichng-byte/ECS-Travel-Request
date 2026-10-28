@@ -380,6 +380,24 @@ model UpgradeUpliftRate {
   @@unique([fromClassId, toClassId])
 }
 
+/// §6.2 WorkflowScenario — ECS-structured TR approval-workflow configuration, mirroring the ECS
+/// "Workflow configurations" screen: a named, effective-dated, enable-able scenario whose Approval
+/// Tiers + Approving Levels are stored as a JSON payload (ApprovalTier[] from
+/// src/config/workflowScenario.ts) that compiles to the decision-tree engine. Seeded from the
+/// TR_STANDARD default (which reproduces route.ts). "Copy to new" creates a new version/row.
+model WorkflowScenario {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  effectiveFrom DateTime
+  effectiveTo   DateTime
+  enabled       Boolean  @default(true)
+  tiersJson     String                        // JSON ApprovalTier[]
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 /// §7.1 PolicyCheck — result of common + pre-trip policy rules (§6.3)
 model PolicyCheck {
   id            String  @id @default(cuid())

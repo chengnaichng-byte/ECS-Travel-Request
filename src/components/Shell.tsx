@@ -81,6 +81,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
               { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
               { href: '/setup/upgrade-accounts', label: 'Upgrade Differential (M6) Accounts', icon: '▲' },
               { href: '/setup/upgrade-rates', label: 'Upgrade Uplift Rates', icon: '％' },
+              { href: '/setup/workflow', label: 'Workflow Configuration (TR)', icon: '⇄' },
             ]} /></div>
             <ul className="space-y-0.5">
               {STUBS.map((s) => (
