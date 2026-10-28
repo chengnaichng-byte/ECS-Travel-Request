@@ -2,11 +2,9 @@
 // Exception / Hard stop. Hard stop blocks submission (AC06); Exception is allowed
 // through exception approval (§6.2); Warning is informational.
 import { EcsPolicy, EcsReference, EcsCharging, EcsTravelClassRegister, EcsIdentity } from '@/shared/ecs/services';
-import { POLICY_OUTCOME, EXPENSE_CATEGORY, BOOKING_METHOD } from '@/shared/enums';
+import { POLICY_OUTCOME, EXPENSE_CATEGORY } from '@/shared/enums';
 import type { FullRequest } from './queries';
-import { computeSummary } from './pricing';
 import { effectiveLegs, sharedLegs } from './group';
-import { policyThresholds as PT } from '@/config/policyThresholds';
 import { ruleActive } from '@/config/policyRules';
 import { highRiskDestinationsForRequest } from './risk';
 import { isGuestRequest } from './traveller';
@@ -166,25 +164,11 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string, 
     }
   }
 
-  if (ruleActive('OFFLINE', now) && req.bookingMethod === BOOKING_METHOD.Offline) {
-    checks.push({ code: 'OFFLINE', label: 'Offline booking', outcome: POLICY_OUTCOME.Exception, detail: 'Offline booking requires a supporting quotation and approval.' });
-  }
+  // §6.3 OFFLINE / LEAD / LONG / HIGH are now DATA-DRIVEN via Policy Configuration (the
+  // "NTU_Travel Advisories" policy, evaluated by policyConfigEval) — their outcome, threshold and
+  // message are runtime-editable. Structural + entangled checks stay in this engine.
 
   // ---- Warnings ---------------------------------------------------------------
-  if (ruleActive('LEAD', now) && req.startDate) {
-    const leadDays = Math.round((req.startDate.getTime() - now.getTime()) / 86400000);
-    if (leadDays >= 0 && leadDays < PT.shortLeadDays) {
-      checks.push({ code: 'LEAD', label: 'Short lead time', outcome: POLICY_OUTCOME.Warning, detail: `Departure is in ${leadDays} day(s); recommended lead time is ${PT.shortLeadDays} days.` });
-    }
-  }
-  if (ruleActive('LONG', now) && req.startDate && req.endDate) {
-    const durDays = Math.round((req.endDate.getTime() - req.startDate.getTime()) / 86400000) + 1;
-    if (durDays > PT.longTripDays) checks.push({ code: 'LONG', label: 'Long trip', outcome: POLICY_OUTCOME.Warning, detail: `Trip spans ${durDays} days.` });
-  }
-  const summary = computeSummary(req.expenses, approvalAmountBasis);
-  if (ruleActive('HIGH', now) && summary.approvalAmount > PT.highEstimateSgd) {
-    checks.push({ code: 'HIGH', label: 'High estimate', outcome: POLICY_OUTCOME.Warning, detail: `Approval amount SGD ${summary.approvalAmount.toFixed(0)} is above SGD ${PT.highEstimateSgd.toLocaleString('en-SG')}.` });
-  }
 
   // Itinerary route continuity (advisory) — each leg should depart from where the previous leg
   // arrived; a mismatch (e.g. land in Tokyo, next leg leaves from Osaka) is usually a data-entry

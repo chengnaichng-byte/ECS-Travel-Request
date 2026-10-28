@@ -398,6 +398,26 @@ model WorkflowScenario {
   updatedAt     DateTime @updatedAt
 }
 
+/// §6.3 PolicyConfig — ECS-structured TR policy configuration, mirroring the ECS "Policy
+/// configurations" screen: a named, category- and company-scoped, effective-dated, enable-able Policy
+/// whose Rules (Field/Operator/Value conditions + Actions: warning / hard stop / exception approvers)
+/// are stored as a JSON payload (PolicyRuleCfg[] from src/config/policyConfigs.ts) evaluated by the
+/// configured-policy engine. Seeded from the defaults, which reproduce the discretionary checks.
+model PolicyConfig {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  category      String
+  companyCode   String   @default("NTU")
+  effectiveFrom DateTime
+  effectiveTo   DateTime
+  enabled       Boolean  @default(true)
+  rulesJson     String                        // JSON PolicyRuleCfg[]
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 /// §7.1 PolicyCheck — result of common + pre-trip policy rules (§6.3)
 model PolicyCheck {
   id            String  @id @default(cuid())

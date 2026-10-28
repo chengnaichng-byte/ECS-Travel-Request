@@ -10,6 +10,7 @@ import { nextRequestNumber, nextAuthorisationNumber, nextClaimNumber } from './n
 import { computeAccommodation, computeOda, computeOdaTiered, computeSummary } from './pricing';
 import { evaluatePolicies, hasException, hasHardStop } from './policy';
 import { ensureUpgradeConfigSeed, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, defaultAccountForBA, upgradeCheckCtx } from './upgradeConfig';
+import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { buildRoute, statusForStep } from './route';
 import { sharedLegs } from './group';
 import { HOTEL_SETTLEMENT } from './settlement';
@@ -183,6 +184,7 @@ async function submit(id: string): Promise<FullRequest> {
   // for a trip that already started) does not apply to these fixtures, so it is exempt here — the
   // live submit (submitRequest / policy.ts) still enforces it in full.
   const checks = evaluatePolicies(req, settings.approvalAmountBasis, await upgradeCheckCtx(settings)).filter((c) => c.code !== 'DATE_PAST');
+  checks.push(...(await evaluateConfiguredPolicies(req, settings.approvalAmountBasis)).checks);
   // Mirror the live submit guard: a scenario must not submit with an unresolved hard stop (e.g. an
   // above-cap hotel or class upgrade with no justification) — fail loudly so bad seed data is caught.
   if (hasHardStop(checks)) {

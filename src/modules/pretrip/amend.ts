@@ -10,6 +10,7 @@ import { getSettings } from './settings';
 import { computeSummary } from './pricing';
 import { evaluatePolicies, hasException } from './policy';
 import { upgradeCheckCtx } from './upgradeConfig';
+import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { buildRoute } from './route';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { getContractSettings, tmcEnabledSet } from './integration';
@@ -52,6 +53,7 @@ export async function applyMaterialAmendment(id: string, reason: string) {
 
   // Re-evaluate policy and re-derive the approval route on the amended request.
   const checks = evaluatePolicies(req, settings.approvalAmountBasis, await upgradeCheckCtx(settings));
+  checks.push(...(await evaluateConfiguredPolicies(req, settings.approvalAmountBasis)).checks);
   await prisma.policyCheck.deleteMany({ where: { requestId: id } });
   for (const c of checks) {
     await prisma.policyCheck.create({ data: { requestId: id, code: c.code, label: c.label, outcome: c.outcome, detail: c.detail, travellerId: c.travellerId ?? null } });

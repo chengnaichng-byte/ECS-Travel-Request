@@ -23,6 +23,7 @@ import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest } from './traveller';
 import { hasEmergencyApproval, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
+import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipientFor } from '@/config/visaLetter';
 import { randomUUID } from 'node:crypto';
@@ -70,6 +71,9 @@ async function persistPolicy(id: string): Promise<{ hardStop: boolean; exception
   if (!req) return { hardStop: false, exception: false };
   const settings = await getSettings();
   const checks = evaluatePolicies(req, settings.approvalAmountBasis, await upgradeCheckCtx(settings));
+  // §6.3 data-driven policy checks from the ECS Policy Configuration (advisories, offline, and any
+  // configured rule) — evaluated alongside the structural engine checks.
+  checks.push(...(await evaluateConfiguredPolicies(req, settings.approvalAmountBasis)).checks);
 
   // §25/§40 duplicate / overlapping-trip check — evaluated here (not in the pure engine)
   // because it must look across sibling requests. A guest has no cross-request identity.
