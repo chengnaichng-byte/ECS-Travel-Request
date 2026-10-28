@@ -126,6 +126,7 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
         <h3 className="font-semibold text-[var(--ecs-navy)]">Decision points</h3>
         {canEdit && <button type="button" className="btn-secondary text-xs" onClick={addDp}>＋ Add decision point</button>}
       </div>
+      <p className="text-xs text-[var(--ecs-muted)] -mt-3">Decision points are evaluated <strong>independently (OR)</strong> — each one&apos;s action(s) apply whenever <strong>all</strong> of its own conditions hold (AND). Use a separate decision point for each alternative (e.g. two <em>Skip RO</em> points for two different situations).</p>
       {s.decisionPoints.map((dp, di) => (
         <div key={di} className="card p-4">
           <div className="flex items-center justify-between mb-2">
