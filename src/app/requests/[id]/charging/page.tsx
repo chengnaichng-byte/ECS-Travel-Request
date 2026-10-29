@@ -13,7 +13,8 @@ import { canEditRequest } from '@/modules/pretrip/guards';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
-import { memberName } from '@/modules/pretrip/traveller';
+import { memberName, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
+const memberTag = (t: { travellerType?: string | null; employeeId: string }, sep: string) => isStudentMember(t) ? `${sep}student` : (isNonEmployeeMember(t) ? `${sep}guest` : '');
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import { listUpgradeAccounts, accountsForBA, effectiveDeltaCode } from '@/modules/pretrip/upgradeConfig';
@@ -70,7 +71,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
   const hostChargingCode = EcsIdentity.employee(req.requestorId)?.defaultChargingCode ?? defaultAccount;
   const memberKeyLabel = (key: string | null) => {
     const t = req.travellers.find((x) => x.employeeId === key);
-    return t ? memberName(t) + (t.travellerType === 'GUEST' ? ' · guest' : '') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
+    return t ? memberName(t) + memberTag(t, ' · ') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
   };
   const accounts: AccountOpt[] = chargingCodes.map((c) => ({
     code: c.code, name: c.name, type: c.type, companyCode: c.companyCode, businessArea: c.businessArea,
@@ -81,7 +82,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
   // home-department (Workday) default cost centre, aggregated by account.
   // §8 guests carry no share of a shared line — exclude them from both an explicit shareMap
   // and the equal-split fallback, so a shared incidental only charges employee departments.
-  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const guestIds = new Set(req.travellers.filter(isNonEmployeeMember).map((t) => t.employeeId));
   const sharers = req.travellers.filter((t) => !guestIds.has(t.employeeId));
   const deptAllocsFor = (e: FullRequest['expenses'][number]): { code: string; pct: number }[] => {
     let shares: { eid: string; pct: number }[] = [];

@@ -19,7 +19,7 @@ import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './ame
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement } from './booking';
-import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest } from './traveller';
+import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember } from './traveller';
 import { hasEmergencyApproval, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
@@ -359,7 +359,7 @@ export async function saveTrip(id: string, fd: FormData) {
     const travellers = await prisma.travelRequestTraveller.findMany({ where: { requestId: id } });
     for (const t of travellers) {
       // §8 guest members have no entitlement profile → Economy by default (AC7).
-      const guest = t.travellerType === 'GUEST' || t.employeeId.startsWith('G-');
+      const guest = isNonEmployeeMember(t);
       const ent = guest
         ? { classId: 'TC-ECO' }
         : EcsTravelClassRegister.entitledForItinerary(t.employeeId, legsForEntitlement, start ?? new Date());
@@ -700,7 +700,7 @@ export async function addOda(id: string, fd: FormData) {
   const tids = await travellerFanout(id, fd);
   // §8 guests receive no ODA — a per-diem is not a guest entitlement and has no settlement
   // path (no claim, not TMC-billed). Exclude guests from the fan-out and reject a guest pick.
-  const guestIds = new Set((await prisma.travelRequestTraveller.findMany({ where: { requestId: id } })).filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const guestIds = new Set((await prisma.travelRequestTraveller.findMany({ where: { requestId: id } })).filter((t) => isNonEmployeeMember(t)).map((t) => t.employeeId));
   const odaTids = tids.filter((t) => !(t && guestIds.has(t)));
   if (odaTids.length === 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('ODA does not apply to guests — select an employee traveller (§8).')}`);
   for (const tid of odaTids) {
@@ -758,7 +758,7 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
     stops.push({ legSeq: l.seq, city, country, from, to, nights });
   }
 
-  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const guestIds = new Set(req.travellers.filter((t) => isNonEmployeeMember(t)).map((t) => t.employeeId));
   const hotelTids: (string | null)[] = req.isGroup ? req.travellers.map((t) => t.employeeId) : [null];
   // §8 ODA is an employee entitlement only — guests get none.
   const odaTids: (string | null)[] = req.isGroup
@@ -1684,6 +1684,12 @@ export async function createGroupDraft(fd: FormData) {
   const requestorId = await currentPersonaId();
   // §13.13 / DD-24 separation of duties — an approver-only persona may not originate a request.
   if (!canCreateTravelRequest(requestorId)) redirect(`/requests/new?error=${encodeURIComponent('You do not have authority to raise a travel request.')}`);
+
+  // §13.14 STUDENT group — members are uploaded by the requestor (name / email / student id /
+  // programme) and are NOT validated against any record. Mechanically a non-employee (guest-like)
+  // group: Economy, host-department charging, central settlement, no own claim.
+  if (str(fd, 'groupType') === 'STUDENT') return createStudentGroupDraft(fd, requestorId);
+
   const travellerIds = (fd.getAll('travellerIds') as string[]).map((s) => s.trim()).filter(Boolean);
   // §8 a group may also include guest members (non-employees), captured inline.
   let guests: { name: string; email?: string; org?: string }[] = [];
@@ -1715,7 +1721,7 @@ export async function createGroupDraft(fd: FormData) {
   const requestNumber = await nextRequestNumber(yr());
   const req = await prisma.travelRequest.create({
     data: {
-      requestNumber, requestorId, travellerId: primary, isGroup: true,
+      requestNumber, requestorId, travellerId: primary, isGroup: true, groupType: 'STAFF',
       entityId: EcsIdentity.entity().id, departmentId: primaryDept,
       status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
       travellers: {
@@ -1726,7 +1732,39 @@ export async function createGroupDraft(fd: FormData) {
       },
     },
   });
-  await audit(req.id, 'CREATE', `Group draft ${requestNumber} created for ${total} travellers${guests.length ? ` (incl. ${guests.length} guest${guests.length > 1 ? 's' : ''})` : ''}`, requestorId);
+  await audit(req.id, 'CREATE', `Staff group draft ${requestNumber} created for ${total} travellers${guests.length ? ` (incl. ${guests.length} guest${guests.length > 1 ? 's' : ''})` : ''}`, requestorId);
+  redirect(`/requests/${req.id}/trip`);
+}
+
+/** §13.14 Create a STUDENT group draft. Members come entirely from the requestor's upload — name,
+ *  email, student id, programme — and are NOT validated. They are non-employee (guest-like)
+ *  travellers: Economy, host-department charging, central settlement, no own claim. The requestor
+ *  (coordinator) anchors routing but carries no cost share. */
+async function createStudentGroupDraft(fd: FormData, requestorId: string) {
+  const settings = await getSettings();
+  if (!settings.studentGroupEnabled) redirect(`/requests/new?error=${encodeURIComponent('Student group requests are disabled in configuration.')}`);
+  let students: { name: string; email?: string; studentId?: string; programme?: string }[] = [];
+  try { students = (JSON.parse(str(fd, 'studentsJson') || '[]') as typeof students).filter((s) => s.name?.trim()); } catch { students = []; }
+  if (students.length < 2) redirect(`/requests/new?error=${encodeURIComponent('A student group needs at least two students.')}`);
+  if (students.length > settings.groupMaxTravellers) redirect(`/requests/new?error=${encodeURIComponent(`A group booking is limited to ${settings.groupMaxTravellers} travellers (TMC group limit). You uploaded ${students.length}.`)}`);
+  const sharePct = Math.round((100 / students.length) * 100) / 100;
+  const stamp = Date.now().toString(36);
+  const studentRows = students.map((s, i) => ({
+    employeeId: `S-${stamp}${i}`, travellerType: 'STUDENT',
+    guestName: s.name.trim(), guestEmail: s.email?.trim() || null,
+    studentId: s.studentId?.trim() || null, programme: s.programme?.trim() || null,
+    isRequestor: false, confirmed: true, sharePct, // the coordinator confirms the party offline
+  }));
+  const requestNumber = await nextRequestNumber(yr());
+  const req = await prisma.travelRequest.create({
+    data: {
+      requestNumber, requestorId, travellerId: requestorId, isGroup: true, groupType: 'STUDENT',
+      entityId: EcsIdentity.entity().id, departmentId: EcsIdentity.employee(requestorId)?.departmentId,
+      status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+      travellers: { create: studentRows },
+    },
+  });
+  await audit(req.id, 'CREATE', `Student group draft ${requestNumber} created for ${students.length} students (uploaded, not validated)`, requestorId);
   redirect(`/requests/${req.id}/trip`);
 }
 

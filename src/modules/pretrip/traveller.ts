@@ -39,19 +39,26 @@ export function travellerEmail(req: TravellerRef): string | null {
 
 /* ------------------------------------------------- §8/§13.14 group members (mixed) */
 // A group member is an employee OR a guest. For a guest member employeeId holds a synthetic
-// "G-…" key (so expenses keyed by employeeId still work); identity comes from the guest fields.
+// "G-…" (guest) or "S-…" (student) key (so expenses keyed by employeeId still work); identity
+// comes from the captured fields, never an ECS/HR lookup.
 export interface MemberRef {
   employeeId: string;
   travellerType?: string | null;
   guestName?: string | null;
   guestOrg?: string | null;
+  studentId?: string | null;
+  programme?: string | null;
 }
 export function isGuestMember(t: MemberRef): boolean { return t.travellerType === 'GUEST' || t.employeeId.startsWith('G-'); }
+export function isStudentMember(t: MemberRef): boolean { return t.travellerType === 'STUDENT' || t.employeeId.startsWith('S-'); }
+/** A non-employee member — guest or student — whose identity is captured, not HR-resolved. */
+export function isNonEmployeeMember(t: MemberRef): boolean { return isGuestMember(t) || isStudentMember(t); }
 export function memberName(t: MemberRef): string {
-  if (isGuestMember(t)) return t.guestName?.trim() || 'Guest traveller';
+  if (isNonEmployeeMember(t)) return t.guestName?.trim() || (isStudentMember(t) ? 'Student traveller' : 'Guest traveller');
   return EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId;
 }
 export function memberDeptName(t: MemberRef): string {
+  if (isStudentMember(t)) return t.programme?.trim() ? `Student · ${t.programme.trim()}` : 'Student (non-employee)';
   if (isGuestMember(t)) return t.guestOrg?.trim() ? `Guest · ${t.guestOrg.trim()}` : 'Guest (non-employee)';
   return EcsIdentity.department(EcsIdentity.employee(t.employeeId)?.departmentId ?? '')?.name ?? '';
 }

@@ -9,7 +9,10 @@ import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
-import { memberName, isGuestRequest } from '@/modules/pretrip/traveller';
+import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
+type TagRef = { travellerType?: string | null; employeeId: string };
+/** " · student" / " · guest" / "" — the non-employee label suffix for a member, with a chosen separator. */
+const memberTag = (t: TagRef, sep: string) => isStudentMember(t) ? `${sep}student` : (isNonEmployeeMember(t) ? `${sep}guest` : '');
 import { isTmcArrangement } from '@/modules/pretrip/booking';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
@@ -66,7 +69,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
     ['__ALL__', `All travellers (${req.travellers.length}) — one line each`],
-    ...req.travellers.map((t) => [t.employeeId, memberName(t) + (t.travellerType === 'GUEST' ? ' (guest)' : '')] as [string, string]),
+    ...req.travellers.map((t) => [t.employeeId, memberName(t) + (isNonEmployeeMember(t) ? ` (${memberTag(t, '').trim()})` : '')] as [string, string]),
   ];
   // §8 ODA is not a guest entitlement — a pure guest request hides the ODA card, and a group's
   // ODA traveller picker offers employee members only (guests are also filtered server-side).
@@ -80,7 +83,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
   const memberLabel = (key: string | null) => {
     const t = req.travellers.find((x) => x.employeeId === key);
-    return t ? memberName(t) + (t.travellerType === 'GUEST' ? ' · guest' : '') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
+    return t ? memberName(t) + memberTag(t, ' · ') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
   };
   const attribution = (e: { isShared: boolean; travellerId: string | null }) =>
     e.isShared ? 'Shared (apportioned)' : memberLabel(e.travellerId);
@@ -88,7 +91,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // one row per traveller at their share (shareMap, else an equal split). Accommodation is no
   // longer shared (each traveller books their own room), so this applies only to shared incidentals.
   // §8 shared incidentals split across employee members only — guests carry no share.
-  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const guestIds = new Set(req.travellers.filter(isNonEmployeeMember).map((t) => t.employeeId));
   const sharers = req.travellers.filter((t) => !guestIds.has(t.employeeId));
   const apportion = (e: { sgdAmount: number; shareMap: string | null }) => {
     let sm: Record<string, number> = {};

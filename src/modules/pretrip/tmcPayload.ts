@@ -10,7 +10,7 @@ import { buildOutbound } from '@/integrations/tmc/adapter';
 import type { OutboundMeta, CanonicalOutbound } from '@/integrations/tmc/contract';
 import { EcsIdentity, EcsReference, EcsCharging } from '@/shared/ecs/services';
 import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShares, hasPersonalExtension } from './group';
-import { isGuestRequest, travellerName, isGuestMember, memberName } from './traveller';
+import { isGuestRequest, travellerName, isGuestMember, isStudentMember, isNonEmployeeMember, memberName } from './traveller';
 import { hostCostObject, lineSettlement } from './settlement';
 import { isEmergencyBookFirst } from './emergency';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
@@ -126,8 +126,8 @@ export function assembleOutboundInstructions(
 
   const instructions = req.travellers.map((t, i) => {
     const legs = effectiveLegs(req, t.employeeId).filter((l) => l.transportMode === 'AIR');
-    // §8 guest members have no entitlement profile — Economy by default (AC7).
-    const guest = isGuestMember(t);
+    // §8/§13.14 non-employee members (guests and students) have no entitlement profile — Economy by default (AC7).
+    const guest = isNonEmployeeMember(t);
     const classId = guest ? 'TC-ECO' : (t.chosenClassId ?? req.travelClassId);
     // Shared accommodation lines, each costed on this traveller's own nights; plus any
     // accommodation line attributed directly to them.
@@ -145,8 +145,8 @@ export function assembleOutboundInstructions(
       authorisationNumber: req.authorisationNo ?? '',
       travellerRef: t.employeeId,
       travellerName: memberName(t),
-      bookingFor: guest ? 'GUEST' : 'EMPLOYEE',
-      ...(guest ? { guest: { name: memberName(t), email: t.guestEmail, organisation: t.guestOrg },
+      bookingFor: isStudentMember(t) ? 'STUDENT' : guest ? 'GUEST' : 'EMPLOYEE',
+      ...(guest ? { guest: { name: memberName(t), email: t.guestEmail, organisation: t.guestOrg, studentId: t.studentId, programme: t.programme },
         settlement: { mode: 'HOST_DIRECT_BILL' as const, costObject: hostCostObject(req) },
         ...(on('guestProfile') ? { guestProfile: guestProfileBlock(t.guestEmail) } : {}) } : {}),
       instructionSeq: (t as { lineNo?: number | null }).lineNo ?? i + 1, // §13.14 the traveller's frozen group line number (TA/0n)

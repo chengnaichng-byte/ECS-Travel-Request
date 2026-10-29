@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { StatusPill } from '@/components/StatusPill';
 
 export interface DashRow {
-  id: string; requestNumber: string; type: 'S' | 'E'; kind: 'IND' | 'GRP' | 'GST';
+  id: string; requestNumber: string; type: 'S' | 'E'; kind: 'IND' | 'GRP' | 'GST'; groupType?: 'STAFF' | 'STUDENT' | null;
   ba: string; traveller: string; requestor: string; purpose: string; dest: string; dates: string; ntu: string;
   exceptions: number; status: string; bookingStatus: string;
 }
@@ -35,9 +35,10 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
   const TypePill = ({ t }: { t: 'S' | 'E' }) => t === 'E'
     ? <span className="pill-exc" title="Emergency — book first, raise/approve later (DD-23)">E</span>
     : <span className="pill-info" title="Standard">S</span>;
-  const KindPill = ({ k }: { k: 'IND' | 'GRP' | 'GST' }) => {
-    const label = k === 'GRP' ? 'Group booking' : k === 'GST' ? 'Guest booking' : 'Individual booking';
-    return <span className="pill-navy" title={label}>{k}</span>;
+  const KindPill = ({ k, gt }: { k: 'IND' | 'GRP' | 'GST'; gt?: 'STAFF' | 'STUDENT' | null }) => {
+    const sub = k === 'GRP' && gt === 'STUDENT' ? 'Student' : k === 'GRP' && gt === 'STAFF' ? 'Staff' : '';
+    const label = k === 'GRP' ? `${sub ? sub + ' ' : ''}group booking` : k === 'GST' ? 'Guest booking' : 'Individual booking';
+    return <span className="pill-navy" title={label}>{k}{sub ? `·${sub === 'Student' ? 'Stu' : 'Staff'}` : ''}</span>;
   };
 
   return (
@@ -88,7 +89,7 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
                       traveller can continue editing; everything else opens the read view. */}
                   <div className="flex items-center gap-1 flex-wrap">
                     <Link href={r.status === 'Draft' || r.status === 'Sent Back' ? `/requests/${r.id}/trip` : `/requests/${r.id}/details`} className="text-[var(--ecs-navy-2)] hover:underline">{r.requestNumber}</Link>
-                    <TypePill t={r.type} /><KindPill k={r.kind} />
+                    <TypePill t={r.type} /><KindPill k={r.kind} gt={r.groupType} />
                     {(r.status === 'Draft' || r.status === 'Sent Back') && <span className="pill-warn">Edit</span>}
                   </div>
                 </td>

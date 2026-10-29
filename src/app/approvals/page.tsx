@@ -107,14 +107,15 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                     const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
                     const ba = EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—';
                     const kind = r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND';
-                    const kindTitle = kind === 'GRP' ? 'Group booking' : kind === 'GST' ? 'Guest booking' : 'Individual booking';
+                    const kindSub = kind === 'GRP' && r.groupType === 'STUDENT' ? 'Stu' : kind === 'GRP' && r.groupType === 'STAFF' ? 'Staff' : '';
+                    const kindTitle = kind === 'GRP' ? `${r.groupType === 'STUDENT' ? 'Student ' : r.groupType === 'STAFF' ? 'Staff ' : ''}group booking` : kind === 'GST' ? 'Guest booking' : 'Individual booking';
                     const exc = r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length;
                     return (
                       <tr key={r.id} className={rowCls(exc > 0)}>
                         <td className="td whitespace-nowrap">{fmtDate(r.versions.at(-1)?.createdAt ?? r.updatedAt)}</td>
-                        <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}</span></span></td>
+                        <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}{kindSub ? `·${kindSub}` : ''}</span></span></td>
                         <td className="td">{ba}</td>
-                        <td className="td">{travellerName(r)}{r.isGroup ? ` +${r.travellers.length - 1}` : ''}</td>
+                        <td className="td">{r.groupType === 'STUDENT' ? `${r.travellers.length} students` : travellerName(r) + (r.isGroup ? ` +${r.travellers.length - 1}` : '')}</td>
                         <td className="td">{EcsIdentity.employee(r.requestorId)?.name}</td>
                         <td className="td">{EcsReference.travelPurpose(r.purposeId ?? '')?.name}</td>
                         <td className="td">{EcsReference.city(r.destCity ?? '')?.name}</td>

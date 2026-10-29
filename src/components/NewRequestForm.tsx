@@ -1,23 +1,29 @@
 'use client';
-// TR-02 create form — Individual / Group / Guest (§13.14, §8). A group may mix employee
-// members and guest (non-employee) members, up to the configured TMC group-booking limit.
-// Group members may be added by ticking the directory, adding guest rows, or bulk-uploading
-// an Excel/CSV member list (§13.13 — a coordinator building a large party).
+// TR-02 create form — Individual / Group / Guest (§13.14, §8). A GROUP is either a STAFF group
+// (employee members from the ECS directory, optionally mixed with guests) or a STUDENT group
+// (members entirely from an uploaded list — name / email / student id / programme — that is NOT
+// validated; mechanically a guest-group booking). Members may be added by ticking the directory,
+// adding rows, or bulk-uploading an Excel/CSV list (§13.13 — a coordinator building a large party).
 import { useState, useRef } from 'react';
 import { createDraft, createGroupDraft, createGuestDraft } from '@/modules/pretrip/actions';
 
 interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean }
 interface GuestRow { name: string; email: string; org: string }
+interface StudentRow { name: string; email: string; studentId: string; programme: string }
 const MODE_LABEL = { individual: 'Individual request', group: 'Group request', guest: 'Guest / non-employee' } as const;
 type Mode = keyof typeof MODE_LABEL;
+type GroupKind = 'staff' | 'student';
 
-export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, guestMixAllowed }: {
+export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, guestMixAllowed, studentGroupEnabled }: {
   persona: { name: string; title: string }; isRequestor: boolean;
-  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; guestMixAllowed: boolean;
+  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; guestMixAllowed: boolean; studentGroupEnabled: boolean;
 }) {
   const [mode, setMode] = useState<Mode>('individual');
   const defaultTraveller = options[0]?.id;
   const modes: Mode[] = groupEnabled ? ['individual', 'group', 'guest'] : ['individual', 'guest'];
+
+  // Group sub-type: STAFF (employees + optional guests) vs STUDENT (uploaded students).
+  const [groupKind, setGroupKind] = useState<GroupKind>('staff');
 
   // Group state (employee selection + guest members)
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -27,6 +33,19 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const [query, setQuery] = useState('');          // directory type-ahead search
   const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Student-group state (uploaded, non-validated student rows)
+  const [students, setStudents] = useState<StudentRow[]>([]);
+  const [studentNote, setStudentNote] = useState<string>('');
+  const [studentErrors, setStudentErrors] = useState<string[]>([]);
+  const studentFileRef = useRef<HTMLInputElement>(null);
+  const setStudent = (i: number, p: Partial<StudentRow>) => setStudents((s) => s.map((r, j) => j === i ? { ...r, ...p } : r));
+  const addStudent = () => setStudents((s) => [...s, { name: '', email: '', studentId: '', programme: '' }]);
+  const delStudent = (i: number) => setStudents((s) => s.filter((_, j) => j !== i));
+  const namedStudents = students.filter((s) => s.name.trim());
+  const studentTotal = namedStudents.length;
+  const studentOver = studentTotal > groupMax;
+  const studentTooFew = studentTotal < 2;
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const setGuest = (i: number, p: Partial<GuestRow>) => setGuests((g) => g.map((r, j) => j === i ? { ...r, ...p } : r));
   const addGuest = () => setGuests((g) => [...g, { name: '', email: '', org: '' }]);
@@ -143,6 +162,58 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
     XLSX.writeFile(wb, 'group-members-template.xlsx');
   };
 
+  // Bulk-import STUDENT members. Columns (case-insensitive): Name · Email · Student ID · Programme.
+  // Rows are captured verbatim — there is NO validation that a row is a genuine student.
+  const onStudentExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await importStudents(file);
+    if (studentFileRef.current) studentFileRef.current.value = '';
+  };
+  const importStudents = async (file: File) => {
+    setStudentNote(''); setStudentErrors([]);
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      const pick = (row: Record<string, string>, ...keys: string[]) => {
+        for (const k of keys) { const v = row[k]; if (v != null && String(v).trim()) return String(v).trim(); }
+        return '';
+      };
+      const next: StudentRow[] = [...students];
+      const errs: string[] = [];
+      let n = 0;
+      rows.forEach((raw, i) => {
+        const row: Record<string, string> = {};
+        for (const [k, v] of Object.entries(raw)) row[k.trim().toLowerCase()] = v == null ? '' : String(v);
+        const name = pick(row, 'name', 'student name', 'full name');
+        const email = pick(row, 'email', 'e-mail', 'student email');
+        const studentId = pick(row, 'student id', 'studentid', 'matriculation', 'matric no', 'matric', 'id');
+        const programme = pick(row, 'programme', 'program', 'school', 'course', 'faculty');
+        if (!name && !email && !studentId) return; // blank row
+        if (!name) { errs.push(`Row ${i + 2}: a student needs a name.`); return; }
+        if (!next.some((s) => s.name.trim().toLowerCase() === name.toLowerCase())) { next.push({ name, email, studentId, programme }); n++; }
+      });
+      setStudents(next);
+      setStudentErrors(errs);
+      setStudentNote(n ? `Imported ${n} student${n > 1 ? 's' : ''} from ${file.name}.` : `No new students found in ${file.name}.`);
+    } catch (err) {
+      setStudentErrors([`Could not read the file — ${(err as Error).message}. Expected .xlsx, .xls or .csv.`]);
+    }
+  };
+  const downloadStudentTemplate = async () => {
+    const XLSX = await import('xlsx');
+    const header = ['Name', 'Email', 'Student ID', 'Programme'];
+    const sample = [
+      { Name: 'Tan Wei Ming', Email: 'weiming.tan@e.ntu.edu.sg', 'Student ID': 'U2312345A', Programme: 'BEng Computer Science' },
+      { Name: 'Priya Kumar', Email: 'priya.kumar@e.ntu.edu.sg', 'Student ID': 'U2298765B', Programme: 'BEng Computer Science' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sample, { header });
+    ws['!cols'] = [{ wch: 24 }, { wch: 28 }, { wch: 14 }, { wch: 28 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    XLSX.writeFile(wb, 'student-group-template.xlsx');
+  };
+
   return (
     <div>
       <div className="card p-2 mb-4 inline-flex gap-1">
@@ -197,7 +268,80 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
           <div className="mt-4 flex justify-end"><button className="btn-primary">Create draft →</button></div>
         </form>
       ) : (
+        <>
+          {studentGroupEnabled && (
+            <div className="card p-2 mb-4 inline-flex gap-1">
+              <button type="button" onClick={() => setGroupKind('staff')} className={groupKind === 'staff' ? 'btn-primary' : 'btn-ghost'}>Staff group</button>
+              <button type="button" onClick={() => setGroupKind('student')} className={groupKind === 'student' ? 'btn-primary' : 'btn-ghost'}>Student group</button>
+            </div>
+          )}
+
+          {groupKind === 'student' ? (
         <form action={createGroupDraft}>
+          <input type="hidden" name="groupType" value="STUDENT" />
+          <input type="hidden" name="studentsJson" value={JSON.stringify(namedStudents.map((s) => ({ name: s.name.trim(), email: s.email.trim(), studentId: s.studentId.trim(), programme: s.programme.trim() })))} />
+          <div className="card">
+            <div className="card-head flex items-center justify-between">
+              <span>Student Travellers</span>
+              <span className={`text-xs font-normal ${studentOver ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{studentTotal} of max {groupMax}</span>
+            </div>
+            <div className="p-4">
+              <label className="label">Requestor / Coordinator (you)</label>
+              <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] mb-4">{persona.name} — {persona.title}{isRequestor && <span className="pill-navy ml-1">Travel Requestor</span>}</div>
+
+              <div className="rounded border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 mb-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <div className="text-sm font-medium">Bulk-add students from Excel</div>
+                    <div className="text-xs text-[var(--ecs-muted)]">Columns: <code>Name</code>, <code>Email</code>, <code>Student ID</code>, <code>Programme</code>. Captured as provided — <strong>not validated</strong> against any student record.</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="btn-secondary text-xs" onClick={() => studentFileRef.current?.click()}>⬆ Upload Excel / CSV</button>
+                    <button type="button" className="btn-ghost text-xs" onClick={downloadStudentTemplate}>Download template</button>
+                  </div>
+                </div>
+                <input ref={studentFileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onStudentExcel} />
+                {studentNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{studentNote}</p>}
+                {studentErrors.length > 0 && (
+                  <details className="mt-1" open>
+                    <summary className="text-xs text-[var(--ecs-red)] cursor-pointer">{studentErrors.length} row{studentErrors.length > 1 ? 's' : ''} skipped</summary>
+                    <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{studentErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>
+                  </details>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between mb-1">
+                <label className="label mb-0">Students (uploaded details — not validated)</label>
+                <button type="button" className="btn-ghost text-xs" onClick={addStudent}>＋ Add student</button>
+              </div>
+              {students.length === 0 ? (
+                <p className="text-xs text-[var(--ecs-muted)]">Upload or add each student. A student flies Economy by default, is charged to your (host) department, and is settled centrally — students do not file their own claim.</p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-[1.4fr_1.6fr_1fr_1.4fr_auto] gap-2 text-xs text-[var(--ecs-muted)] px-1">
+                    <span>Name</span><span>Email</span><span>Student ID</span><span>Programme</span><span></span>
+                  </div>
+                  {students.map((s, i) => (
+                    <div key={i} className="grid grid-cols-[1.4fr_1.6fr_1fr_1.4fr_auto] gap-2 items-center">
+                      <input className="field" placeholder="Student name" value={s.name} onChange={(e) => setStudent(i, { name: e.target.value })} />
+                      <input className="field" placeholder="Email (optional)" value={s.email} onChange={(e) => setStudent(i, { email: e.target.value })} />
+                      <input className="field" placeholder="Matric no." value={s.studentId} onChange={(e) => setStudent(i, { studentId: e.target.value })} />
+                      <input className="field" placeholder="Programme / school" value={s.programme} onChange={(e) => setStudent(i, { programme: e.target.value })} />
+                      <button type="button" className="btn-ghost text-xs" onClick={() => delStudent(i)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-xs text-[var(--ecs-muted)] mt-3">Approved once on the group total; the DOA is derived from the host (requestor&apos;s) department. Students carry no individual cost share and file no claim (§13.14). A group booking is limited to <strong>{groupMax}</strong> travellers (TMC group limit).</p>
+              {studentOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {studentTotal - groupMax} student{studentTotal - groupMax > 1 ? 's' : ''}.</p>}
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end"><button className="btn-primary" disabled={studentOver || studentTooFew}>Create student group draft →</button></div>
+        </form>
+          ) : (
+        <form action={createGroupDraft}>
+          <input type="hidden" name="groupType" value="STAFF" />
           {[...selected].map((id) => <input key={id} type="hidden" name="travellerIds" value={id} />)}
           <input type="hidden" name="guestsJson" value={JSON.stringify(guestMixAllowed ? namedGuests.map((g) => ({ name: g.name.trim(), email: g.email.trim(), org: g.org.trim() })) : [])} />
           <div className="card">
@@ -303,6 +447,8 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
           </div>
           <div className="mt-4 flex justify-end"><button className="btn-primary" disabled={over || tooFew}>Create group draft →</button></div>
         </form>
+          )}
+        </>
       )}
     </div>
   );

@@ -5,7 +5,7 @@
 // the amount, cost object and source (direct-billed actual vs pending estimate).
 import { EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
-import { isGuestMember, memberName, isGuestRequest, travellerName } from './traveller';
+import { isGuestMember, isNonEmployeeMember, memberName, isGuestRequest, travellerName } from './traveller';
 import { isTmcArrangement } from './booking';
 import type { FullRequest } from './queries';
 
@@ -108,8 +108,8 @@ export function guestSettlements(req: FullRequest): GuestSettlementRow[] {
       status: billedSgd != null ? 'Direct-billed to host' : 'Pending TMC booking',
     }];
   }
-  return req.travellers.filter(isGuestMember).map((t) => {
-    // Approved estimate = the guest's own attributed (never shared) airfare + accommodation.
+  return req.travellers.filter(isNonEmployeeMember).map((t) => {
+    // Approved estimate = the non-employee's own attributed (never shared) airfare + accommodation.
     const estimatedSgd = req.expenses
       .filter((e) => e.travellerId === t.employeeId && !e.isShared && DIRECT_BILLABLE.includes(e.category))
       .reduce((s, e) => s + Math.max(e.sgdAmount - e.sponsorSgd, 0), 0);
@@ -125,7 +125,7 @@ export function guestSettlements(req: FullRequest): GuestSettlementRow[] {
     return {
       employeeId: t.employeeId,
       name: memberName(t),
-      org: t.guestOrg ?? null,
+      org: t.guestOrg ?? t.programme ?? null,
       costObject,
       costObjectName: EcsCharging.code(costObject)?.name ?? costObject,
       estimatedSgd,
@@ -136,8 +136,8 @@ export function guestSettlements(req: FullRequest): GuestSettlementRow[] {
   });
 }
 
-/** True when the request carries any guest cost to settle — a standalone Guest request, or
- *  (legacy, when mixing is enabled) a group with guest members. */
+/** True when the request carries any non-employee cost to settle centrally — a standalone Guest
+ *  request, a group with guest members, or a STUDENT group (all members are students). */
 export function hasGuestMembers(req: FullRequest): boolean {
-  return (isGuestRequest(req) && !req.isGroup) || req.travellers.some(isGuestMember);
+  return (isGuestRequest(req) && !req.isGroup) || req.travellers.some(isNonEmployeeMember);
 }

@@ -45,8 +45,8 @@ export function RequestChrome({ req, id, persona, settings }: {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold text-[var(--ecs-navy)] flex items-center gap-2">
-          {req.isGroup ? 'Group Travel Request' : isGuestRequest(req) ? 'Guest Travel Request' : 'Travel Request'}
-          {req.isGroup && <span className="pill-navy">GROUP</span>}
+          {req.isGroup ? `${req.groupType === 'STUDENT' ? 'Student ' : req.groupType === 'STAFF' ? 'Staff ' : ''}Group Travel Request` : isGuestRequest(req) ? 'Guest Travel Request' : 'Travel Request'}
+          {req.isGroup && <span className="pill-navy">{req.groupType === 'STUDENT' ? 'STUDENT GROUP' : req.groupType === 'STAFF' ? 'STAFF GROUP' : 'GROUP'}</span>}
           {isGuestRequest(req) && <span className="pill-info">GUEST</span>}
           <span className="font-mono text-[var(--ecs-text)]">{req.requestNumber}</span>
         </h1>

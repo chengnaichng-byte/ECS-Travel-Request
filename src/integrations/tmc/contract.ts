@@ -28,8 +28,8 @@ export interface CanonicalOutbound {
   authorisationNumber: string;
   travellerRef: string;
   travellerName?: string;             // §8 resolved name (guest or employee)
-  bookingFor?: 'EMPLOYEE' | 'GUEST';  // §8 guest / non-employee indicator (AC7)
-  guest?: { name: string; email?: string | null; organisation?: string | null }; // §8 guest identity (no ECS profile)
+  bookingFor?: 'EMPLOYEE' | 'GUEST' | 'STUDENT';  // §8/§13.14 non-employee indicator (guest or student group member)
+  guest?: { name: string; email?: string | null; organisation?: string | null; studentId?: string | null; programme?: string | null }; // §8/§13.14 non-employee identity (no ECS profile)
   // §8 / DD-21 PDPA: ECS holds only the guest's name/email/org. The TMC is instructed to
   // collect the guest's own travel profile (passport/DOB/contact) via a secure link — ECS
   // never stores it. Present only for a GUEST booking, and only when the contract toggle is on.

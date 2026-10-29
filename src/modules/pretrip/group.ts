@@ -6,18 +6,19 @@
 // individual lines + date-aware accommodation + equal split of other shared lines.
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
-import { isGuestMember, memberName, memberDeptName } from './traveller';
+import { isNonEmployeeMember, memberName, memberDeptName } from './traveller';
 import type { FullRequest } from './queries';
 
-/** §8 Members who may carry a share of a SHARED line. Guests are excluded: a guest has no
- *  TE claim and the guest settlement path (TMC direct-billing) covers only booked travel,
- *  so a guest slice of a shared incidental would be unsettleable — it must never exist. */
+/** §8/§13.14 Members who may carry a share of a SHARED line. Non-employees (guests AND students)
+ *  are excluded: they have no TE claim and the non-employee settlement path (TMC direct-billing)
+ *  covers only booked travel, so their slice of a shared incidental would be unsettleable — it
+ *  must never exist. */
 export function sharingMembers(req: { travellers: { employeeId: string; travellerType?: string | null }[] }) {
-  return req.travellers.filter((t) => !isGuestMember(t));
+  return req.travellers.filter((t) => !isNonEmployeeMember(t));
 }
-/** Set of member ids that are guests (for stripping guest keys out of a shareMap). */
+/** Set of member ids that are non-employees — guests or students (for stripping their keys out of a shareMap). */
 export function guestMemberIds(req: { travellers: { employeeId: string; travellerType?: string | null }[] }): Set<string> {
-  return new Set(req.travellers.filter((t) => isGuestMember(t)).map((t) => t.employeeId));
+  return new Set(req.travellers.filter((t) => isNonEmployeeMember(t)).map((t) => t.employeeId));
 }
 
 /** §8 Validation: a guest may carry no shared-incidental slice and no ODA. Returns a
@@ -95,12 +96,12 @@ export function computeTravellerShares(req: FullRequest): TravellerShare[] {
   const otherSharedPer = otherSharedTotal / n;
 
   const rows = travellers.map((t) => {
-    const guest = isGuestMember(t);
+    const nonEmployee = isNonEmployeeMember(t);
     const individualSgd = req.expenses
       .filter((e) => !e.isShared && e.travellerId === t.employeeId)
       .reduce((s, e) => s + net(e), 0);
     const accommodationSgd = travellerAccommodationSgd(req, t.employeeId);
-    const sharedPer = guest ? 0 : otherSharedPer; // guests carry no shared slice (§8)
+    const sharedPer = nonEmployee ? 0 : otherSharedPer; // guests/students carry no shared slice (§8/§13.14)
     const totalSgd = individualSgd + accommodationSgd + sharedPer;
     return {
       employeeId: t.employeeId,

@@ -6,7 +6,7 @@ import { EcsIdentity, EcsReference, EcsCharging, EcsPolicy } from '@/shared/ecs/
 import { fmtSgd, computeOdaTiered, type CostSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNightsAtCity } from '@/modules/pretrip/group';
 import { guestSettlements } from '@/modules/pretrip/settlement';
-import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember } from '@/modules/pretrip/traveller';
+import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember, isStudentMember, isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
 import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretrip/upgrade';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
@@ -425,9 +425,9 @@ export function TravellerRoster({ req, letter, className }: { req: FullRequest; 
               return (
                 <tr key={t.id} className="hover:bg-[var(--ecs-panel-2)]">
                   <td className="td">{i + 1}</td>
-                  <td className="td font-medium">{memberName(t)}{t.isRequestor && <span className="pill-navy ml-1">Coord.</span>}{isGuestMember(t) && <span className="pill-info ml-1">Guest</span>}</td>
+                  <td className="td font-medium">{memberName(t)}{t.isRequestor && <span className="pill-navy ml-1">Coord.</span>}{isStudentMember(t) ? <span className="pill-info ml-1">Student</span> : isGuestMember(t) && <span className="pill-info ml-1">Guest</span>}</td>
                   <td className="td text-xs">{memberDeptName(t)}</td>
-                  <td className="td text-xs">{isGuestMember(t) ? 'Economy' : (EcsReference.travelClass(t.chosenClassId ?? t.entitledClassId ?? req.travelClassId ?? '')?.name ?? '—')}</td>
+                  <td className="td text-xs">{isNonEmployeeMember(t) ? 'Economy' : (EcsReference.travelClass(t.chosenClassId ?? t.entitledClassId ?? req.travelClassId ?? '')?.name ?? '—')}</td>
                   <td className="td whitespace-nowrap text-xs">{fmtDate(start)} – {fmtDate(end)}{t.ownStartDate && <span className="text-[var(--ecs-muted)]"> (own)</span>}</td>
                   <td className="td text-right whitespace-nowrap">{fmtSgd(s?.totalSgd ?? 0)}</td>
                   <td className="td">{exceptionByTraveller.has(t.employeeId) ? <span className="pill-exc">Yes</span> : <span className="pill-info">No</span>}</td>

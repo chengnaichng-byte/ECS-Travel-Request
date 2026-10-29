@@ -8,6 +8,7 @@ import { TE_TREATMENT, EXPENSE_CATEGORY, BOOKING_STATUS } from '@/shared/enums';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { travellerNightsAtCity } from '@/modules/pretrip/group';
 import { isReimbursable } from '@/modules/pretrip/settlement';
+import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -124,8 +125,8 @@ export function prepopulateClaim(
       if (e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation) {
         approvedSgd = e.accommodation.budgetedNightly * travellerNightsAtCity(req, claimantId, e.accommodation.city);
       } else {
-        // §8 shared incidentals split across employee members only (guests carry no share).
-        const sharers = req.travellers.filter((t) => !(t.travellerType === 'GUEST' || t.employeeId.startsWith('G-'))).length || 1;
+        // §8/§13.14 shared incidentals split across employee members only (guests/students carry no share).
+        const sharers = req.travellers.filter((t) => !isNonEmployeeMember(t)).length || 1;
         approvedSgd = e.sgdAmount / sharers;
       }
     }

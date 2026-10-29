@@ -165,7 +165,7 @@ async function rebuildOda(id: string) {
     if (nights <= 0) continue;
     stops.push({ legSeq: l.seq, city, country: EcsReference.city(city)?.countryCode ?? '', from, to, nights });
   }
-  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.employeeId.startsWith('G-')).map((t) => t.employeeId));
+  const guestIds = new Set(req.travellers.filter((t) => t.travellerType === 'GUEST' || t.travellerType === 'STUDENT' || t.employeeId.startsWith('G-') || t.employeeId.startsWith('S-')).map((t) => t.employeeId));
   const odaTids: (string | null)[] = req.isGroup ? req.travellers.filter((t) => !guestIds.has(t.employeeId)).map((t) => t.employeeId) : (req.travellerType === 'GUEST' ? [] : [null]);
   for (const e of req.expenses.filter((x) => x.oda)) await prisma.estimatedExpense.delete({ where: { id: e.id } });
   for (const tid of odaTids) for (const s of stops) {
@@ -500,6 +500,7 @@ export async function seedDemoScenarios() {
   // S20–S23 — additional requests left at a PENDING-approval stage, across trip types, so the
   // approver queue shows a group, a guest, a multi-city and a one-way request awaiting approval.
   await buildGroupPendingS20();
+  await buildStudentGroupPendingS33();
   await buildGuestPendingS21();
   await buildMultiCityPendingS22();
   await buildOneWayPendingS23();
@@ -1007,7 +1008,7 @@ async function buildGroupDraft(desc: string, start: string, end: string): Promis
   const requestNumber = await nextRequestNumber(YEAR);
   const req = await prisma.travelRequest.create({
     data: {
-      requestNumber, requestorId: 'E-PA', travellerId: 'E-TRAV', isGroup: true,
+      requestNumber, requestorId: 'E-PA', travellerId: 'E-TRAV', isGroup: true, groupType: 'STAFF',
       entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
       purposeId: 'TP-TC-ACAD', description: desc,
       destCountry: 'JP', destCity: 'TYO', startDate: day(start), endDate: day(end),
@@ -1045,6 +1046,58 @@ async function buildGroupDraft(desc: string, start: string, end: string): Promis
     await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: code, percent: pct, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: master?.isResearch ?? false, isMain: code === 'CC-1000' } });
   }
   return id;
+}
+
+/** §13.14 STUDENT group — a coordinator (E-PA) takes a party of students on a trip. Members are
+ *  uploaded student details (NOT validated); each is a non-employee traveller (Economy, host-dept
+ *  charging, central settlement, no own claim), exactly like a guest-group booking. */
+async function buildStudentGroupDraft(desc: string, start: string, end: string): Promise<string> {
+  const students = [
+    { name: 'Tan Wei Ming', email: 'weiming.tan@e.ntu.edu.sg', studentId: 'U2312345A', programme: 'BEng Computer Science' },
+    { name: 'Priya Kumar', email: 'priya.kumar@e.ntu.edu.sg', studentId: 'U2298765B', programme: 'BEng Computer Science' },
+    { name: 'Lee Jun Hao', email: 'junhao.lee@e.ntu.edu.sg', studentId: 'U2305512C', programme: 'BEng Computer Engineering' },
+  ];
+  const sharePct = Math.round((100 / students.length) * 100) / 100;
+  const stamp = Date.now().toString(36);
+  const requestNumber = await nextRequestNumber(YEAR);
+  const req = await prisma.travelRequest.create({
+    data: {
+      requestNumber, requestorId: 'E-PA', travellerId: 'E-PA', isGroup: true, groupType: 'STUDENT',
+      entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+      purposeId: 'TP-TC-ACAD', description: desc,
+      destCountry: 'JP', destCity: 'TYO', startDate: day(start), endDate: day(end),
+      travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+      travellers: { create: students.map((s, i) => ({
+        employeeId: `S-${stamp}${i}`, travellerType: 'STUDENT',
+        guestName: s.name, guestEmail: s.email, studentId: s.studentId, programme: s.programme,
+        isRequestor: false, confirmed: true, sharePct, entitledClassId: 'TC-ECO', chosenClassId: 'TC-ECO',
+      })) },
+    },
+  });
+  const id = req.id;
+  const sids = (await prisma.travelRequestTraveller.findMany({ where: { requestId: id }, select: { employeeId: true } })).map((t) => t.employeeId);
+  await audit(id, 'E-PA', 'CREATE', `Student group draft ${requestNumber} created for ${students.length} students (uploaded, not validated)`);
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: 'HND', departDate: day(start), durationHours: 7, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: 'HND', destCode: 'SIN', departDate: day(end), durationHours: 0, travelClassId: 'TC-ECO' } });
+  const settings = await getSettings();
+  const hcalc = computeAccommodation({ cityCode: 'TYO', nights: 4, personalNights: 0, quotedNightly: 300, basis: settings.hotelEstimateBasis });
+  // §13.14 students: airfare + accommodation only (no ODA — a student files no claim).
+  for (const sid of sids) {
+    await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: sid, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 1200, sgdAmount: 1200, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-ECO', fareCeiling: 1200 } });
+    const he = await prisma.estimatedExpense.create({ data: { requestId: id, travellerId: sid, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: hcalc.sgdAmount, sgdAmount: hcalc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+    await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: 'TYO', nights: 4, personalNights: 0, quotedNightly: 300, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
+  }
+  // Whole trip charged to the host (coordinator's) department — central settlement, no claim.
+  const master = EcsCharging.code('CC-1000');
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
+  return id;
+}
+
+/** S33 — student group (uploaded students) left at Pending DOA (group skips RO). */
+async function buildStudentGroupPendingS33() {
+  const id = await buildStudentGroupDraft('Student group — ICPC programming contest, Tokyo (pending approval, S33)', '2026-12-07', '2026-12-11');
+  await submit(id);
+  await advanceTo(id, APPROVER_ROLE.DOA);
 }
 
 async function buildGroupS11() {

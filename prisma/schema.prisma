@@ -23,6 +23,7 @@ model ModuleSettings {
   teLinkageMandatory     String  @default("CONDITIONAL") // YES | NO | CONDITIONAL
   approvalAmountBasis    String  @default("NET_NTU")     // GROSS | NET_NTU | MAJOR_COST | ALLOCATION
   groupTravelEnabled     Boolean @default(true)   // §13.14
+  studentGroupEnabled    Boolean @default(true)   // §13.14 may a requestor raise a STUDENT group (uploaded, non-validated student members)?
   groupMaxTravellers     Int     @default(10)     // §13.14 max travellers in one group booking (TMC group limit)
   groupGuestMixAllowed   Boolean @default(true)   // §8 may a group booking mix employees and guests? (else guests use a separate request)
   groupSubItineraries    Boolean @default(true)   // §13.20 per-traveller sub-itineraries (D3)
@@ -81,6 +82,7 @@ model TravelRequest {
   status            String   @default("Draft")     // §13.1 approval state machine
   bookingStatus     String   @default("Not Sent")  // §13.1 booking status
   isGroup           Boolean  @default(false)
+  groupType         String?                         // §13.14 STAFF (employee members, HR-validated) | STUDENT (uploaded student members, not validated); null = individual / guest
 
   // ECS-derived context (by shared identifier into mock ECS services)
   requestorId       String                          // creator (may be non-traveller)
@@ -212,12 +214,14 @@ model TravelRequestTraveller {
   id            String  @id @default(cuid())
   requestId     String
   request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  employeeId    String                    // employee id, or a synthetic "G-…" key for a guest member
+  employeeId    String                    // employee id, or a synthetic "G-…" (guest) / "S-…" (student) key for a non-employee member
   lineNo        Int?                       // §13.14 stable per-traveller line number within the group (TA/0n). Frozen at submission; never renumbered or reused on amendment. Lead = 01.
-  travellerType String  @default("EMPLOYEE") // §8 EMPLOYEE | GUEST (non-employee member of a group)
-  guestName     String?                   // §8 guest identity (no ECS/HR profile)
+  travellerType String  @default("EMPLOYEE") // §8/§13.14 EMPLOYEE | GUEST | STUDENT (non-employee members of a group)
+  guestName     String?                   // §8 guest/student identity (no ECS/HR profile) — captured, not validated
   guestEmail    String?
   guestOrg      String?
+  studentId     String?                   // §13.14 student group — matriculation / student number (uploaded, not validated)
+  programme     String?                   // §13.14 student group — programme / school (uploaded, not validated)
   confirmed     Boolean @default(false)   // §13.13 inclusion confirmation
   confirmedAt   DateTime?
   sharePct      Float   @default(100)     // derived share of NTU-funded cost

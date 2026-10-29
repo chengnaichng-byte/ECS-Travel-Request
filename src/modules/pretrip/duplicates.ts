@@ -6,6 +6,7 @@
 import { prisma } from '@/shared/db';
 import { EcsReference } from '@/shared/ecs/services';
 import { REQUEST_STATUS } from '@/shared/enums';
+import { isNonEmployeeMember } from './traveller';
 import type { FullRequest } from './queries';
 
 // A request is "live" (holds or is seeking an authorisation) in these states. Terminal states
@@ -25,11 +26,11 @@ export interface DuplicateHit {
   sharedTravellers: string[];
 }
 
-/** Employee members that anchor a trip (guests excluded — a guest may legitimately appear on
- *  more than one host's trip, and is never the duplicate concern). */
+/** Employee members that anchor a trip (non-employees excluded — a guest or student may
+ *  legitimately appear on more than one host's trip, and is never the duplicate concern). */
 function employeeTravellerIds(r: { isGroup: boolean; travellerId: string; travellers: { employeeId: string; travellerType?: string | null }[] }): string[] {
   if (!r.isGroup) return [r.travellerId];
-  return r.travellers.filter((t) => !(t.travellerType === 'GUEST' || t.employeeId.startsWith('G-'))).map((t) => t.employeeId);
+  return r.travellers.filter((t) => !isNonEmployeeMember(t)).map((t) => t.employeeId);
 }
 
 /** Live requests (other than `req`) that share a traveller AND overlap `req`'s official dates.
