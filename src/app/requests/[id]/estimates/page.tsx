@@ -8,7 +8,8 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
+import { effectiveLegs, sharedLegs as groupSharedLegs } from '@/modules/pretrip/group';
 import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
 /** " · student" / " · guest" / "" — the non-employee label suffix for a member, with a chosen separator. */
@@ -65,6 +66,24 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const hasAirfare = req.expenses.some((e) => e.category === EXPENSE_CATEGORY.Airfare);
   const isClassUpgrade = !isGroup && !!req.travelClassId && !!req.entitledClassId && classRank(req.travelClassId) > classRank(req.entitledClassId) && hasAirfare;
   const chosenClassName = travelClasses.find((c) => c.id === req.travelClassId)?.name ?? req.travelClassId ?? '';
+  // §13.19 Per-line policy outcome. A travel class above the derived entitlement is a policy
+  // deviation (Exception) — mirror the policy engine so the airfare line shows it, not just the
+  // Policy Review step. Accommodation above cap already carries its own exception outcome.
+  const onDateForClass = req.startDate ?? new Date();
+  const fallbackClassLegs = req.destCity ? [{ durationHours: EcsReference.flightHours(req.destCity), destCode: req.destCity, isPersonal: false }] : [];
+  const entitledClassFor = (employeeId: string) => {
+    const legs = isGroup
+      ? (effectiveLegs(req, employeeId).length ? effectiveLegs(req, employeeId) : fallbackClassLegs)
+      : (groupSharedLegs(req).length ? groupSharedLegs(req) : fallbackClassLegs);
+    return EcsTravelClassRegister.entitledForItinerary(employeeId, legs, onDateForClass).classId;
+  };
+  const airfareOverClass = (e: (typeof req.expenses)[number]) => {
+    if (e.category !== EXPENSE_CATEGORY.Airfare || !e.proposedClassId) return false;
+    const employeeId = (isGroup ? e.travellerId : null) ?? req.travellerId;
+    return EcsTravelClassRegister.rank(e.proposedClassId) > EcsTravelClassRegister.rank(entitledClassFor(employeeId));
+  };
+  const lineOutcome = (e: (typeof req.expenses)[number]) =>
+    (e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception || airfareOverClass(e)) ? POLICY_OUTCOME.Exception : POLICY_OUTCOME.Pass;
   // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
@@ -194,7 +213,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                                 <td className="td text-right text-xs">{i === 0 ? (nightsOf(e) ?? '—') : ''}</td>
                                 <td className="td text-right">{i === 0 ? <RateCell id={id} e={e} canEdit={canEdit} /> : ''}</td>
                                 <td className="td text-right whitespace-nowrap">{fmtSgd(a.amount)}</td>
-                                <td className="td">{i === 0 && (e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />)}</td>
+                                <td className="td">{i === 0 && <OutcomePill outcome={lineOutcome(e)} />}</td>
                                 <td className="td text-right">{i === 0 && !e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
                               </tr>
                             ))
@@ -207,7 +226,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                                 <td className="td text-right text-xs">{nightsOf(e) ?? '—'}</td>
                                 <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
                                 <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
-                                <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
+                                <td className="td">{<OutcomePill outcome={lineOutcome(e)} />}</td>
                                 <td className="td text-right">{!e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
                               </tr>,
                             ],
@@ -239,7 +258,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                     <td className="td text-right text-xs">{nightsOf(e) ?? '—'}</td>
                     <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
                     <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
-                    <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
+                    <td className="td">{<OutcomePill outcome={lineOutcome(e)} />}</td>
                     <td className="td text-right">{!e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
                   </tr>
                 ))}
