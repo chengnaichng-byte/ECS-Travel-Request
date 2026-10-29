@@ -12,6 +12,7 @@ import { assembleOutbound } from '@/modules/pretrip/tmcPayload';
 import { simulateInbound } from '@/integrations/tmc/adapter';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { CONTRACT_FIELDS, TE_TREATMENT_OPTIONS, GUARD_PARAM_OPTIONS, GUARD_PARAM_LABELS, guardEditable, CONTRACT_VERSION } from '@/config/integrationContracts';
+import { expenseTypes } from '@/data/expenseTypes';
 import { saveContractSettings, saveContractGuards } from '@/app/actions';
 import { REQUEST_STATUS, ROLE } from '@/shared/enums';
 import { PageTitle, Card, Empty } from '@/components/ui';
@@ -20,6 +21,7 @@ import { TreatmentPill } from '@/components/StatusPill';
 export const dynamic = 'force-dynamic';
 
 const TMC_GROUPS = ['Booking header', 'Itinerary', 'Accommodation', 'Charging & context', 'Guest (PDPA)'];
+const sgd = (n?: number | null) => n == null ? '—' : 'SGD ' + Number(n).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const TE_GROUPS = ['Claim header', 'Claim lines', 'Claim actuals', 'Booking confirmation (feed)', 'CTA charges (feed)', 'Cancellation & change (feed)'];
 
 export default async function IntegrationContractsPage({ searchParams }: { searchParams: Promise<{ preview?: string }> }) {
@@ -222,8 +224,82 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
 
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">← TMC booking confirmation (inbound feed)</h3>
-              <p className="text-[11px] text-[var(--ecs-muted)] mb-2">The datapoints the feed returns, incl. the DD-31 <code>charges[]</code> per-charge CTA breakdown (type · expense type · SAP tax code · GST amount) and <code>invoiceNumber</code> that drive the SAP posting.</p>
-              <pre className="text-xs bg-[var(--ecs-panel-2)] border border-[var(--ecs-border)] rounded p-3 overflow-x-auto max-h-[28rem]">{JSON.stringify(inbound, null, 2)}</pre>
+              <p className="text-[11px] text-[var(--ecs-muted)] mb-2">The datapoints the feed returns. The <code>charges[]</code> per-charge CTA breakdown (type · expense type · SAP tax code · GST amount) and <code>invoiceNumber</code> drive the SAP posting (DD-31). The table below is the finance-readable view; the raw JSON is the wire payload.</p>
+              {inbound && (
+                <div className="border border-[var(--ecs-border)] rounded overflow-hidden mb-3">
+                  <table className="w-full text-xs">
+                    <thead><tr><th className="th">Datapoint</th><th className="th">Value</th></tr></thead>
+                    <tbody>
+                      <FragmentGroup label="Booking confirmation" cols={2}>
+                        <tr><td className="td">Travel Authorisation no.</td><td className="td font-medium">{inbound.authorisationNumber}</td></tr>
+                        <tr><td className="td">PNR / record locator</td><td className="td">{inbound.pnr}</td></tr>
+                        <tr><td className="td">Provider invoice no. (SAP posting reference)</td><td className="td">{inbound.invoiceNumber ?? '—'}</td></tr>
+                        <tr><td className="td">Booking status</td><td className="td">{inbound.bookingStatus}</td></tr>
+                        <tr><td className="td">Fulfilment channel</td><td className="td">{inbound.channel}</td></tr>
+                        <tr><td className="td">Booked / ticketed at</td><td className="td">{inbound.bookedAt ?? '—'} / {inbound.ticketedAt ?? '—'}</td></tr>
+                        <tr><td className="td">E-ticket numbers</td><td className="td">{inbound.ticketNumbers.join(', ') || '—'}</td></tr>
+                      </FragmentGroup>
+                      <FragmentGroup label="CTA settlement (DD-30)" cols={2}>
+                        <tr><td className="td">CTA account · card</td><td className="td">{inbound.ctaAccountId ?? '—'} · {inbound.ctaCardRef ?? '—'}</td></tr>
+                        <tr><td className="td">Settled on CTA · charge date</td><td className="td">{inbound.ctaCharged ? 'Yes' : 'No'}{inbound.ctaChargeDate ? ` · ${inbound.ctaChargeDate}` : ''}</td></tr>
+                        <tr><td className="td">Statement period</td><td className="td">{inbound.statementPeriod ?? '—'}</td></tr>
+                        <tr><td className="td">Fare / taxes / fees</td><td className="td">{sgd(inbound.fareSgd)} / {sgd(inbound.taxesSgd)} / {sgd(inbound.feesSgd)}</td></tr>
+                      </FragmentGroup>
+                      {inbound.cancellation && (
+                        <FragmentGroup label="Cancellation / refund" cols={2}>
+                          <tr><td className="td">Cancelled at · reason</td><td className="td">{inbound.cancellation.cancelledAt}{inbound.cancellation.reason ? ` · ${inbound.cancellation.reason}` : ''}</td></tr>
+                          <tr><td className="td">Penalty retained (stays a charge)</td><td className="td">{sgd(inbound.cancellation.cancellationFeeSgd)}</td></tr>
+                          <tr><td className="td">Refund to CTA (reverses the posting)</td><td className="td">{sgd(inbound.cancellation.refundSgd)}</td></tr>
+                        </FragmentGroup>
+                      )}
+                      {inbound.reissue && (
+                        <FragmentGroup label="Change / reissue" cols={2}>
+                          <tr><td className="td">Reissued at · change fee</td><td className="td">{inbound.reissue.reissuedAt} · {sgd(inbound.reissue.changeFeeSgd)}</td></tr>
+                          <tr><td className="td">New PNR / tickets</td><td className="td">{inbound.reissue.newPnr ?? '—'}{inbound.reissue.newTicketNumbers?.length ? ` · ${inbound.reissue.newTicketNumbers.join(', ')}` : ''}</td></tr>
+                        </FragmentGroup>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {inbound?.charges && inbound.charges.length > 0 && (
+                <div className="border border-[var(--ecs-border)] rounded overflow-hidden mb-3">
+                  <div className="bg-[var(--ecs-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--ecs-navy)]">Per-charge CTA breakdown (DD-31) — one SAP posting line per charge</div>
+                  <table className="w-full text-xs">
+                    <thead><tr><th className="th">Charge</th><th className="th">Expense type</th><th className="th">GL</th><th className="th text-right">Amount (SGD)</th><th className="th">SAP tax code</th><th className="th text-right">GST (SGD)</th><th className="th">Claimable</th></tr></thead>
+                    <tbody>
+                      {inbound.charges.map((c, i) => { const et = expenseTypes.find((e) => e.id === c.expenseTypeId); return (
+                        <tr key={i} className="hover:bg-[var(--ecs-panel-2)]">
+                          <td className="td">{c.type}</td><td className="td">{et?.name ?? c.expenseTypeId}</td><td className="td">{et?.glAccount ?? '—'}</td>
+                          <td className="td text-right whitespace-nowrap">{sgd(c.amountSgd)}</td><td className="td">{c.gstCode}</td><td className="td text-right whitespace-nowrap">{sgd(c.gstAmountSgd)}</td>
+                          <td className="td">{c.type === 'FEE' ? (c.gstClaimable ? 'Yes (I9)' : 'No (P9)') : '—'}</td>
+                        </tr>
+                      ); })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {inbound?.segments && inbound.segments.length > 0 && (
+                <div className="border border-[var(--ecs-border)] rounded overflow-hidden mb-3">
+                  <div className="bg-[var(--ecs-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--ecs-navy)]">Booked segments</div>
+                  <table className="w-full text-xs">
+                    <thead><tr><th className="th">Type</th><th className="th">Route / city</th><th className="th">Booked class</th><th className="th">Dates</th><th className="th">Supplier</th><th className="th text-right">Amount (SGD)</th></tr></thead>
+                    <tbody>
+                      {inbound.segments.map((s, i) => (
+                        <tr key={i} className="hover:bg-[var(--ecs-panel-2)]">
+                          <td className="td">{s.type}</td><td className="td">{s.type === 'AIR' ? `${s.origin ?? ''} → ${s.destination ?? ''}` : (s.city ?? '')}</td>
+                          <td className="td">{s.bookedClass ?? '—'}</td><td className="td whitespace-nowrap">{s.departDate ?? '—'}{s.arriveDate ? ` → ${s.arriveDate}` : ''}</td>
+                          <td className="td">{s.supplierName ?? '—'}{s.supplierCode ? ` (${s.supplierCode})` : ''}</td><td className="td text-right whitespace-nowrap">{s.type === 'AIR' ? '—' : sgd(s.amountSgd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <details className="text-xs">
+                <summary className="cursor-pointer text-[var(--ecs-muted)]">Raw JSON (wire payload)</summary>
+                <pre className="text-xs bg-[var(--ecs-panel-2)] border border-[var(--ecs-border)] rounded p-3 overflow-x-auto max-h-[28rem] mt-2">{JSON.stringify(inbound, null, 2)}</pre>
+              </details>
             </div>
 
             <div className="grid lg:grid-cols-2 gap-5 items-start">
