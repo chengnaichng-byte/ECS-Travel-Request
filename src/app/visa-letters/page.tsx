@@ -25,18 +25,15 @@ async function loadRows() {
     include: { messages: { where: { kind: 'VISA_LETTER' }, orderBy: { createdAt: 'desc' } } },
   });
 }
-const statusOf = (r: Row): 'Sent' | 'Pending' | 'Awaiting approval' =>
-  r.visaLetterNotifiedAt ? 'Sent' : r.status === REQUEST_STATUS.Approved ? 'Pending' : 'Awaiting approval';
 const notifiedToday = (r: Row) => !!r.visaLetterNotifiedAt && d(r.visaLetterNotifiedAt) === todayStr();
 
-export default async function VisaLettersPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; view?: string }> }) {
+export default async function VisaLettersPage({ searchParams }: { searchParams: Promise<{ q?: string; view?: string }> }) {
   // §4.13 the automatic daily timer brings the queue up to date when the page is viewed (simulating
   // the scheduled job — it fires at most once per day).
   const timer = await runVisaLetterTimerIfDue();
 
   const sp = await searchParams;
   const q = (sp.q ?? '').trim().toLowerCase();
-  const statusF = sp.status ?? '';
   const view = sp.view === 'all' ? 'all' : 'today';
   const settings = await getSettings();
   const rec = visaLetterRecipient(settings);
@@ -44,14 +41,14 @@ export default async function VisaLettersPage({ searchParams }: { searchParams: 
   const all = await loadRows();
   const destText = (r: Row) => `${EcsReference.city(r.destCity ?? '')?.name ?? ''} ${EcsReference.country(r.destCountry ?? '')?.name ?? ''}`;
   const reqs = all.filter((r) => {
-    // Today's list = notified today + anything still outstanding (pending the next run).
-    if (view === 'today' && !(notifiedToday(r) || statusOf(r) === 'Pending')) return false;
-    if (statusF && statusOf(r) !== statusF) return false;
+    // Today's list = notified today + anything not yet notified (awaiting the next run).
+    if (view === 'today' && !(notifiedToday(r) || !r.visaLetterNotifiedAt)) return false;
     if (q && !`${r.requestNumber} ${travellerName(r)} ${destText(r)}`.toLowerCase().includes(q)) return false;
     return true;
   });
-  const pending = all.filter((r) => statusOf(r) === 'Pending').length;
-  const active = q || statusF;
+  // The timer's backlog: approved requests HR has not yet been notified of.
+  const pending = all.filter((r) => r.status === REQUEST_STATUS.Approved && !r.visaLetterNotifiedAt).length;
+  const active = !!q;
 
   return (
     <div className="w-full space-y-5">
@@ -86,15 +83,6 @@ export default async function VisaLettersPage({ searchParams }: { searchParams: 
             <label className="label">Search</label>
             <input name="q" defaultValue={sp.q ?? ''} placeholder="traveller · request no. · destination" className="field w-full" />
           </div>
-          <div>
-            <label className="label">Status</label>
-            <select name="status" defaultValue={statusF} className="field w-48">
-              <option value="">All</option>
-              <option value="Pending">Pending</option>
-              <option value="Sent">Sent</option>
-              <option value="Awaiting approval">Awaiting approval</option>
-            </select>
-          </div>
           <button className="btn-primary">Apply</button>
           {(active || view !== 'today') ? <Link href="/visa-letters" className="btn-ghost">Reset</Link> : null}
         </form>
@@ -106,23 +94,19 @@ export default async function VisaLettersPage({ searchParams }: { searchParams: 
             <table className="w-full text-sm">
               <thead><tr>
                 <th className="th">Request</th><th className="th">Traveller</th><th className="th">Department</th><th className="th">Destination</th>
-                <th className="th">Dates</th><th className="th">Status</th><th className="th">Notified</th>
+                <th className="th">Dates</th><th className="th">Notified HR</th>
               </tr></thead>
               <tbody>
-                {reqs.map((r) => {
-                  const st = statusOf(r);
-                  return (
-                    <tr key={r.id} className="hover:bg-[var(--ecs-panel-2)]">
-                      <td className="td"><Link href={`/requests/${r.id}`} className="font-mono text-[var(--ecs-navy)] hover:underline">{r.requestNumber}</Link></td>
-                      <td className="td">{travellerName(r)}</td>
-                      <td className="td">{EcsIdentity.department(r.departmentId ?? '')?.name ?? '—'}</td>
-                      <td className="td">{EcsReference.city(r.destCity ?? '')?.name ?? '—'}, {EcsReference.country(r.destCountry ?? '')?.name ?? ''}</td>
-                      <td className="td whitespace-nowrap">{d(r.startDate)} → {d(r.endDate)}</td>
-                      <td className="td">{st === 'Sent' ? <span className="pill-pass">Sent</span> : st === 'Pending' ? <span className="pill-exc">Pending</span> : <span className="pill-info">Awaiting approval</span>}</td>
-                      <td className="td">{d(r.visaLetterNotifiedAt)}</td>
-                    </tr>
-                  );
-                })}
+                {reqs.map((r) => (
+                  <tr key={r.id} className="hover:bg-[var(--ecs-panel-2)]">
+                    <td className="td"><Link href={`/requests/${r.id}`} className="font-mono text-[var(--ecs-navy)] hover:underline">{r.requestNumber}</Link></td>
+                    <td className="td">{travellerName(r)}</td>
+                    <td className="td">{EcsIdentity.department(r.departmentId ?? '')?.name ?? '—'}</td>
+                    <td className="td">{EcsReference.city(r.destCity ?? '')?.name ?? '—'}, {EcsReference.country(r.destCountry ?? '')?.name ?? ''}</td>
+                    <td className="td whitespace-nowrap">{d(r.startDate)} → {d(r.endDate)}</td>
+                    <td className="td">{r.visaLetterNotifiedAt ? <span className="pill-pass">{d(r.visaLetterNotifiedAt)}</span> : <span className="text-[var(--ecs-muted)]">not yet</span>}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
