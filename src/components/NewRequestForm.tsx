@@ -337,7 +337,10 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
               {studentOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {studentTotal - groupMax} student{studentTotal - groupMax > 1 ? 's' : ''}.</p>}
             </div>
           </div>
-          <div className="mt-4 flex justify-end"><button className="btn-primary" disabled={studentOver || studentTooFew}>Create student group draft →</button></div>
+          <div className="mt-4 flex items-center justify-end gap-3">
+            {studentTooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 students to create a group — you have {studentTotal} with a name.</span>}
+            <button className="btn-primary" disabled={studentOver || studentTooFew}>Create student group draft →</button>
+          </div>
         </form>
           ) : (
         <form action={createGroupDraft}>
@@ -445,7 +448,10 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
               {over && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {total - groupMax} traveller{total - groupMax > 1 ? 's' : ''}.</p>}
             </div>
           </div>
-          <div className="mt-4 flex justify-end"><button className="btn-primary" disabled={over || tooFew}>Create group draft →</button></div>
+          <div className="mt-4 flex items-center justify-end gap-3">
+            {tooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 members to create a group — you have {total}.</span>}
+            <button className="btn-primary" disabled={over || tooFew}>Create group draft →</button>
+          </div>
         </form>
           )}
         </>
