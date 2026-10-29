@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { listRequests } from '@/modules/pretrip/queries';
 import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
+import { canCreateTravelRequest } from '@/modules/pretrip/guards';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
@@ -20,6 +21,7 @@ function fmtDate(d: Date | null) { return d ? d.toISOString().slice(0, 10) : '�
 export default async function Dashboard() {
   const [requests, settings, persona] = await Promise.all([listRequests(), getSettings(), currentPersonaId()]);
   const isAdmin = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN');
+  const canCreate = canCreateTravelRequest(persona);
 
   // Scope: a traveller/requestor sees only their own requests; an administrator sees all.
   const scoped = isAdmin ? requests : requests.filter((r) =>
@@ -63,7 +65,7 @@ export default async function Dashboard() {
         actions={
           <>
             {requests.length === 0 && <form action={seedDemoScenarios}><button className="btn-secondary">Load demonstration scenarios</button></form>}
-            <Link href="/requests/new" className="btn-primary">＋ Create Travel Request</Link>
+            {canCreate && <Link href="/requests/new" className="btn-primary">＋ Create Travel Request</Link>}
           </>
         } />
 

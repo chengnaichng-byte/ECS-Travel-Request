@@ -7,7 +7,6 @@ import { PersonaSwitcher } from './PersonaSwitcher';
 import { NavLinks, type NavItem } from './NavLinks';
 import { currentPersona, currentRoleId } from '@/shared/session';
 import { PERSONA_ROLES, peopleByRole, defaultRoleFor } from '@/data/personaRoles';
-import { canCreateTravelRequest } from '@/modules/pretrip/guards';
 import { ROLE } from '@/shared/enums';
 
 // Existing ECS Reporting Dashboard screen (not rebuilt in the prototype) — opened in the ECS app.
@@ -16,7 +15,6 @@ const ECS_REPORTING_DASHBOARD_URL = 'https://apps.ntu.edu.sg/ECS/ReportingDashbo
 const NAV: NavItem[] = [
   { href: '/staff-profile', label: 'Staff Profile', icon: '§' },
   { href: '/dashboard', label: 'Travel Request Dashboard', icon: '▤' },
-  { href: '/requests/new', label: 'Create Travel Request', icon: '＋' },
   { href: '/approvals', label: 'RO / DOA Dashboard', icon: '✓' },
   // Reporting Dashboard — the existing ECS reporting screen (opens in ECS); groups the TR
   // administration / finance surfaces beneath it.
@@ -41,10 +39,9 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   // Separation of duties: the RO / DOA Dashboard is only for personas that hold an approver role.
   // A Travel/System Administrator (not also an approver) does not see the approval surface.
   const isApprover = ([ROLE.RO, ROLE.DOA, ROLE.ResearchDOA, ROLE.ExceptionApprover] as string[]).some((r) => persona.roles.includes(r as never));
-  // Separation of duties (DD-24): only a persona with a creation remit (traveller / delegate / PA /
-  // Travel Administrator) sees "Create Travel Request"; an approver-only persona (e.g. a DOA) does not.
-  const canCreate = canCreateTravelRequest(persona.id);
-  const nav = NAV.filter((n) => (n.href !== '/approvals' || isApprover) && (n.href !== '/requests/new' || canCreate));
+  // Create Travel Request is subsumed under the Travel Request Dashboard (the "＋ Create Travel
+  // Request" button there, gated by the same creation-remit rule — DD-24).
+  const nav = NAV.filter((n) => n.href !== '/approvals' || isApprover);
   const initials = persona.name.split(' ').map((w) => w[0]).slice(-2).join('');
 
   return (
