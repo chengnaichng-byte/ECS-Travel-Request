@@ -21,6 +21,8 @@ import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsPolicy, EcsTravelClas
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
 import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
+import { assignGroupLineNos } from './groupLines';
+import { assembleOutboundInstructions } from './tmcPayload';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
 
@@ -181,6 +183,7 @@ async function submit(id: string): Promise<FullRequest> {
   const settings = await getSettings();
   let req = await loadRequest(id);
   if (!req) throw new Error('missing');
+  await assignGroupLineNos(id); // §13.14 freeze group line numbers (TA/0n) at submission
   // Seed fixtures are historical: several scenarios are completed trips dated in the past (so they
   // can be Approved/Booked/Claimed for the demo). The DATE_PAST rule (a NEW request can't be raised
   // for a trip that already started) does not apply to these fixtures, so it is exempt here — the
@@ -273,6 +276,38 @@ async function bookViaTmc(id: string, overFarePct = 0, ctaAccountId = 'CTA-SG-SG
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   await audit(id, 'E-SYS', 'INTEGRATION', `Inbound booking received — PNR ${inbound.pnr}`);
   await postCtaChargesForRequest(id);   // DD-31 post settled CTA charges to SAP on receipt
+}
+
+/** §13.14 Book a GROUP via the fan-out: one shared TA, one booking instruction per traveller
+ *  (instructionSeq = the traveller's frozen line number TA/0n), each returning its OWN PNR +
+ *  e-tickets. One TR → N per-traveller bookings, each keyed by travellerId + travellerLineNo. */
+async function bookGroupViaTmc(id: string, ctaAccountId = 'CTA-SG-SGD') {
+  const req = await loadRequest(id);
+  if (!req || !req.isGroup) return;
+  const chargeDate = req.startDate ? new Date(req.startDate.getTime() - 7 * 86400000) : null;
+  const chargeIso = chargeDate ? chargeDate.toISOString().slice(0, 10) : null;
+  const { mode, instructions } = assembleOutboundInstructions(req);
+  await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify({ mode, authorisationNumber: req.authorisationNo ?? '', instructionCount: instructions.length, instructions }, null, 2) } });
+  const bookings: unknown[] = [];
+  for (const inst of instructions) {
+    const lineNo = inst.instructionSeq ?? null;
+    const suffix = lineNo ? `-${lineNo}` : '';
+    const sim = simulateInbound(inst, { ctaAccountId, charged: true, chargeDate: chargeIso });
+    sim.pnr = `${sim.pnr}${suffix}`;
+    sim.ticketNumbers = sim.ticketNumbers.map((tk) => `${tk}${suffix}`);
+    // §7.3 re-point this traveller's trace onto their OWN suffixed pnr + e-ticket.
+    const tkt = sim.ticketNumbers[0];
+    sim.segments = sim.segments.map((s) => ({ ...s, pnr: sim.pnr, ...(s.ticketNumber ? { ticketNumber: tkt } : {}) }));
+    if (sim.charges) sim.charges = sim.charges.map((c) => ({ ...c, pnr: sim.pnr, ...(c.ticketNumber ? { ticketNumber: tkt } : {}) }));
+    bookings.push(sim);
+    const booking = await prisma.travelBooking.create({ data: { requestId: id, travellerId: inst.travellerRef, travellerLineNo: lineNo, pnr: sim.pnr, invoiceNo: sim.invoiceNumber ?? null, ticketNo: sim.ticketNumbers[0], channel: 'TMC', fare: sim.fareSgd, taxes: sim.taxesSgd, fees: sim.feesSgd, hotelRate: sim.segments.find((x) => x.type === 'HOTEL')?.roomRateSgd, ctaAccountId: sim.ctaAccountId ?? null, ctaCharged: sim.ctaCharged ?? false, ctaChargeDate: sim.ctaChargeDate ? new Date(sim.ctaChargeDate) : null, status: obtToEcsBookingStatus(sim.bookingStatus) } });
+    for (const seg of sim.segments) await prisma.bookingSegment.create({ data: { bookingId: booking.id, type: seg.type, originCode: seg.origin, destCode: seg.destination, bookedClassId: seg.bookedClass, amount: seg.amountSgd ?? seg.roomRateSgd, segmentRef: seg.segmentRef ?? null, pnr: seg.pnr ?? sim.pnr, segmentStatus: seg.segmentStatus ?? null, ticketNumber: seg.ticketNumber ?? null, couponNumber: seg.couponNumber ?? null } });
+    for (const c of sim.charges ?? []) await prisma.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true, pnr: c.pnr ?? sim.pnr, ticketNumber: c.ticketNumber ?? null, segmentRef: c.segmentRef ?? null } });
+  }
+  await prisma.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', payload: JSON.stringify({ mode: 'GROUP_FANOUT', authorisationNumber: req.authorisationNo ?? '', bookings }, null, 2) } });
+  await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
+  await audit(id, 'E-SYS', 'INTEGRATION', `Inbound fan-out received — ${instructions.length} per-traveller booking(s) under ${req.authorisationNo}`);
+  await postCtaChargesForRequest(id);
 }
 
 async function makeClaim(id: string, claimantId: string, actualsFactor = 1) {
@@ -1005,6 +1040,7 @@ async function buildGroupS11() {
   const id = await buildGroupDraft('Group conference trip — three travellers (S11)', '2026-11-09', '2026-11-13');
   await submit(id);
   await approveAll(id);
+  await bookGroupViaTmc(id);   // §13.14 fan out → one TA, one PNR + e-ticket per traveller (TA/0n)
 }
 
 // S12 — group amendment (§13.16): an approved & confirmed group loses a traveller

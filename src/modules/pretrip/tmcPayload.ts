@@ -149,7 +149,7 @@ export function assembleOutboundInstructions(
       ...(guest ? { guest: { name: memberName(t), email: t.guestEmail, organisation: t.guestOrg },
         settlement: { mode: 'HOST_DIRECT_BILL' as const, costObject: hostCostObject(req) },
         ...(on('guestProfile') ? { guestProfile: guestProfileBlock(t.guestEmail) } : {}) } : {}),
-      instructionSeq: i + 1,
+      instructionSeq: (t as { lineNo?: number | null }).lineNo ?? i + 1, // §13.14 the traveller's frozen group line number (TA/0n)
       instructionCount: count,
       bookingMethod: req.bookingMethod ?? 'TMC_ONLINE',
       segments: [

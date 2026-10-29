@@ -210,6 +210,7 @@ model TravelRequestTraveller {
   requestId     String
   request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   employeeId    String                    // employee id, or a synthetic "G-…" key for a guest member
+  lineNo        Int?                       // §13.14 stable per-traveller line number within the group (TA/0n). Frozen at submission; never renumbered or reused on amendment. Lead = 01.
   travellerType String  @default("EMPLOYEE") // §8 EMPLOYEE | GUEST (non-employee member of a group)
   guestName     String?                   // §8 guest identity (no ECS/HR profile)
   guestEmail    String?
@@ -466,6 +467,7 @@ model TravelBooking {
   ctaCharged    Boolean @default(false)     // DD-30 the central charges have actually settled on the CTA (ticketed/charged), not merely a confirmed booking
   ctaChargeDate DateTime?                   // DD-30 date the charge posted to the CTA (from the card/TMC feed) — what finance reconciles to the statement period
   status        String  @default("Booked")
+  travellerLineNo Int?                        // §13.14 the booked traveller's group line number (TA/0n), denormalised so a booking/charge can cite it without a join
   segments      BookingSegment[]
   charges       BookingCharge[]
 }

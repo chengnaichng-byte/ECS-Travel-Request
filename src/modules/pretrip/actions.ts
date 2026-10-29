@@ -30,6 +30,8 @@ import { visaLetterRecipientFor } from '@/config/visaLetter';
 import { randomUUID } from 'node:crypto';
 import { adapterFor } from '@/integrations/tmc/adapter';
 import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
+import type { CanonicalInbound } from '@/integrations/tmc/contract';
+import { assignGroupLineNos } from './groupLines';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
@@ -957,6 +959,7 @@ export async function submitRequest(id: string, fd?: FormData) {
   if (!req) return;
   if (!canEditRequest(await currentPersonaId(), req)) { await audit(id, 'STATUS', 'Submit blocked — not authorised to edit this request'); return; }
   if (!actionAllowed('submit', req.status)) { await audit(id, 'STATUS', `Submit blocked — request is ${req.status}, not in an editable state`); return; }
+  await assignGroupLineNos(id); // §13.14 freeze group line numbers (TA/0n) at submission
   const settings = await getSettings();
 
   // §13.x duplicate guard — block if a LIVE request already covers the same traveller(s), the
@@ -1377,23 +1380,34 @@ export async function receiveBooking(id: string, fd: FormData) {
   // expands to one-or-more PNRs (each its own booking row), keeping 1 request → 1 claim.
   const r2 = (n: number) => Math.round(n * 100) / 100;
   const multiCity = req.tripType === 'MULTI_CITY';
+  // §7.3 re-point a booking's trace onto ITS OWN (suffixed) pnr + e-ticket, so each per-traveller /
+  //  per-PNR booking's segment → PNR → ticket trace matches the booking row (not the base feed values).
+  const applyTrace = (inb: CanonicalInbound): CanonicalInbound => {
+    const tkt = inb.ticketNumbers[0];
+    inb.segments = inb.segments.map((s) => ({ ...s, pnr: inb.pnr, ...(s.ticketNumber ? { ticketNumber: tkt } : {}) }));
+    if (inb.charges) inb.charges = inb.charges.map((c) => ({ ...c, pnr: inb.pnr, ...(c.ticketNumber ? { ticketNumber: tkt } : {}) }));
+    return inb;
+  };
   const inbounds = instructions.flatMap((inst, i) => {
     const sim = adapter.simulateInbound(inst as never, { overFarePct });
     const travellerId = (inst as { travellerRef?: string }).travellerRef ?? null;
-    const suffix = isFanout ? `-${i + 1}` : '';
+    // §13.14 the traveller's frozen group line number (TA/0n) — denotes which traveller in the group;
+    // the per-traveller PNR is suffixed by it so each booking is distinguishable at a glance.
+    const lineNo = isFanout ? ((inst as { instructionSeq?: number }).instructionSeq ?? i + 1) : null;
+    const suffix = isFanout ? `-${lineNo}` : '';
     const air = sim.segments.filter((s) => s.type === 'AIR');
     const hotel = sim.segments.filter((s) => s.type === 'HOTEL');
     // Split a genuine multi-city itinerary into two PNRs (air split by journey; hotel on PNR A).
     if (multiCity && air.length >= 3) {
       const mid = Math.ceil(air.length / 2);
       const sh = mid / air.length;
-      const mk = (tag: string, segs: typeof sim.segments, f: number, t: number, e: number) => ({ travellerId, inbound: {
+      const mk = (tag: string, segs: typeof sim.segments, f: number, t: number, e: number) => ({ travellerId, lineNo, inbound: applyTrace({
         ...sim, pnr: `${sim.pnr}${suffix}-${tag}`, ticketNumbers: sim.ticketNumbers.map((tk: string) => `${tk}${suffix}-${tag}`),
         segments: segs, fareSgd: f, taxesSgd: t, feesSgd: e,
         // DD-31: the feed's charges[] carry the FULL-PNR amounts; on a multi-city split each PNR
         // instead derives its charges from its own split fare/taxes/fees (so amounts aren't doubled).
         charges: undefined,
-      } });
+      }) });
       return [
         mk('A', [...air.slice(0, mid), ...hotel], r2(sim.fareSgd * sh), r2(sim.taxesSgd * sh), r2(sim.feesSgd * sh)),
         mk('B', air.slice(mid), r2(sim.fareSgd * (1 - sh)), r2(sim.taxesSgd * (1 - sh)), r2(sim.feesSgd * (1 - sh))),
@@ -1401,7 +1415,7 @@ export async function receiveBooking(id: string, fd: FormData) {
     }
     sim.pnr = `${sim.pnr}${suffix}`;
     sim.ticketNumbers = sim.ticketNumbers.map((tk: string) => `${tk}${suffix}`);
-    return [{ travellerId, inbound: sim }];
+    return [{ travellerId, lineNo, inbound: applyTrace(sim) }];
   });
 
   // §6.4 booking-deviation check (AC10) — on the aggregate booked airfare.
@@ -1420,10 +1434,10 @@ export async function receiveBooking(id: string, fd: FormData) {
   // Atomic: response + bookings + segments + deviation + status succeed or fail together.
   await prisma.$transaction(async (tx) => {
     await tx.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', tmcProviderId: providerId, payload: JSON.stringify(responsePayload, null, 2) } });
-    for (const { travellerId, inbound } of inbounds) {
+    for (const { travellerId, lineNo, inbound } of inbounds) {
       const booking = await tx.travelBooking.create({
         data: {
-          requestId: id, travellerId, tmcProviderId: providerId, pnr: inbound.pnr, invoiceNo: inbound.invoiceNumber ?? null, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
+          requestId: id, travellerId, travellerLineNo: lineNo, tmcProviderId: providerId, pnr: inbound.pnr, invoiceNo: inbound.invoiceNumber ?? null, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
           fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd,
           hotelRate: inbound.segments.find((s: { type: string }) => s.type === 'HOTEL')?.roomRateSgd, status: obtToEcsBookingStatus(inbound.bookingStatus),
           ctaAccountId: inbound.ctaAccountId ?? null,   // DD-30 feed-reported CTA account the central charges hit

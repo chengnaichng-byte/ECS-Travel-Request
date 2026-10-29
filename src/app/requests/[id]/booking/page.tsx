@@ -9,6 +9,8 @@ import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { isTmcArrangement, isSelfBooked, isHostArranged, isNoBooking, arrangementLabel } from '@/modules/pretrip/booking';
+import { taLineRef } from '@/modules/pretrip/groupLines';
+import { memberName } from '@/modules/pretrip/traveller';
 import { assessHandoffRouting, channelLabel } from '@/modules/pretrip/handoffRouting';
 import { tmcProvider } from '@/data/tmcProviders';
 import { BOOKING_STATUS, TMC_INFLIGHT_STATUSES } from '@/shared/enums';
@@ -180,6 +182,42 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
+      {/* §13.14 group view — one shared TR + TA; each traveller is a frozen line (TA/0n) with their own PNR + e-ticket */}
+      {req.isGroup && (
+        <Card title={`Group travellers — one TA, ${req.travellers.length} travellers (§13.14)`}>
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">
+            The whole group shares <strong>one</strong> Travel Request ({req.requestNumber}) and <strong>one</strong> Travel
+            Authorisation (<span className="font-mono">{req.authorisationNo ?? '—'}</span>). The TA number is not split — each
+            traveller is a stable <strong>line</strong> on it (<span className="font-mono">TA/0n</span>, frozen at submission)
+            and is booked as their <strong>own PNR + e-ticket</strong>. The per-traveller key downstream is the PNR; the TA/0n is the finance-readable reference.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead><tr>
+                <th className="th">Line</th><th className="th">TA reference</th><th className="th">Traveller</th>
+                <th className="th text-right">Share %</th><th className="th">PNR(s)</th><th className="th">E-ticket</th><th className="th">Status</th>
+              </tr></thead>
+              <tbody>
+                {[...req.travellers].sort((a, b) => (a.lineNo ?? 99) - (b.lineNo ?? 99)).map((t) => {
+                  const tb = bookings.filter((b) => b.travellerId === t.employeeId);
+                  return (
+                    <tr key={t.id} className="hover:bg-[var(--ecs-panel-2)]">
+                      <td className="td font-mono">{t.lineNo ? String(t.lineNo).padStart(2, '0') : '—'}</td>
+                      <td className="td font-mono text-xs">{taLineRef(req.authorisationNo, t.lineNo)}</td>
+                      <td className="td">{memberName(t)}{t.isRequestor ? ' (lead)' : ''}</td>
+                      <td className="td text-right">{t.sharePct}%</td>
+                      <td className="td font-mono text-xs">{tb.length ? tb.map((b) => b.pnr).join(', ') : <span className="text-[var(--ecs-muted)]">— not booked</span>}</td>
+                      <td className="td font-mono text-xs">{tb.length ? (tb.map((b) => b.ticketNo).filter(Boolean).join(', ') || '—') : '—'}</td>
+                      <td className="td">{tb.length ? tb.map((b) => b.status).join(', ') : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <div className="grid md:grid-cols-2 gap-5">
         <Card title={`Booking Summary (TR-14)${bookings.length > 1 ? ` — ${bookings.length} PNRs` : ''}`}>
           {bookings.length === 0 ? <Empty>No booking yet. Send the approved request to the TMC, or mark it self-booked.</Empty> : (
@@ -190,7 +228,10 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
                 return (
                 <dl key={booking.id} className="grid grid-cols-2 gap-3 pb-3 border-b border-[var(--ecs-border)] last:border-0 last:pb-0">
                   {req.isGroup && booking.travellerId && (
-                    <div className="col-span-2 text-sm font-semibold text-[var(--ecs-navy)]">{EcsIdentity.employee(booking.travellerId)?.name ?? booking.travellerId}</div>
+                    <div className="col-span-2 text-sm font-semibold text-[var(--ecs-navy)]">
+                      {EcsIdentity.employee(booking.travellerId)?.name ?? booking.travellerId}
+                      {booking.travellerLineNo && <span className="ml-2 font-mono text-xs font-normal text-[var(--ecs-muted)]">{taLineRef(req.authorisationNo, booking.travellerLineNo)}</span>}
+                    </div>
                   )}
                   {route && <div className="col-span-2 text-xs text-[var(--ecs-muted)]">Covers: {route}</div>}
                   <KV label="Channel">{booking.channel}</KV>

@@ -32,19 +32,36 @@ Emitted when an approved request is handed off. Canonical fields:
 Simulated by the mock adapter; the feed is **keyed by the Travel Authorisation (TA)**, not the
 PNR — one TA returns the full set of PNRs under it (one TR → N PNRs). The datapoints synced back:
 
+> **Group bookings (§13.14).** A group is **one TR and one TA**, shared by every traveller — the TA
+> number is never split. Each traveller is a stable, frozen **line** on that TA (`TA-…/0n`, assigned
+> at submission, never renumbered or reused on amendment; lead = `/01`) and is fanned out as its own
+> booking instruction (`instructionSeq` = the line number) that returns its **own PNR + e-tickets**.
+> So the per-traveller distinguisher downstream is the PNR (system key) and the `/0n` line (finance
+> reference) — not a change to the TA. Stored on `TravelRequestTraveller.lineNo` and
+> `TravelBooking.travellerLineNo`; shown on the Booking Details group view.
+
 ### Booking confirmation (§30/§39 lifecycle · DD-17)
 
 | Datapoint | ECS target / use |
 |---|---|
-| `authorisationNumber` | the TA the feed is keyed by (one TA → N PNRs) |
-| `pnr`, `ticketNumbers[]` | TravelBooking — booking reference / e-tickets |
+| `authorisationNumber` | the TA the feed is keyed by (one TA → N PNRs); the association anchor |
+| `pnr` + `supplierCode` | the PNR **key** is `(supplierCode, pnr)` — a record locator is unique only within its owning GDS/supplier |
+| `ticketNumbers[]` | TravelBooking — e-tickets |
 | `invoiceNumber` | provider invoice no. = SAP posting Reference (PNR used when absent) |
-| `bookingStatus`, `channel` | TravelBooking lifecycle status + fulfilment channel |
+| `bookingStatus` | §7.3 **OBT / TMC industry status** (`IN_PROGRESS`…`TICKETED`…`CANCELLED`, see vocab below) — ECS maps it onto its own lifecycle via `obtToEcsBookingStatus()` (`src/integrations/tmc/vocab.ts`) |
+| `channel` | fulfilment channel (online / agent-assisted / offline) |
 | `bookedAt`, `ticketedAt` | confirmation / ticket-issue timestamps (a charge posts only once ticketed) |
 | `segments[].bookedClass` | booked cabin — class deviation vs approved (§6.4) |
+| `segments[].segmentRef / pnr` | §7.3 association keys — segment → PNR → TA trace (persisted on BookingSegment) |
+| `segments[].segmentStatus` | air: GDS segment status code (HK confirmed / UN cancelled / TK sched-change …) |
+| `segments[].ticketNumber / couponNumber` | air: the e-ticket + coupon covering this segment |
 | `segments[].departDate / arriveDate` | booked travel dates (DD-17), persisted on BookingSegment |
 | `segments[].supplierName / supplierCode / confirmationNo` | airline / hotel (+ hotel conf. no.) for reconciliation |
 | `fareSgd`, `taxesSgd`, `feesSgd` | estimate-to-actual comparison |
+
+**OBT booking-record status (Part A), mapped to ECS:** `IN_PROGRESS`/`QUEUED` → In Progress · `TRAVELLER_ACTION_REQUIRED` → Traveller Action Required · `PARTIALLY_TICKETED`/`WAITLISTED` → Partially Booked · `HELD`/`CONFIRMED`/`TICKETED`/`SCHEDULE_CHANGE`/`REISSUED` → Booked · `CANCELLED`/`VOIDED`/`REFUNDED`/`EXPIRED` → Cancelled · `REJECTED`/`FAILED` → Failed · `NO_SHOW`/`COMPLETED` → Travel Completed. GDS segment codes (Part B: HK/HL/UN/TK…) and e-ticket coupon codes (Part C: O/F/R/V…) are carried verbatim on segments.
+
+**Charge → fulfilment trace:** each `charges[]` line carries `pnr` and, for air, `ticketNumber` (+ `segmentRef`), so finance can walk a charge → e-ticket/segment → PNR → TA.
 
 ### CTA charges — the SAP posting (DD-30 / DD-31)
 
