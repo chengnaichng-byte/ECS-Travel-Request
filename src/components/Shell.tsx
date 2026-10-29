@@ -10,20 +10,25 @@ import { PERSONA_ROLES, peopleByRole, defaultRoleFor } from '@/data/personaRoles
 import { canCreateTravelRequest } from '@/modules/pretrip/guards';
 import { ROLE } from '@/shared/enums';
 
+// Existing ECS Reporting Dashboard screen (not rebuilt in the prototype) — opened in the ECS app.
+const ECS_REPORTING_DASHBOARD_URL = 'https://apps.ntu.edu.sg/ECS/ReportingDashboard';
+
 const NAV: NavItem[] = [
+  { href: '/staff-profile', label: 'Staff Profile', icon: '§' },
   { href: '/dashboard', label: 'Travel Request Dashboard', icon: '▤' },
   { href: '/requests/new', label: 'Create Travel Request', icon: '＋' },
   { href: '/approvals', label: 'RO / DOA Dashboard', icon: '✓' },
-  { href: '/workbench', label: 'Travel Administration', icon: '⚑' },
-  { href: '/finance', label: 'Finance Oversight', icon: '$' },
-  { href: '/finance/cta-charges', label: 'CTA Charges', icon: '◉' },
-  { href: '/finance/cta-postings', label: 'CTA Accounting Entries', icon: '≡' },
-  { href: '/reports', label: 'Reporting', icon: '▦' },
-  { href: '/policy', label: 'Travel Policy', icon: '§' },
+  // Reporting Dashboard — the existing ECS reporting screen (opens in ECS); groups the TR
+  // administration / finance surfaces beneath it.
+  { href: ECS_REPORTING_DASHBOARD_URL, label: 'Reporting Dashboard', icon: '▦', external: true, children: [
+    { href: '/workbench', label: 'Travel Administration', icon: '⚑' },
+    { href: '/finance', label: 'Finance Oversight', icon: '$' },
+    { href: '/finance/cta-charges', label: 'CTA Charges', icon: '◉' },
+    { href: '/finance/cta-postings', label: 'CTA Accounting Entries', icon: '≡' },
+  ] },
+  { href: '/reports', label: 'Reporting', icon: '▥' },
   { href: '/visa-letters', label: 'Visa Letters', icon: '✉' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
-  { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
-  { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
 ];
 
 const STUBS = ['GST Codes', 'Entertainment Tier', 'Mileage', 'CTC Cards', 'Rejection Reasons', 'Employee Tier', 'Define Research WBS', 'Announcements'];
@@ -77,6 +82,8 @@ export async function Shell({ children }: { children: React.ReactNode }) {
           <div className="px-3 pt-4 pb-2 mt-2 border-t border-[var(--ecs-border)]">
             <p className="text-[10px] uppercase tracking-wide text-[var(--ecs-muted)] mb-1">Setup &amp; Maintenance</p>
             <div className="mb-1"><NavLinks items={[
+              { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
+              { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
               { href: '/setup/provosts', label: 'Provost List (guest upgrades)', icon: '◈' },
               { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
               { href: '/setup/upgrade-accounts', label: 'Upgrade Differential (M6) Accounts', icon: '▲' },
