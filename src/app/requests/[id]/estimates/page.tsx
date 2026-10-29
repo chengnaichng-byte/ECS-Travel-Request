@@ -171,9 +171,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             {grouped.map((g) => {
               const rowCount = g.lines.reduce((n, e) => n + (e.isShared ? apportion(e).length : 1), 0);
               return (
-                <details key={g.key} className="rounded border border-[var(--ecs-border)]">
-                  <summary className="flex items-center justify-between px-3 py-2 cursor-pointer select-none bg-[var(--ecs-panel)] text-sm font-semibold text-[var(--ecs-navy)]">
-                    <span>{g.name} <span className="font-normal text-[var(--ecs-muted)]">· {rowCount} traveller line{rowCount > 1 ? 's' : ''}</span></span>
+                <details key={g.key} className="group rounded border border-[var(--ecs-border)]">
+                  <summary className="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer select-none bg-[var(--ecs-panel)] text-sm font-semibold text-[var(--ecs-navy)] list-none [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center gap-1.5"><span className="chev-x inline-block shrink-0 text-[var(--ecs-muted)] text-xs leading-none" aria-hidden="true">▾</span>{g.name} <span className="font-normal text-[var(--ecs-muted)]">· {rowCount} traveller line{rowCount > 1 ? 's' : ''}</span></span>
                     <span className="whitespace-nowrap">{fmtSgd(g.gross)}</span>
                   </summary>
                   <table className="w-full text-sm">

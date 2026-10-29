@@ -145,6 +145,26 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
   const initialLineMap: Record<string, string> = {};
   for (const e of req.expenses) if (e.chargingCode) initialLineMap[e.id] = e.chargingCode;
 
+  // Gross / sponsor-or-self / NTU-funded for one cost line (self-funded upgrade delta is traveller-paid).
+  const lineFig = (e: FullRequest['expenses'][number]) => {
+    const u = e.category === EXPENSE_CATEGORY.Airfare ? airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding, upgradeDeltaCode: e.upgradeDeltaCode }) : null;
+    const selfDelta = u?.isUpgrade && u.funding === 'SELF' ? u.travellerPaysSgd : 0;
+    return { gross: e.sgdAmount, sponsor: e.sponsorSgd, selfDelta, ntu: Math.max(e.sgdAmount - e.sponsorSgd - selfDelta, 0) };
+  };
+  // §13.14 group view — one collapsible row per expense type (like the Estimates step), each
+  // expanding to the per-traveller lines with Gross / Sponsor / NTU-funded.
+  const chargeGroups = (() => {
+    const order: string[] = [];
+    const by = new Map<string, { key: string; name: string; gross: number; sponsor: number; ntu: number; lines: FullRequest['expenses'] }>();
+    for (const e of req.expenses) {
+      const k = e.expenseTypeId;
+      if (!by.has(k)) { by.set(k, { key: k, name: EcsReference.expenseType(k)?.name ?? e.category, gross: 0, sponsor: 0, ntu: 0, lines: [] }); order.push(k); }
+      const g = by.get(k)!; const f = lineFig(e);
+      g.gross += f.gross; g.sponsor += f.sponsor + f.selfDelta; g.ntu += f.ntu; g.lines.push(e);
+    }
+    return order.map((k) => by.get(k)!);
+  })();
+
   return (
     <div>
       <Stepper id={id} active="charging" requestNumber={req.requestNumber} status={req.status} />
@@ -193,7 +213,42 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
       )}
 
       <Card title={`Estimated Cost Lines (${req.expenses.length})`} className="mb-5">
-        {req.expenses.length === 0 ? <Empty>No estimate lines yet — add airfare, accommodation and ODA on the Estimates step.</Empty> : (
+        {req.expenses.length === 0 ? <Empty>No estimate lines yet — add airfare, accommodation and ODA on the Estimates step.</Empty> : req.isGroup ? (
+          // §13.14 group: one collapsible row per cost item (expense type); expand to the per-traveller breakdown.
+          <div className="space-y-2">
+            {chargeGroups.map((g) => (
+              <details key={g.key} className="group rounded border border-[var(--ecs-border)]">
+                <summary className="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer select-none bg-[var(--ecs-panel)] text-sm font-semibold text-[var(--ecs-navy)] list-none [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-1.5"><span className="chev-x inline-block shrink-0 text-[var(--ecs-muted)] text-xs leading-none" aria-hidden="true">▾</span>{g.name} <span className="font-normal text-[var(--ecs-muted)]">· {g.lines.length} traveller line{g.lines.length > 1 ? 's' : ''}</span></span>
+                  <span className="whitespace-nowrap">{fmtSgd(g.ntu)}</span>
+                </summary>
+                <table className="w-full text-sm">
+                  <thead><tr>
+                    <th className="th pl-6">Traveller</th><th className="th">Detail</th>
+                    <th className="th text-right">Gross (SGD)</th><th className="th text-right">Sponsor (SGD)</th><th className="th text-right">NTU-funded (SGD)</th>
+                  </tr></thead>
+                  <tbody>
+                    {g.lines.map((e) => {
+                      const f = lineFig(e);
+                      return (
+                        <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
+                          <td className="td text-xs text-[var(--ecs-navy-2)] pl-6 whitespace-nowrap">▸ {e.isShared ? 'Shared — apportioned' : memberKeyLabel(e.travellerId)}</td>
+                          <td className="td text-xs text-[var(--ecs-muted)]">{detailOf(e)}</td>
+                          <td className="td text-right whitespace-nowrap">{fmtSgd(f.gross)}</td>
+                          <td className="td text-right whitespace-nowrap">{f.sponsor > 0 ? `− ${fmtSgd(f.sponsor)}` : f.selfDelta > 0 ? `− ${fmtSgd(f.selfDelta)} self` : '—'}</td>
+                          <td className="td text-right whitespace-nowrap font-medium">{fmtSgd(f.ntu)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </details>
+            ))}
+            <div className="flex items-center justify-between px-3 py-2 font-semibold border-t border-[var(--ecs-border)] text-[var(--ecs-navy)]">
+              <span>Estimated NTU-funded cost</span><span>{fmtSgd(summary.ntuFunded)}</span>
+            </div>
+          </div>
+        ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr><th className="th">Type</th>{req.isGroup && <th className="th">Traveller</th>}<th className="th">Detail</th><th className="th text-right">Gross (SGD)</th><th className="th text-right">Sponsor (SGD)</th><th className="th text-right">NTU-funded (SGD)</th></tr></thead>
