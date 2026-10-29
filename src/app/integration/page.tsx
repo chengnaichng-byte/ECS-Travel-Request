@@ -11,6 +11,7 @@ import { getContractSettings, tmcEnabledSet, prepopContract, getGuardSettings, e
 import { assembleOutbound } from '@/modules/pretrip/tmcPayload';
 import { simulateInbound } from '@/integrations/tmc/adapter';
 import { OBT_BOOKING_STATUS_LABEL, SEGMENT_STATUS_LABEL, obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
+import { INBOUND_FEED_SPEC, FEED_CONSUMER_LABEL } from '@/config/inboundFeed';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { CONTRACT_FIELDS, TE_TREATMENT_OPTIONS, GUARD_PARAM_OPTIONS, GUARD_PARAM_LABELS, guardEditable, CONTRACT_VERSION } from '@/config/integrationContracts';
 import { expenseTypes } from '@/data/expenseTypes';
@@ -188,6 +189,42 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
           {isAdmin && <div className="flex justify-end mt-3"><button type="submit" className="btn-primary">Save parameter filters</button></div>}
         </Card>
       </form>
+
+      {/* ---------------------- Inbound-feed requirements (canonical) ---------------------- */}
+      <Card title="Receive from TMC — inbound-feed datapoints (§7.3 / §13.9)">
+        <p className="text-sm text-[var(--ecs-muted)] mb-3">
+          What the TMC must return on the <strong>TA-keyed booking feed</strong>, independent of any one request (the live
+          preview below renders it for a chosen request). The feed lands in the <strong>Pre-Trip module</strong> and fans to
+          two consumers:
+        </p>
+        <ul className="text-sm text-[var(--ecs-muted)] mb-4 space-y-1 list-none pl-0">
+          <li className="flex items-start gap-2"><span className="pill-info mt-0.5">Pre-Trip booking</span><span>booking records (PNR / e-ticket / segments / status) + reconciliation (deviation vs approved, §6.4).</span></li>
+          <li className="flex items-start gap-2"><span className="pill-warn mt-0.5">CTA → SAP</span><span>the per-charge CTA settlement posts to the SAP GL on receipt (DD-30/31) — a posting branch that does not wait for a claim.</span></li>
+          <li className="flex items-start gap-2"><span className="pill-pass mt-0.5">ECS claim</span><span>booked actuals + booking reference pre-populate the expense claim / TE (§13.8), reference-only for central/CTA lines.</span></li>
+        </ul>
+        <div className="border border-[var(--ecs-border)] rounded overflow-hidden">
+          <table className="w-full text-xs">
+            <thead><tr><th className="th">Datapoint</th><th className="th">Canonical field</th><th className="th">Consumer(s)</th><th className="th">Requirement</th><th className="th">Purpose / ECS use</th></tr></thead>
+            <tbody>
+              {INBOUND_FEED_SPEC.map((grp) => (
+                <FragmentGroup key={grp.group} label={grp.group} cols={5}>
+                  {grp.note && <tr><td className="td text-[11px] text-[var(--ecs-muted)] italic" colSpan={5}>{grp.note}</td></tr>}
+                  {grp.fields.map((f) => (
+                    <tr key={f.field} className="hover:bg-[var(--ecs-panel-2)] align-top">
+                      <td className="td font-medium">{f.datapoint}</td>
+                      <td className="td font-mono text-[11px]">{f.field}</td>
+                      <td className="td"><div className="flex flex-wrap gap-1">{f.consumers.map((c) => <span key={c} className={c === 'CTA_SAP' ? 'pill-warn' : c === 'TE_CLAIM' ? 'pill-pass' : 'pill-info'}>{FEED_CONSUMER_LABEL[c]}</span>)}</div></td>
+                      <td className="td whitespace-nowrap">{f.requirement === 'Mandatory' ? <span className="pill-stop">Mandatory</span> : f.requirement === 'Conditional' ? <span className="pill-warn">Conditional</span> : <span className="text-[var(--ecs-muted)]">Optional</span>}</td>
+                      <td className="td text-[var(--ecs-muted)] whitespace-normal">{f.purpose}</td>
+                    </tr>
+                  ))}
+                </FragmentGroup>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-[var(--ecs-muted)] mt-2">Canonical types: <code>src/integrations/tmc/contract.ts</code> · OBT / GDS vocabulary: <code>src/integrations/tmc/vocab.ts</code>. The same datapoints render per request below.</p>
+      </Card>
 
       {/* --------------------------------- Live preview --------------------------------- */}
       <Card title="Live preview — governed payloads & eligibility">
