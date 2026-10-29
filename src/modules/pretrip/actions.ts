@@ -29,6 +29,7 @@ import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipientFor } from '@/config/visaLetter';
 import { randomUUID } from 'node:crypto';
 import { adapterFor } from '@/integrations/tmc/adapter';
+import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
@@ -1424,17 +1425,17 @@ export async function receiveBooking(id: string, fd: FormData) {
         data: {
           requestId: id, travellerId, tmcProviderId: providerId, pnr: inbound.pnr, invoiceNo: inbound.invoiceNumber ?? null, ticketNo: inbound.ticketNumbers[0], channel: 'TMC',
           fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd,
-          hotelRate: inbound.segments.find((s: { type: string }) => s.type === 'HOTEL')?.roomRateSgd, status: inbound.bookingStatus,
+          hotelRate: inbound.segments.find((s: { type: string }) => s.type === 'HOTEL')?.roomRateSgd, status: obtToEcsBookingStatus(inbound.bookingStatus),
           ctaAccountId: inbound.ctaAccountId ?? null,   // DD-30 feed-reported CTA account the central charges hit
           ctaCharged: inbound.ctaCharged ?? false, ctaChargeDate: inbound.ctaChargeDate ? new Date(inbound.ctaChargeDate) : null,
         },
       });
       for (const s of inbound.segments) {
-        await tx.bookingSegment.create({ data: { bookingId: booking.id, type: s.type, originCode: s.origin, destCode: s.destination, bookedClassId: s.bookedClass, departDate: s.departDate ? new Date(s.departDate) : null, arriveDate: s.arriveDate ? new Date(s.arriveDate) : (s.departDate ? new Date(s.departDate) : null), amount: s.amountSgd ?? s.roomRateSgd } });
+        await tx.bookingSegment.create({ data: { bookingId: booking.id, type: s.type, originCode: s.origin, destCode: s.destination, bookedClassId: s.bookedClass, departDate: s.departDate ? new Date(s.departDate) : null, arriveDate: s.arriveDate ? new Date(s.arriveDate) : (s.departDate ? new Date(s.departDate) : null), amount: s.amountSgd ?? s.roomRateSgd, segmentRef: s.segmentRef ?? null, pnr: s.pnr ?? inbound.pnr, segmentStatus: s.segmentStatus ?? null, ticketNumber: s.ticketNumber ?? null, couponNumber: s.couponNumber ?? null } });
       }
       // DD-31 persist the feed's per-charge CTA breakdown — the authoritative basis for the SAP posting.
       for (const c of inbound.charges ?? []) {
-        await tx.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true } });
+        await tx.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true, pnr: c.pnr ?? inbound.pnr, ticketNumber: c.ticketNumber ?? null, segmentRef: c.segmentRef ?? null } });
       }
     }
     if (deviation) await tx.bookingDeviation.create({ data: { requestId: id, field: 'Airfare', approvedValue: approvedAir.toFixed(0), bookedValue: bookedAir.toFixed(0), material: true, action: 'Reapproval' } });

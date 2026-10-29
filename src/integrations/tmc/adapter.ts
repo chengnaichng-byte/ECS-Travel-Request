@@ -4,7 +4,7 @@
 // stay unchanged.
 import { EcsReference } from '@/shared/ecs/services';
 import { resolveSapTaxCode } from '@/data/gstCodes';
-import { BOOKING_STATUS } from '@/shared/enums';
+import { OBT_BOOKING_STATUS } from './vocab';
 import type { CanonicalOutbound, CanonicalInbound, InboundCharge, OutboundMeta, InboundMeta } from './contract';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -111,21 +111,28 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
   const fareSgd = Math.round(baseFare);
   const taxesSgd = Math.round(baseFare * 0.12);
   const feesSgd = 30;
+  const pnr = `${prefix}${pnrSeed}`;
+  const supplierCode = 'SQ';                            // §7.3 plating carrier / GDS owner of the PNR — half the (supplierCode, pnr) key
+  const ticketNumbers = air.map((_, i) => `TKT-${pnrSeed}-${i + 1}`);
+  const confirmationNo = `HTL-${pnrSeed}`;
+  const airTicket = ticketNumbers[0];                   // one e-ticket in the mock; its coupons are the air segments in order
   // DD-31 per-charge breakdown the feed carries for the SAP posting: airfare (fare + airline taxes,
   // IZ), the agency/booking fee as its OWN line (I9 9% claimable), and each hotel stay (IO). Each is
-  // resolved through the shared GST logic so the feed's tax code + GST amount agree with ECS's.
+  // resolved through the shared GST logic so the feed's tax code + GST amount agree with ECS's. §7.3:
+  // each charge is traced to what it paid for — airfare/fee → the e-ticket + PNR, hotel → its PNR/confirmation.
   const charges: InboundCharge[] = [
-    mkCharge('AIRFARE', 'ET-AIR', fareSgd + taxesSgd),
-    mkCharge('FEE', 'ET-FEE', feesSgd, true),
-    ...hotel.map((s) => mkCharge('ACCOMMODATION', 'ET-ACC', (s.cappedNightlySgd ?? 0) * (s.nights ?? 0))),
+    { ...mkCharge('AIRFARE', 'ET-AIR', fareSgd + taxesSgd), pnr, ticketNumber: airTicket, couponNumber: 1, segmentRef: air.length ? `SEG-${pnrSeed}-A1` : undefined },
+    { ...mkCharge('FEE', 'ET-FEE', feesSgd, true), pnr, ticketNumber: airTicket },
+    ...hotel.map((s, i) => ({ ...mkCharge('ACCOMMODATION', 'ET-ACC', (s.cappedNightlySgd ?? 0) * (s.nights ?? 0)), pnr, segmentRef: `SEG-${pnrSeed}-H${i + 1}` })),
   ].filter((c) => c.amountSgd > 0);
   return {
     ...(meta ? { meta } : {}),
     authorisationNumber: out.authorisationNumber,
-    pnr: `${prefix}${pnrSeed}`,
+    pnr,
+    supplierCode,                                       // §7.3 the PNR key is (supplierCode, pnr)
     invoiceNumber: `INV-${pnrSeed}`,                    // DD-31 provider invoice no. (SAP posting Reference)
-    ticketNumbers: air.map((_, i) => `TKT-${pnrSeed}-${i + 1}`),
-    bookingStatus: BOOKING_STATUS.Booked,
+    ticketNumbers,
+    bookingStatus: OBT_BOOKING_STATUS.Ticketed,         // §7.3 OBT status — ECS maps to its own lifecycle on receipt
     channel: out.bookingMethod,
     bookedAt: opts?.chargeDate ?? null,                 // §30/§39 when the booking confirmed
     ticketedAt: (opts?.charged ?? true) ? (opts?.chargeDate ?? null) : null, // issued only once charged
@@ -139,8 +146,8 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
     ctaChargeDate: opts?.charged === false ? null : (opts?.chargeDate ?? null),
     charges,                                            // DD-31 authoritative per-charge CTA breakdown with GST
     segments: [
-      ...air.map((s) => ({ type: 'AIR' as const, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, departDate: s.departDate, arriveDate: s.arriveDate ?? s.departDate, supplierName: 'Singapore Airlines', supplierCode: 'SQ' })),
-      ...hotel.map((s) => ({ type: 'HOTEL' as const, city: s.city, roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0), supplierName: 'Partner Hotel', confirmationNo: `HTL-${pnrSeed}` })),
+      ...air.map((s, i) => ({ type: 'AIR' as const, segmentRef: `SEG-${pnrSeed}-A${i + 1}`, pnr, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, segmentStatus: 'HK', ticketNumber: airTicket, couponNumber: i + 1, departDate: s.departDate, arriveDate: s.arriveDate ?? s.departDate, supplierName: 'Singapore Airlines', supplierCode })),
+      ...hotel.map((s, i) => ({ type: 'HOTEL' as const, segmentRef: `SEG-${pnrSeed}-H${i + 1}`, pnr, city: s.city, segmentStatus: 'HK', roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0), supplierName: 'Partner Hotel', confirmationNo })),
     ],
   };
 }

@@ -2,6 +2,7 @@
 // standard outbound and inbound contract; provider-specific mappings live in the
 // adapter layer (§7.5) so a future TMC change is contained. The prototype uses static
 // mock payloads only — no live connectivity.
+import type { ObtBookingStatus } from './vocab';
 
 /** Provenance header carried alongside the payload body for correlation & audit. It is
  * NOT the parameter-filter rules (those are sender-side gates) — just a factual snapshot
@@ -108,15 +109,23 @@ export interface InboundCharge {
   currency?: string;                   // ISO currency the supplier billed in
   foreignAmount?: number;              // gross in the original currency
   fxRate?: number;                     // SGD per unit applied by the TMC / card feed
+  // Charge → fulfilment trace (§7.3 association). A charge is tied to WHAT it paid for so finance can
+  // walk charge → ticket/coupon (air) or PNR/confirmation (hotel) → segment → PNR → TA. Air charges
+  // carry the e-ticket + coupon; all charges carry the owning PNR and (where applicable) the segment ref.
+  pnr?: string;                        // the PNR this charge settled under
+  ticketNumber?: string;               // air: the e-ticket this fare/ancillary was issued against
+  couponNumber?: number;               // air: the ticket coupon (flight sequence) the charge covers
+  segmentRef?: string;                 // the booked segment this charge maps to (segments[].segmentRef)
 }
 
 export interface CanonicalInbound {
   meta?: InboundMeta;                  // provenance header (§13.9)
-  authorisationNumber: string;
-  pnr: string;
+  authorisationNumber: string;        // §7.3 the TA — the anchor the whole feed is keyed by (one TA → N PNRs)
+  pnr: string;                        // the booking record locator; the PNR KEY is (supplierCode, pnr) — a locator is only unique within its owning GDS/supplier
+  supplierCode?: string;              // GDS / plating-carrier code that OWNS this PNR — the other half of the PNR key
   invoiceNumber?: string | null;       // DD-31 provider invoice number — SAP posting Reference (PNR used when absent)
   ticketNumbers: string[];
-  bookingStatus: string;
+  bookingStatus: ObtBookingStatus;    // §7.3 OBT/TMC booking-record status (industry vocabulary) — ECS maps it to its own lifecycle via obtToEcsBookingStatus()
   channel: string;
   fareSgd: number;
   taxesSgd: number;
@@ -146,9 +155,15 @@ export interface CanonicalInbound {
   };
   segments: {
     type: 'AIR' | 'HOTEL';
+    // §7.3 association keys — how a segment is tied back up the hierarchy: segment → PNR → TA.
+    segmentRef?: string;            // stable per-segment id within the feed (e.g. SEG-<pnr>-A1); charges reference this
+    pnr?: string;                   // the PNR this segment sits under (a TA may span several PNRs)
     origin?: string;
     destination?: string;
     bookedClass?: string;
+    segmentStatus?: string;         // air: GDS segment action/advice code (HK confirmed / UN cancelled / TK sched-change …)
+    ticketNumber?: string;          // air: the e-ticket covering this segment
+    couponNumber?: number;          // air: the coupon (flight sequence) on that ticket
     departDate?: string | null;
     arriveDate?: string | null;     // DD-17 booked arrival date (persisted on BookingSegment)
     city?: string;

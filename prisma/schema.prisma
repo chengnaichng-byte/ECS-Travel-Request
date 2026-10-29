@@ -485,6 +485,9 @@ model BookingCharge {
   gstCode       String                      // SAP tax code as asserted by the feed (IZ/IO/I9/P9)
   gstAmountSgd  Float   @default(0)          // external tax amount (0 for IZ/IO)
   gstClaimable  Boolean @default(true)       // fee lines: drives I9 (true) vs P9 (false)
+  pnr           String?                      // §7.3 the PNR this charge settled under (charge → PNR → TA trace)
+  ticketNumber  String?                      // §7.3 air: the e-ticket this charge was issued against
+  segmentRef    String?                      // §7.3 the booked segment this charge maps to
 }
 
 /// §7.1 BookingSegment — booked air/hotel segment
@@ -499,6 +502,11 @@ model BookingSegment {
   departDate    DateTime?
   arriveDate    DateTime?
   amount        Float?
+  segmentRef    String?                      // §7.3 stable per-segment id within the feed (segment → PNR → TA trace)
+  pnr           String?                      // §7.3 the PNR this segment sits under
+  segmentStatus String?                      // §7.3 air: GDS segment status code (HK/UN/TK…)
+  ticketNumber  String?                      // §7.3 air: the e-ticket covering this segment
+  couponNumber  Int?                         // §7.3 air: the coupon (flight sequence) on that ticket
 }
 
 /// §7.1 BookingDeviation — approval-to-booking variance (§6.4, AC10)

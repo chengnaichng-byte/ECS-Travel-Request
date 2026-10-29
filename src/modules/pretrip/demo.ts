@@ -20,6 +20,7 @@ import { applyMaterialAmendment } from './amend';
 import { EcsFx, EcsIdentity, EcsCharging, EcsReference, EcsPolicy, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
+import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
 
@@ -265,10 +266,10 @@ async function bookViaTmc(id: string, overFarePct = 0, ctaAccountId = 'CTA-SG-SG
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify(outbound, null, 2) } });
   const inbound = simulateInbound(outbound, { overFarePct, ctaAccountId, charged, chargeDate: chargeDate ? chargeDate.toISOString().slice(0, 10) : null });
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_RESPONSE', payload: JSON.stringify(inbound, null, 2) } });
-  const booking = await prisma.travelBooking.create({ data: { requestId: id, pnr: inbound.pnr, invoiceNo: inbound.invoiceNumber ?? null, ticketNo: inbound.ticketNumbers[0], channel: 'TMC', fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd, hotelRate: inbound.segments.find((x) => x.type === 'HOTEL')?.roomRateSgd, ctaAccountId: inbound.ctaAccountId ?? null, ctaCharged: inbound.ctaCharged ?? false, ctaChargeDate: inbound.ctaChargeDate ? new Date(inbound.ctaChargeDate) : null, status: inbound.bookingStatus } });
-  for (const seg of inbound.segments) await prisma.bookingSegment.create({ data: { bookingId: booking.id, type: seg.type, originCode: seg.origin, destCode: seg.destination, bookedClassId: seg.bookedClass, amount: seg.amountSgd ?? seg.roomRateSgd } });
+  const booking = await prisma.travelBooking.create({ data: { requestId: id, pnr: inbound.pnr, invoiceNo: inbound.invoiceNumber ?? null, ticketNo: inbound.ticketNumbers[0], channel: 'TMC', fare: inbound.fareSgd, taxes: inbound.taxesSgd, fees: inbound.feesSgd, hotelRate: inbound.segments.find((x) => x.type === 'HOTEL')?.roomRateSgd, ctaAccountId: inbound.ctaAccountId ?? null, ctaCharged: inbound.ctaCharged ?? false, ctaChargeDate: inbound.ctaChargeDate ? new Date(inbound.ctaChargeDate) : null, status: obtToEcsBookingStatus(inbound.bookingStatus) } });
+  for (const seg of inbound.segments) await prisma.bookingSegment.create({ data: { bookingId: booking.id, type: seg.type, originCode: seg.origin, destCode: seg.destination, bookedClassId: seg.bookedClass, amount: seg.amountSgd ?? seg.roomRateSgd, segmentRef: seg.segmentRef ?? null, pnr: seg.pnr ?? inbound.pnr, segmentStatus: seg.segmentStatus ?? null, ticketNumber: seg.ticketNumber ?? null, couponNumber: seg.couponNumber ?? null } });
   // DD-31 persist the feed's per-charge CTA breakdown — the authoritative basis for the SAP posting.
-  for (const c of inbound.charges ?? []) await prisma.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true } });
+  for (const c of inbound.charges ?? []) await prisma.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true, pnr: c.pnr ?? inbound.pnr, ticketNumber: c.ticketNumber ?? null, segmentRef: c.segmentRef ?? null } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   await audit(id, 'E-SYS', 'INTEGRATION', `Inbound booking received — PNR ${inbound.pnr}`);
   await postCtaChargesForRequest(id);   // DD-31 post settled CTA charges to SAP on receipt
@@ -650,9 +651,13 @@ async function buildMultiCityBookedS28() {
   const booked = await loadRequest(id);
   const seed = (booked!.authorisationNo ?? '').replace(/\D/g, '').slice(-4) || '0028';
   const mkPnr = async (tag: string, sel: typeof legs, air: { fare: number; taxes: number; fees: number }, hotels: [string, number][]) => {
-    const b = await prisma.travelBooking.create({ data: { requestId: id, pnr: `PNR${seed}-${tag}`, ticketNo: `TKT-${seed}-${tag}`, channel: 'TMC', fare: air.fare, taxes: air.taxes, fees: air.fees, hotelRate: hotels[0]?.[1] ?? null, ctaAccountId: 'CTA-SG-SGD', ctaCharged: true, ctaChargeDate: day('2026-11-09'), status: BOOKING_STATUS.Booked } });
-    for (const l of sel) await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'AIR', originCode: l.o, destCode: l.d, bookedClassId: 'TC-PEY', departDate: day(l.dep), arriveDate: day(l.dep), amount: Math.round(air.fare / sel.length) } });
-    for (const [, rate] of hotels) await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'HOTEL', amount: rate } });
+    const pnr = `PNR${seed}-${tag}`;
+    const ticketNo = `TKT-${seed}-${tag}`;
+    const b = await prisma.travelBooking.create({ data: { requestId: id, pnr, ticketNo, channel: 'TMC', fare: air.fare, taxes: air.taxes, fees: air.fees, hotelRate: hotels[0]?.[1] ?? null, ctaAccountId: 'CTA-SG-SGD', ctaCharged: true, ctaChargeDate: day('2026-11-09'), status: BOOKING_STATUS.Booked } });
+    let coupon = 0;
+    for (const l of sel) { coupon += 1; await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'AIR', originCode: l.o, destCode: l.d, bookedClassId: 'TC-PEY', departDate: day(l.dep), arriveDate: day(l.dep), amount: Math.round(air.fare / sel.length), segmentRef: `SEG-${seed}-${tag}A${coupon}`, pnr, segmentStatus: 'HK', ticketNumber: ticketNo, couponNumber: coupon } }); }
+    let h = 0;
+    for (const [, rate] of hotels) { h += 1; await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'HOTEL', amount: rate, segmentRef: `SEG-${seed}-${tag}H${h}`, pnr, segmentStatus: 'HK' } }); }
   };
   await mkPnr('A', legs.slice(0, 2), { fare: 1700, taxes: 204, fees: 30 }, [['TYO', 300], ['OSA', 300]]);
   await mkPnr('B', legs.slice(2, 4), { fare: 1700, taxes: 204, fees: 30 }, [['SEL', 240]]);

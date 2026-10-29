@@ -10,6 +10,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getContractSettings, tmcEnabledSet, prepopContract, getGuardSettings, evaluateFlow, guardRuleText } from '@/modules/pretrip/integration';
 import { assembleOutbound } from '@/modules/pretrip/tmcPayload';
 import { simulateInbound } from '@/integrations/tmc/adapter';
+import { OBT_BOOKING_STATUS_LABEL, SEGMENT_STATUS_LABEL, obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
 import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { CONTRACT_FIELDS, TE_TREATMENT_OPTIONS, GUARD_PARAM_OPTIONS, GUARD_PARAM_LABELS, guardEditable, CONTRACT_VERSION } from '@/config/integrationContracts';
 import { expenseTypes } from '@/data/expenseTypes';
@@ -231,10 +232,10 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
                     <thead><tr><th className="th">Datapoint</th><th className="th">Value</th></tr></thead>
                     <tbody>
                       <FragmentGroup label="Booking confirmation" cols={2}>
-                        <tr><td className="td">Travel Authorisation no.</td><td className="td font-medium">{inbound.authorisationNumber}</td></tr>
-                        <tr><td className="td">PNR / record locator</td><td className="td">{inbound.pnr}</td></tr>
+                        <tr><td className="td">Travel Authorisation no. <span className="text-[var(--ecs-muted)]">(feed anchor)</span></td><td className="td font-medium">{inbound.authorisationNumber}</td></tr>
+                        <tr><td className="td">PNR key <span className="text-[var(--ecs-muted)]">(supplier + record locator)</span></td><td className="td">{inbound.supplierCode ? `${inbound.supplierCode} · ` : ''}{inbound.pnr}</td></tr>
                         <tr><td className="td">Provider invoice no. (SAP posting reference)</td><td className="td">{inbound.invoiceNumber ?? '—'}</td></tr>
-                        <tr><td className="td">Booking status</td><td className="td">{inbound.bookingStatus}</td></tr>
+                        <tr><td className="td">Booking status <span className="text-[var(--ecs-muted)]">(OBT → ECS)</span></td><td className="td">{OBT_BOOKING_STATUS_LABEL[inbound.bookingStatus] ?? inbound.bookingStatus} <code className="text-[10px]">{inbound.bookingStatus}</code> → <span className="font-medium">{obtToEcsBookingStatus(inbound.bookingStatus)}</span></td></tr>
                         <tr><td className="td">Fulfilment channel</td><td className="td">{inbound.channel}</td></tr>
                         <tr><td className="td">Booked / ticketed at</td><td className="td">{inbound.bookedAt ?? '—'} / {inbound.ticketedAt ?? '—'}</td></tr>
                         <tr><td className="td">E-ticket numbers</td><td className="td">{inbound.ticketNumbers.join(', ') || '—'}</td></tr>
@@ -266,13 +267,14 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
                 <div className="border border-[var(--ecs-border)] rounded overflow-hidden mb-3">
                   <div className="bg-[var(--ecs-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--ecs-navy)]">Per-charge CTA breakdown (DD-31) — one SAP posting line per charge</div>
                   <table className="w-full text-xs">
-                    <thead><tr><th className="th">Charge</th><th className="th">Expense type</th><th className="th">GL</th><th className="th text-right">Amount (SGD)</th><th className="th">SAP tax code</th><th className="th text-right">GST (SGD)</th><th className="th">Claimable</th></tr></thead>
+                    <thead><tr><th className="th">Charge</th><th className="th">Expense type</th><th className="th">GL</th><th className="th text-right">Amount (SGD)</th><th className="th">SAP tax code</th><th className="th text-right">GST (SGD)</th><th className="th">Claimable</th><th className="th">Settled against (ticket · segment · PNR)</th></tr></thead>
                     <tbody>
                       {inbound.charges.map((c, i) => { const et = expenseTypes.find((e) => e.id === c.expenseTypeId); return (
                         <tr key={i} className="hover:bg-[var(--ecs-panel-2)]">
                           <td className="td">{c.type}</td><td className="td">{et?.name ?? c.expenseTypeId}</td><td className="td">{et?.glAccount ?? '—'}</td>
                           <td className="td text-right whitespace-nowrap">{sgd(c.amountSgd)}</td><td className="td">{c.gstCode}</td><td className="td text-right whitespace-nowrap">{sgd(c.gstAmountSgd)}</td>
                           <td className="td">{c.type === 'FEE' ? (c.gstClaimable ? 'Yes (I9)' : 'No (P9)') : '—'}</td>
+                          <td className="td font-mono text-[10px] whitespace-nowrap">{[c.ticketNumber, c.segmentRef, c.pnr].filter(Boolean).join(' · ') || '—'}</td>
                         </tr>
                       ); })}
                     </tbody>
@@ -281,15 +283,21 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
               )}
               {inbound?.segments && inbound.segments.length > 0 && (
                 <div className="border border-[var(--ecs-border)] rounded overflow-hidden mb-3">
-                  <div className="bg-[var(--ecs-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--ecs-navy)]">Booked segments</div>
+                  <div className="bg-[var(--ecs-panel)] px-3 py-1.5 text-xs font-semibold text-[var(--ecs-navy)]">Booked segments — segment → PNR → TA trace</div>
+                  <div className="px-3 py-1 text-[10px] text-[var(--ecs-muted)] border-b border-[var(--ecs-border)]">Each segment carries its own ref and the PNR it sits under, and air segments carry the GDS status + e-ticket/coupon — so finance can walk a charge back to the exact flight, PNR and the TA <code>{inbound.authorisationNumber}</code> that authorised it.</div>
                   <table className="w-full text-xs">
-                    <thead><tr><th className="th">Type</th><th className="th">Route / city</th><th className="th">Booked class</th><th className="th">Dates</th><th className="th">Supplier</th><th className="th text-right">Amount (SGD)</th></tr></thead>
+                    <thead><tr><th className="th">Segment ref</th><th className="th">Type</th><th className="th">Route / city</th><th className="th">Booked class</th><th className="th">GDS status</th><th className="th">Ticket · coupon</th><th className="th">PNR · supplier</th><th className="th">Dates</th><th className="th text-right">Amount (SGD)</th></tr></thead>
                     <tbody>
                       {inbound.segments.map((s, i) => (
                         <tr key={i} className="hover:bg-[var(--ecs-panel-2)]">
+                          <td className="td font-mono text-[10px]">{s.segmentRef ?? '—'}</td>
                           <td className="td">{s.type}</td><td className="td">{s.type === 'AIR' ? `${s.origin ?? ''} → ${s.destination ?? ''}` : (s.city ?? '')}</td>
-                          <td className="td">{s.bookedClass ?? '—'}</td><td className="td whitespace-nowrap">{s.departDate ?? '—'}{s.arriveDate ? ` → ${s.arriveDate}` : ''}</td>
-                          <td className="td">{s.supplierName ?? '—'}{s.supplierCode ? ` (${s.supplierCode})` : ''}</td><td className="td text-right whitespace-nowrap">{s.type === 'AIR' ? '—' : sgd(s.amountSgd)}</td>
+                          <td className="td">{s.bookedClass ?? '—'}</td>
+                          <td className="td whitespace-nowrap">{s.segmentStatus ? <span title={SEGMENT_STATUS_LABEL[s.segmentStatus] ?? ''}><code className="text-[10px]">{s.segmentStatus}</code> {SEGMENT_STATUS_LABEL[s.segmentStatus] ?? ''}</span> : '—'}</td>
+                          <td className="td font-mono text-[10px] whitespace-nowrap">{s.type === 'AIR' ? `${s.ticketNumber ?? '—'}${s.couponNumber ? ` · c${s.couponNumber}` : ''}` : (s.confirmationNo ?? '—')}</td>
+                          <td className="td font-mono text-[10px] whitespace-nowrap">{s.pnr ?? inbound.pnr}{s.supplierCode ? ` · ${s.supplierCode}` : ''}</td>
+                          <td className="td whitespace-nowrap">{s.departDate ?? '—'}{s.arriveDate ? ` → ${s.arriveDate}` : ''}</td>
+                          <td className="td text-right whitespace-nowrap">{s.type === 'AIR' ? '—' : sgd(s.amountSgd)}</td>
                         </tr>
                       ))}
                     </tbody>
