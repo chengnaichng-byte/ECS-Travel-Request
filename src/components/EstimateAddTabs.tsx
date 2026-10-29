@@ -6,11 +6,12 @@
 // filled entry survives a tab switch.
 import { useState } from 'react';
 
-export function EstimateAddTabs({ tabs, hint }: {
+export function EstimateAddTabs({ tabs, hint, defaultActive }: {
   tabs: { key: string; label: string; node: React.ReactNode }[];
   hint?: React.ReactNode;
+  defaultActive?: string | null; // open this tab on load (e.g. when editing a line)
 }) {
-  const [active, setActive] = useState<string | null>(null);
+  const [active, setActive] = useState<string | null>(defaultActive ?? null);
   return (
     <div className="card">
       <div className="card-head">Add a cost line</div>

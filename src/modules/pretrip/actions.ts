@@ -880,6 +880,115 @@ export async function deleteExpense(id: string, expenseId: string) {
   revalidatePath(`/requests/${id}/estimates`);
 }
 
+/* ---- Edit an existing estimate line IN PLACE (no delete + re-add). Only manual (non-auto) lines are
+   editable; auto hotel lines use updateAccommodationRate and ODA re-derives from the Trip step. Each
+   mirrors its add-action's validation and sub-records, but updates one line and keeps its traveller. */
+
+export async function updateAirfare(id: string, expenseId: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId } });
+  if (!exp || exp.requestId !== id || exp.category !== EXPENSE_CATEGORY.Airfare || exp.autoDerived) return;
+  const back = (msg: string) => redirect(`/requests/${id}/estimates?edit=${expenseId}&error=${encodeURIComponent(msg)}`);
+  const currency = str(fd, 'currency') || 'SGD';
+  const foreign = num(fd, 'amount');
+  if (foreign <= 0) back('Airfare amount must be greater than 0.');
+  const now = new Date();
+  const sgd = EcsFx.toSgd(foreign, currency, now);
+  const spForeign = num(fd, 'sponsorship');
+  const individual = exp.travellerId === null; // group lines fly each traveller's entitlement (class is locked)
+  let proposedClassId = exp.proposedClassId;
+  let entFareSgd = exp.entitlementFareSgd;
+  let upgradeFunding = exp.upgradeFunding;
+  if (individual) {
+    const proposed = str(fd, 'proposedClassId');
+    const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true } });
+    const entitledId = reqRow?.entitledClassId ?? 'TC-ECO';
+    const isClassUpgrade = !!proposed && EcsTravelClassRegister.rank(proposed) > EcsTravelClassRegister.rank(entitledId);
+    const upFunding = (str(fd, 'upgradeFunding') || '').toUpperCase();
+    upgradeFunding = isClassUpgrade && (upFunding === 'NTU' || upFunding === 'SELF') ? upFunding : null;
+    entFareSgd = null;
+    if (isClassUpgrade) {
+      const pct = upliftPctFrom(await listUpliftRates(), entitledId, proposed);
+      if (pct == null) {
+        const fromN = EcsReference.travelClass(entitledId)?.name ?? entitledId;
+        const toN = EcsReference.travelClass(proposed)?.name ?? proposed;
+        back(`No upgrade uplift rate is configured for ${fromN} → ${toN} — add it in Setup → Upgrade Uplift Rates before saving this airfare.`);
+      }
+      entFareSgd = deriveEntitlementSgd(sgd, pct!);
+      if (!(str(fd, 'classJustification') || '').trim()) {
+        const propName = EcsReference.travelClass(proposed)?.name ?? proposed;
+        const entName = EcsReference.travelClass(entitledId)?.name ?? 'your entitlement';
+        back(`${propName} is above your ${entName} entitlement — enter a justification for the higher class before saving.`);
+      }
+    }
+    proposedClassId = proposed || proposedClassId;
+    await prisma.travelRequest.update({
+      where: { id },
+      data: {
+        ...(proposed ? { travelClassId: proposed } : {}),
+        classJustification: str(fd, 'classJustification') || null,
+        ...(fd.has('provostId') ? { provostId: str(fd, 'provostId') || null } : {}),
+      },
+    });
+  }
+  await prisma.estimatedExpense.update({
+    where: { id: expenseId },
+    data: {
+      currency, foreignAmount: foreign, sgdAmount: sgd, fareCeiling: sgd,
+      sponsorForeign: spForeign, sponsorSgd: EcsFx.toSgd(spForeign, currency, now),
+      expectedDate: dateOrNull(fd, 'expectedDate'),
+      originCode: str(fd, 'originCode'), destCode: str(fd, 'destCode'), notes: str(fd, 'notes'),
+      ...(individual ? { proposedClassId, entitlementFareSgd: entFareSgd, upgradeFunding } : {}),
+    },
+  });
+  await audit(id, 'AMEND', `Airfare estimate updated (${currency} ${foreign})`);
+  revalidatePath(`/requests/${id}/estimates`);
+  redirect(`/requests/${id}/estimates`);
+}
+
+export async function updateAccommodation(id: string, expenseId: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId }, include: { accommodation: true } });
+  if (!exp || exp.requestId !== id || exp.category !== EXPENSE_CATEGORY.Accommodation || exp.autoDerived || !exp.accommodation) return;
+  const settings = await getSettings();
+  const city = str(fd, 'city');
+  const nights = Math.round(num(fd, 'nights'));
+  const personalNights = Math.round(num(fd, 'personalNights'));
+  const quotedNightly = num(fd, 'quotedNightly');
+  if (!city || nights <= 0 || quotedNightly <= 0) redirect(`/requests/${id}/estimates?edit=${expenseId}&error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
+  const calc = computeAccommodation({ cityCode: city, nights, personalNights, quotedNightly, basis: settings.hotelEstimateBasis });
+  await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, expectedDate: dateOrNull(fd, 'checkIn'), notes: str(fd, 'notes') } });
+  await prisma.accommodationEstimate.update({
+    where: { expenseId },
+    data: {
+      city, checkIn: dateOrNull(fd, 'checkIn'), checkOut: dateOrNull(fd, 'checkOut'),
+      nights, personalNights, quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly,
+      capVariance: calc.capVariance, conferenceHotel: str(fd, 'conferenceHotel') === 'on', exceptionOutcome: calc.outcome,
+    },
+  });
+  await audit(id, 'AMEND', `Accommodation estimate updated (${city}, ${nights} nights)`);
+  revalidatePath(`/requests/${id}/estimates`);
+  redirect(`/requests/${id}/estimates`);
+}
+
+export async function updateOther(id: string, expenseId: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId } });
+  if (!exp || exp.requestId !== id || exp.autoDerived) return;
+  const currency = str(fd, 'currency') || 'SGD';
+  const foreign = num(fd, 'amount');
+  if (foreign <= 0) redirect(`/requests/${id}/estimates?edit=${expenseId}&error=${encodeURIComponent('Amount must be greater than 0.')}`);
+  const typeId = str(fd, 'expenseTypeId') || exp.expenseTypeId;
+  const type = EcsReference.expenseType(typeId);
+  await prisma.estimatedExpense.update({
+    where: { id: expenseId },
+    data: { category: type?.category ?? exp.category, expenseTypeId: typeId, currency, foreignAmount: foreign, sgdAmount: EcsFx.toSgd(foreign, currency, new Date()), notes: str(fd, 'notes') },
+  });
+  await audit(id, 'AMEND', `${type?.name ?? 'Other'} estimate updated`);
+  revalidatePath(`/requests/${id}/estimates`);
+  redirect(`/requests/${id}/estimates`);
+}
+
 /* --------------------------------------------------------- charging (TR-09) */
 export async function saveCharging(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;

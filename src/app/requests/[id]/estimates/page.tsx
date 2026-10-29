@@ -7,7 +7,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification } from '@/modules/pretrip/actions';
+import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
@@ -30,9 +30,9 @@ import { OutcomePill } from '@/components/StatusPill';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EstimatesStep({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
+export default async function EstimatesStep({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string; edit?: string }> }) {
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, edit } = await searchParams;
   const req = await loadRequest(id);
   if (!req) notFound();
   const settings = await getSettings();
@@ -127,6 +127,19 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const toOf = (e: (typeof req.expenses)[number]) => e.accommodation?.checkOut ?? e.oda?.depart ?? null;
   const nightsOf = (e: (typeof req.expenses)[number]) => (e.accommodation ? e.accommodation.nights : e.oda ? e.oda.eligibleDays : null);
 
+  // Edit-in-place: ?edit=<lineId> opens that line's category tab pre-filled with its current values,
+  // and the form updates the line (no duplicate). Only a manual (non-auto) airfare / accommodation /
+  // other line is editable — auto hotel lines edit their rate inline and ODA re-derives from the Trip.
+  const editExp = canEdit && edit ? req.expenses.find((e) => e.id === edit && !e.autoDerived && e.category !== EXPENSE_CATEGORY.ODA) ?? null : null;
+  const editKind = editExp ? (editExp.category === EXPENSE_CATEGORY.Airfare ? 'airfare' : editExp.category === EXPENSE_CATEGORY.Accommodation ? 'accommodation' : 'other') : null;
+  const af = editKind === 'airfare' ? editExp! : null;
+  const ac = editKind === 'accommodation' ? editExp! : null;
+  const accRec = ac?.accommodation ?? null;
+  const ot = editKind === 'other' ? editExp! : null;
+  const editTravellerLabel = editExp && editExp.travellerId ? memberLabel(editExp.travellerId) : null;
+  const cancelEdit = <Link href={`/requests/${id}/estimates`} className="btn-ghost w-full text-center">Cancel</Link>;
+  const editLink = (eid: string) => `/requests/${id}/estimates?edit=${eid}#add-cost`;
+
   return (
     <div>
       <Stepper id={id} active="estimates" requestNumber={req.requestNumber} status={req.status} />
@@ -182,7 +195,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                                 <td className="td text-right">{i === 0 ? <RateCell id={id} e={e} canEdit={canEdit} /> : ''}</td>
                                 <td className="td text-right whitespace-nowrap">{fmtSgd(a.amount)}</td>
                                 <td className="td">{i === 0 && (e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />)}</td>
-                                <td className="td text-right">{i === 0 && !e.autoDerived && canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                                <td className="td text-right">{i === 0 && !e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
                               </tr>
                             ))
                           : [
@@ -195,7 +208,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                                 <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
                                 <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
                                 <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
-                                <td className="td text-right">{!e.autoDerived && canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                                <td className="td text-right">{!e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
                               </tr>,
                             ],
                       )}
@@ -227,7 +240,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                     <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
                     <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
                     <td className="td">{e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception ? <OutcomePill outcome={POLICY_OUTCOME.Exception} /> : <OutcomePill outcome={POLICY_OUTCOME.Pass} />}</td>
-                    <td className="td text-right">{!e.autoDerived && canEdit && <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>}</td>
+                    <td className="td text-right">{!e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -239,27 +252,29 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         )}
       </Card>
 
-      {canEdit && <EstimateAddTabs
+      {canEdit && <div id="add-cost"><EstimateAddTabs
+        defaultActive={editKind}
         hint="Select a cost type above to add it. ODA is derived automatically from the itinerary and appears in the summary above."
         tabs={[
         // Airfare (TR-06) — manual: a quoted fare, not policy-derived.
         { key: 'airfare', label: 'Airfare', node: (
           <>
-          <p className="text-xs text-[var(--ecs-muted)] mb-2">Airfare is a <b>quoted fare</b> (not policy-derived) — add it from your quote.</p>
-          <form action={addAirfare.bind(null, id)} className="space-y-3">
+          <p className="text-xs text-[var(--ecs-muted)] mb-2">{af ? <>Editing this airfare line{editTravellerLabel ? <> for <b>{editTravellerLabel}</b></> : null} — change the values and save.</> : <>Airfare is a <b>quoted fare</b> (not policy-derived) — add it from your quote.</>}</p>
+          <form action={af ? updateAirfare.bind(null, id, af.id) : addAirfare.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Select name="originCode" label="Origin" defaultValue={tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
-              <Select name="destCode" label="Destination" defaultValue={tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
+              <Select name="originCode" label="Origin" defaultValue={af?.originCode ?? tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
+              <Select name="destCode" label="Destination" defaultValue={af?.destCode ?? tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
               {isGroup ? (
                 <div><label className="label">Proposed class</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed">Per traveller — set to entitlement</div></div>
               ) : (
-                <Select name="proposedClassId" label="Proposed class" defaultValue={tripDefaults.classId} opts={travelClasses.map((c) => [c.id, c.name])} />
+                <Select name="proposedClassId" label="Proposed class" defaultValue={af?.proposedClassId ?? tripDefaults.classId} opts={travelClasses.map((c) => [c.id, c.name])} />
               )}
-              <Input name="expectedDate" label="Expected date" type="date" defaultValue={tripDefaults.start} />
-              <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
-              <Input name="amount" label="Quoted amount" type="number" />
-              <Input name="sponsorship" label="Expected sponsorship" type="number" />
-              {isGroup && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
+              <Input name="expectedDate" label="Expected date" type="date" defaultValue={af ? d(af.expectedDate) : tripDefaults.start} />
+              <Select name="currency" label="Currency" defaultValue={af?.currency ?? 'SGD'} opts={currencies.map((c) => [c, c])} />
+              <Input name="amount" label="Quoted amount" type="number" defaultValue={af ? String(af.foreignAmount) : undefined} />
+              <Input name="sponsorship" label="Expected sponsorship" type="number" defaultValue={af ? String(af.sponsorForeign ?? 0) : undefined} />
+              {isGroup && !af && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
+              {isGroup && af && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
             </div>
             {!isGroup && (
               <div>
@@ -289,7 +304,8 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 <p className="text-xs text-[var(--ecs-muted)] mt-1">A guest flies <strong>Economy</strong> by default. Selecting a higher proposed class requires a justification <em>and</em> a Provost from the host school&apos;s list; approval routes to the Provost before the host DOA.{guestUpgrading && !req.provostId && <span className="text-[var(--ecs-red)]"> This guest is above Economy — select a Provost.</span>}</p>
               </div>
             )}
-            <button className="btn-primary w-full">Add airfare estimate</button>
+            <button className="btn-primary w-full">{af ? 'Save airfare changes' : 'Add airfare estimate'}</button>
+            {af && cancelEdit}
           </form>
           </>
         ) },
@@ -297,7 +313,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         // Accommodation (TR-07) — auto per stop; a manual extra line can still be added.
         { key: 'accommodation', label: 'Accommodation', node: (
           <>
-          <p className="text-xs text-[var(--ecs-muted)] mb-2">A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</p>
+          <p className="text-xs text-[var(--ecs-muted)] mb-2">{ac ? <>Editing this accommodation line{editTravellerLabel ? <> for <b>{editTravellerLabel}</b></> : null} — change the values and save.</> : <>A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</>}</p>
           {/* DD-19 hotel payment channel — CTA (central) only when the trip is a TMC arrangement. */}
           <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-2.5 mb-3">
             <form action={setHotelSettlement.bind(null, id)} className="flex flex-wrap items-center gap-2 text-sm">
@@ -311,39 +327,43 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               ? 'Hotel is centrally billed to the CTA — shown in the expense claim for reference only, not reimbursed to the traveller.'
               : 'Hotel is paid by the traveller and claimed back (reimbursable). Airfare is always on the CTA; ODA is always claimed.'}</p>
           </div>
-          <form action={addAccommodation.bind(null, id)} className="space-y-3">
+          <form action={ac ? updateAccommodation.bind(null, id, ac.id) : addAccommodation.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={tripDefaults.destCity} />
-              <Input name="nights" label="Nights" type="number" defaultValue={tripDefaults.nights} />
-              <Input name="personalNights" label="Personal nights" type="number" defaultValue="0" />
-              <Input name="checkIn" label="Check-in" type="date" defaultValue={tripDefaults.start} />
-              <Input name="checkOut" label="Check-out" type="date" defaultValue={tripDefaults.end} />
+              <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={accRec?.city ?? tripDefaults.destCity} defaultRate={accRec ? String(accRec.quotedNightly) : undefined} />
+              <Input name="nights" label="Nights" type="number" defaultValue={accRec ? String(accRec.nights) : tripDefaults.nights} />
+              <Input name="personalNights" label="Personal nights" type="number" defaultValue={accRec ? String(accRec.personalNights) : '0'} />
+              <Input name="checkIn" label="Check-in" type="date" defaultValue={accRec ? d(accRec.checkIn) : tripDefaults.start} />
+              <Input name="checkOut" label="Check-out" type="date" defaultValue={accRec ? d(accRec.checkOut) : tripDefaults.end} />
             </div>
-            <Input name="notes" label="Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)" />
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" /> Conference hotel</label>
-            {isGroup && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
-            {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
+            <Input name="notes" label="Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)" defaultValue={ac ? (ac.notes ?? '') : undefined} />
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" defaultChecked={accRec?.conferenceHotel ?? false} /> Conference hotel</label>
+            {isGroup && !ac && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
+            {isGroup && ac && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
+            {isGroup && !ac && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
             <p className="text-xs text-[var(--ecs-muted)]">The rate <b>defaults to the selected city&apos;s cap</b> and is editable; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
-            <button className="btn-primary w-full">Add accommodation estimate</button>
+            <button className="btn-primary w-full">{ac ? 'Save accommodation changes' : 'Add accommodation estimate'}</button>
+            {ac && cancelEdit}
           </form>
           </>
         ) },
 
         // Incidental (only when expense scope = ALL) — ODA is NOT a tab: it is derived automatically.
         ...(allowIncidental ? [{ key: 'other', label: 'Other / incidental', node: (
-          <form action={addOther.bind(null, id)} className="space-y-3">
+          <form action={ot ? updateOther.bind(null, id, ot.id) : addOther.bind(null, id)} className="space-y-3">
+            {ot && <p className="text-xs text-[var(--ecs-muted)]">Editing this line{editTravellerLabel ? <> for <b>{editTravellerLabel}</b></> : null} — change the values and save.</p>}
             <div className="grid grid-cols-2 gap-3">
-              <Select name="expenseTypeId" label="Expense type" opts={expenseTypes.filter((t) => !t.isMajorCost).map((t) => [t.id, t.name])} />
-              <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
-              <Input name="amount" label="Amount" type="number" />
-              <Input name="notes" label="Note" />
-              {isGroup && <Select name="travellerId" label="Traveller (if individual)" opts={gTravellers} />}
-              {isGroup && <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion</label>}
+              <Select name="expenseTypeId" label="Expense type" defaultValue={ot?.expenseTypeId} opts={expenseTypes.filter((t) => !t.isMajorCost).map((t) => [t.id, t.name])} />
+              <Select name="currency" label="Currency" defaultValue={ot?.currency ?? 'SGD'} opts={currencies.map((c) => [c, c])} />
+              <Input name="amount" label="Amount" type="number" defaultValue={ot ? String(ot.foreignAmount) : undefined} />
+              <Input name="notes" label="Note" defaultValue={ot ? (ot.notes ?? '') : undefined} />
+              {isGroup && !ot && <Select name="travellerId" label="Traveller (if individual)" opts={gTravellers} />}
+              {isGroup && !ot && <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion</label>}
             </div>
-            <button className="btn-primary w-full">Add incidental estimate</button>
+            <button className="btn-primary w-full">{ot ? 'Save changes' : 'Add incidental estimate'}</button>
+            {ot && cancelEdit}
           </form>
         ) }] : []),
-      ]} />}
+      ]} /></div>}
 
       <div className="flex justify-between mt-5">
         <Link href={`/requests/${id}/trip`} className="btn-secondary">← Back</Link>

@@ -4,13 +4,14 @@
 // enter an actual quote. Keeps the two fields together so the rate can track the city.
 import { useState } from 'react';
 
-export function AccommodationCityRate({ cities, caps, defaultCity }: {
-  cities: [string, string][]; caps: Record<string, number>; defaultCity: string;
+export function AccommodationCityRate({ cities, caps, defaultCity, defaultRate }: {
+  cities: [string, string][]; caps: Record<string, number>; defaultCity: string; defaultRate?: string;
 }) {
   const first = defaultCity || cities[0]?.[0] || '';
   const capStr = (c: string) => (caps[c] != null ? String(caps[c]) : '');
   const [city, setCity] = useState(first);
-  const [rate, setRate] = useState(() => capStr(first));
+  // When editing an existing line, start from its saved rate; otherwise default to the city cap.
+  const [rate, setRate] = useState(() => defaultRate ?? capStr(first));
   const onCity = (c: string) => { setCity(c); setRate(capStr(c)); };
   return (
     <>
