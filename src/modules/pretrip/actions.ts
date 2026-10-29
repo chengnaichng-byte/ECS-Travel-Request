@@ -1589,6 +1589,7 @@ export async function runVisaLetterTimerIfDue(): Promise<VisaTimerStatus> {
   });
   let sent = 0;
   for (const req of pending) {
+    req.visaLetterNotifiedAt = now; // this run is the notification — stamp it so the payload matches the Excel
     const payload = {
       documentType: 'VISA_LETTER_NOTIFICATION',
       to: `${rec.office} <${rec.email}>`,
