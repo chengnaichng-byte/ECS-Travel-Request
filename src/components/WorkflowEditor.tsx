@@ -11,14 +11,42 @@ import { OPS_BY_TYPE, OP_LABEL } from '@/modules/pretrip/workflowRules';
 // APPROVER_ROLE values (kept as string literals; the client can't import the server enum freely).
 const ROLES: { value: string; label: string }[] = [
   { value: 'ADDITIONAL_APPROVER', label: 'Additional Approver' },
-  { value: 'RO', label: 'Reporting Officer (RO)' },
+  { value: 'RO', label: 'RO' },
   { value: 'FUNDING_OWNER', label: 'Funding Owner' },
   { value: 'EXCEPTION', label: 'Exception Approver' },
   { value: 'PROVOST', label: 'Provost' },
   { value: 'DOA', label: 'DOA' },
   { value: 'RESEARCH_DOA', label: 'Research DOA' },
 ];
-const roleLabel = (v: string) => ROLES.find((r) => r.value === v)?.label ?? v;
+
+// ECS-style single "Action" commands (verb + short role), as the ECS screen presents them
+// ("Skip RO", "Skip DOA", "Add DOA", "Replace RO", …). Each maps to a DecisionAction.
+type Command = { key: string; label: string; verb: DecisionVerb; targetLevel: string; resolver?: ResolverType; ref?: string; resolverLabel?: string; needsApprover?: boolean };
+const COMMANDS: Command[] = [
+  { key: 'SKIP_RO', label: 'Skip RO', verb: 'SKIP', targetLevel: 'RO' },
+  { key: 'SKIP_DOA', label: 'Skip DOA', verb: 'SKIP', targetLevel: 'DOA' },
+  { key: 'SKIP_ADDITIONAL', label: 'Skip Additional Approver', verb: 'SKIP', targetLevel: 'ADDITIONAL_APPROVER' },
+  { key: 'SKIP_EXCEPTION', label: 'Skip Exception Approver', verb: 'SKIP', targetLevel: 'EXCEPTION' },
+  { key: 'SKIP_PROVOST', label: 'Skip Provost', verb: 'SKIP', targetLevel: 'PROVOST' },
+  { key: 'SKIP_FUNDING', label: 'Skip Funding Owner', verb: 'SKIP', targetLevel: 'FUNDING_OWNER' },
+  { key: 'ADD_RO', label: 'Add RO', verb: 'ADD', targetLevel: 'RO', resolver: 'RELATIONSHIP', ref: 'RO', resolverLabel: 'RO of traveller from Workday' },
+  { key: 'ADD_DOA', label: 'Add DOA', verb: 'ADD', targetLevel: 'DOA', resolver: 'BAND_DOA', resolverLabel: 'DOA of highest-charging dept by amount band' },
+  { key: 'ADD_EXCEPTION', label: 'Add Exception Approver', verb: 'ADD', targetLevel: 'EXCEPTION', resolver: 'ROLE', ref: 'EXCEPTION_APPROVER', resolverLabel: 'All users with Exception Approver role' },
+  { key: 'ADD_PROVOST', label: 'Add Provost', verb: 'ADD', targetLevel: 'PROVOST', resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)' },
+  { key: 'ADD_FUNDING', label: 'Add Funding Owner', verb: 'ADD', targetLevel: 'FUNDING_OWNER', resolver: 'RELATIONSHIP', ref: 'FUNDING_OWNER', resolverLabel: 'Cross-charge account funding owner' },
+  { key: 'ADD_CROSSBA', label: 'Add Cross-BA concurrence', verb: 'ADD', targetLevel: 'FUNDING_OWNER', resolver: 'RELATIONSHIP', ref: 'CROSS_BA', resolverLabel: 'Non-primary BA funding owner / DOA (over threshold)' },
+  { key: 'ADD_ADDITIONAL', label: 'Add Additional Approver', verb: 'ADD', targetLevel: 'ADDITIONAL_APPROVER', resolver: 'FIXED', ref: 'ADDITIONAL', resolverLabel: 'Requestor-selected additional approver' },
+  { key: 'REPLACE_RO', label: 'Replace RO', verb: 'REPLACE', targetLevel: 'RO', needsApprover: true },
+  { key: 'REPLACE_DOA', label: 'Replace DOA', verb: 'REPLACE', targetLevel: 'DOA', needsApprover: true },
+  { key: 'REPLACE_DOA_SELF', label: 'Replace DOA with traveller (PI self-approval)', verb: 'REPLACE', targetLevel: 'DOA', resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)' },
+];
+const commandKeyOf = (a: DecisionAction): string => {
+  if (a.verb === 'SKIP') return COMMANDS.find((c) => c.verb === 'SKIP' && c.targetLevel === a.targetLevel)?.key ?? '';
+  const exact = COMMANDS.find((c) => c.verb === a.verb && c.targetLevel === a.targetLevel && (c.resolver ?? '') === (a.resolver ?? '') && (c.ref ?? '') === (a.ref ?? ''));
+  if (exact) return exact.key;
+  if (a.verb === 'REPLACE') return COMMANDS.find((c) => c.verb === 'REPLACE' && c.targetLevel === a.targetLevel && c.needsApprover)?.key ?? '';
+  return COMMANDS.find((c) => c.verb === a.verb && c.targetLevel === a.targetLevel)?.key ?? '';
+};
 
 // ECS-style resolver options → {resolver, ref, label}.
 const RESOLVERS: { key: string; label: string; resolver: ResolverType; ref?: string }[] = [
@@ -65,7 +93,10 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
   const delCond = (di: number, ci: number) => setDp(di, { conditions: s.decisionPoints[di].conditions.filter((_, j) => j !== ci) });
   const addAct = (di: number) => setDp(di, { actions: [...s.decisionPoints[di].actions, { verb: 'ADD', targetLevel: 'DOA', resolver: 'BAND_DOA', resolverLabel: 'DOA of highest-charging dept by amount band' }] });
   const delAct = (di: number, ai: number) => setDp(di, { actions: s.decisionPoints[di].actions.filter((_, j) => j !== ai) });
-  const setActResolver = (di: number, ai: number, key: string) => { const r = RESOLVERS.find((x) => x.key === key); if (r) setAct(di, ai, { resolver: r.resolver, ref: r.ref, resolverLabel: r.label }); };
+  const applyCommand = (di: number, ai: number, key: string) => {
+    const c = COMMANDS.find((x) => x.key === key); if (!c) return;
+    setAct(di, ai, { verb: c.verb, targetLevel: c.targetLevel, resolver: c.resolver, ref: c.ref, resolverLabel: c.resolverLabel, approverId: c.needsApprover ? (s.decisionPoints[di].actions[ai].approverId ?? '') : undefined });
+  };
 
   const coerce = (fieldKey: string, op: Cmp, raw: string): Condition['value'] => {
     const f = fieldOf(fieldKey);
@@ -159,21 +190,24 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
 
           <p className="text-xs font-semibold text-[var(--ecs-navy-2)] mt-4 mb-1">Action(s)</p>
           <div className="space-y-2">
-            {dp.actions.map((a, ai) => (
-              <div key={ai} className="grid grid-cols-12 gap-2 items-center">
-                <select className="field col-span-2" disabled={dis} value={a.verb} onChange={(e) => setAct(di, ai, { verb: e.target.value as DecisionVerb })}><option value="SKIP">Skip</option><option value="ADD">Add</option><option value="REPLACE">Replace</option></select>
-                <select className="field col-span-3" disabled={dis} value={a.targetLevel} onChange={(e) => setAct(di, ai, { targetLevel: e.target.value })}>{ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}</select>
-                {a.verb === 'SKIP' ? (
-                  <div className="col-span-6 text-xs text-[var(--ecs-muted)] self-center">Skip {roleLabel(a.targetLevel)} from the route when the conditions hold.</div>
-                ) : (
-                  <>
-                    <select className="field col-span-4" disabled={dis} value={resolverKey(a.resolver, a.ref)} onChange={(e) => setActResolver(di, ai, e.target.value)}>{RESOLVERS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</select>
-                    <input className="field col-span-2" disabled={dis} value={a.approverId ?? ''} placeholder="Approver id" onChange={(e) => setAct(di, ai, { approverId: e.target.value || undefined })} />
-                  </>
-                )}
-                <div className="col-span-1 text-right">{canEdit && dp.actions.length > 1 && <button type="button" className="btn-ghost text-xs" onClick={() => delAct(di, ai)}>✕</button>}</div>
-              </div>
-            ))}
+            {dp.actions.map((a, ai) => {
+              const cmd = COMMANDS.find((c) => c.key === commandKeyOf(a));
+              return (
+                <div key={ai} className="grid grid-cols-12 gap-2 items-center">
+                  <select className="field col-span-5" disabled={dis} value={commandKeyOf(a)} onChange={(e) => applyCommand(di, ai, e.target.value)}>
+                    <optgroup label="Skip">{COMMANDS.filter((c) => c.verb === 'SKIP').map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>
+                    <optgroup label="Add">{COMMANDS.filter((c) => c.verb === 'ADD').map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>
+                    <optgroup label="Replace">{COMMANDS.filter((c) => c.verb === 'REPLACE').map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>
+                  </select>
+                  {cmd?.needsApprover ? (
+                    <input className="field col-span-6" disabled={dis} value={a.approverId ?? ''} placeholder="Replace with — approver (name or id)" onChange={(e) => setAct(di, ai, { approverId: e.target.value || undefined })} />
+                  ) : (
+                    <div className="col-span-6 text-xs text-[var(--ecs-muted)] self-center">{cmd?.verb === 'SKIP' ? 'Removes this approver from the route.' : cmd?.resolverLabel ? `Resolved by: ${cmd.resolverLabel}` : ''}</div>
+                  )}
+                  <div className="col-span-1 text-right">{canEdit && dp.actions.length > 1 && <button type="button" className="btn-ghost text-xs" onClick={() => delAct(di, ai)}>✕</button>}</div>
+                </div>
+              );
+            })}
           </div>
           {canEdit && <button type="button" className="btn-secondary text-xs mt-2" onClick={() => addAct(di)}>＋ Add an action</button>}
         </div>
