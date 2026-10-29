@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 const SIM_DEFAULTS: Ctx = {
   approvalAmount: 3000, isGroup: false, researchRoute: false, travellerIsPI: false, isGuest: false,
   hasPolicyException: false,
-  additionalApproverPresent: false, guestUpgradeProvostPresent: false, isEmergency: false,
+  additionalApproverPresent: false, travelClassUpgradeException: false, isEmergency: false,
   roRequirement: 'INDIVIDUAL_ONLY', exceptionApproverRequired: true, researchPiSelfApproval: true,
   selfApprovalLimitSgd: 5000,
 };

@@ -132,6 +132,9 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
             <input type="number" step="any" className="field w-32" disabled={dis} placeholder="∞" value={tier.amountTo ?? ''} onChange={(e) => setTier(ti, { amountTo: e.target.value === '' ? null : Number(e.target.value) })} />
           </div>
           <p className="text-xs font-semibold text-[var(--ecs-navy-2)] mb-1">Workflow — approving levels</p>
+          <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-[var(--ecs-muted)] mb-1">
+            <div className="col-span-3">Approving Level</div><div className="col-span-5">Resolved by</div><div className="col-span-3">Approver</div><div className="col-span-1"></div>
+          </div>
           <div className="space-y-2">
             {tier.levels.map((l, li) => (
               <div key={li} className="grid grid-cols-12 gap-2 items-center">
@@ -159,6 +162,9 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
             {canEdit && <button type="button" className="btn-ghost text-xs" onClick={() => delDp(di)}>Delete</button>}
           </div>
           <p className="text-xs font-semibold text-[var(--ecs-navy-2)] mb-1">Condition(s) — all must hold</p>
+          <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-[var(--ecs-muted)] mb-1">
+            <div className="col-span-4">Field</div><div className="col-span-2">Operator</div><div className="col-span-5">Value</div><div className="col-span-1"></div>
+          </div>
           <div className="space-y-2">
             {dp.conditions.map((c, ci) => {
               const f = fieldOf(c.fact); const ops = OPS_BY_TYPE[f?.type ?? 'bool'] ?? ['is'];
@@ -168,7 +174,7 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
                   <select className="field col-span-2" disabled={dis} value={c.op} onChange={(e) => setCond(di, ci, { op: e.target.value as Cmp })}>{ops.map((o) => <option key={o} value={o}>{OP_LABEL[o]}</option>)}</select>
                   <div className="col-span-5">
                     {c.op === 'is' ? (
-                      <select className="field" disabled={dis} value={String(c.value)} onChange={(e) => setCond(di, ci, { value: e.target.value === 'true' })}><option value="true">true</option><option value="false">false</option></select>
+                      <select className="field" disabled={dis} value={String(c.value)} onChange={(e) => setCond(di, ci, { value: e.target.value === 'true' })}><option value="true">Yes</option><option value="false">No</option></select>
                     ) : f?.type === 'enum' && c.op !== 'in' ? (
                       <select className="field" disabled={dis} value={String(c.value ?? '')} onChange={(e) => setCond(di, ci, { value: e.target.value })}><option value="">Select…</option>{f.values?.map((v) => <option key={v} value={v}>{v}</option>)}</select>
                     ) : (
@@ -183,6 +189,9 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
           {canEdit && <button type="button" className="btn-secondary text-xs mt-2" onClick={() => addCond(di)}>＋ Add condition</button>}
 
           <p className="text-xs font-semibold text-[var(--ecs-navy-2)] mt-4 mb-1">Action(s)</p>
+          <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-[var(--ecs-muted)] mb-1">
+            <div className="col-span-5">Action</div><div className="col-span-7"></div>
+          </div>
           <div className="space-y-2">
             {dp.actions.map((a, ai) => {
               const cmd = COMMANDS.find((c) => c.key === commandKeyOf(a));

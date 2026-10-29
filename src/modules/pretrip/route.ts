@@ -4,7 +4,7 @@
 // ordered list of approval steps. Nothing here is hard-coded per user — it reads the
 // reference workflow bands and org DOA lines.
 import { EcsIdentity, EcsCharging, EcsWorkflow, EcsRoles } from '@/shared/ecs/services';
-import { APPROVER_ROLE, ROLE } from '@/shared/enums';
+import { APPROVER_ROLE, ROLE, POLICY_OUTCOME } from '@/shared/enums';
 import type { FullRequest } from './queries';
 import { isGuestRequest } from './traveller';
 import { type Ctx, type RouteStepSpec } from './workflowRules';
@@ -107,7 +107,8 @@ export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded:
     isGuest: isGuestRequest(req),
     hasPolicyException: opts.hasException,
     additionalApproverPresent: !!(req.additionalApproverId && !excluded.has(req.additionalApproverId)),
-    guestUpgradeProvostPresent: !!(opts.guestUpgradeProvostId && !excluded.has(opts.guestUpgradeProvostId)),
+    // §13.19 a travel-class upgrade raises a CLASS policy exception; the Provost is its exception approver.
+    travelClassUpgradeException: req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception),
     isEmergency: !!opts.emergency,
     roRequirement: opts.roRequirement,
     exceptionApproverRequired: opts.exceptionApproverRequired,

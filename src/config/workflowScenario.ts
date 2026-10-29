@@ -77,8 +77,12 @@ const PI_SELF_APPROVAL: Condition[] = [
   { fact: 'approvalAmount', op: 'lte', value: { fact: 'selfApprovalLimitSgd' } },
 ];
 
-// Default TR scenario — base tier RO → DOA for all amounts, with the decision points that reproduce
-// the hand-coded route in route.ts.
+// Default TR scenario (§6.2). Core personas: RO → DOA. RO is the reporting-officer check for an
+// INDIVIDUAL EMPLOYEE request; it is skipped for a group and for a guest. The Additional Approver is
+// optional (added when the requestor selects one at submission). The Provost is the exception approver
+// for a travel-class upgrade (guest-only for now; an admin can extend it to employees by relaxing the
+// condition). Other policy exceptions go to the Exception Approver. A research-PI self-approval replaces
+// the DOA with the traveller within the limit.
 export const TR_STANDARD_SCENARIO: WorkflowScenario = {
   code: 'TR_STANDARD',
   name: 'Travel Request Approval Workflow',
@@ -95,14 +99,18 @@ export const TR_STANDARD_SCENARIO: WorkflowScenario = {
     },
   ],
   decisionPoints: [
-    { seq: 1, label: 'Skip RO when the RO step is not configured', conditions: [{ fact: 'roRequirement', op: 'eq', value: 'NEVER' }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
-    { seq: 2, label: 'Skip RO for a group request (RO is individual-only)', conditions: [{ fact: 'roRequirement', op: 'eq', value: 'INDIVIDUAL_ONLY' }, { fact: 'isGroup', op: 'is', value: true }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
+    // RO is the core approver for an individual employee; skip it for a group (handled as one request)
+    // and for a guest (an external traveller has no NTU reporting officer).
+    { seq: 1, label: 'Skip RO for a group request', conditions: [{ fact: 'isGroup', op: 'is', value: true }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
+    { seq: 2, label: 'Skip RO for a guest request', conditions: [{ fact: 'isGuest', op: 'is', value: true }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
+    // Optional, added at submission when the requestor selects one.
     { seq: 3, label: 'Add the requestor-selected Additional Approver', conditions: [{ fact: 'additionalApproverPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.AdditionalApprover, resolver: 'FIXED', ref: 'ADDITIONAL', resolverLabel: 'Requestor-selected additional approver', order: 10 }] },
     // Cross-charge and cross-business-area authority is the DOA's (the DOA of the highest-share charging
-    // account resolved by the base BAND_DOA level) — NOT a separate approver. There is no Funding Owner
-    // or Cross-BA concurrence step.
+    // account resolved by the base BAND_DOA level) — NOT a separate approver.
     { seq: 4, label: 'Add the Exception Approver when a policy exception needs one', conditions: [{ fact: 'hasPolicyException', op: 'is', value: true }, { fact: 'exceptionApproverRequired', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Exception, resolver: 'ROLE', ref: 'EXCEPTION_APPROVER', resolverLabel: 'All users with Exception Approver role', order: 50 }] },
-    { seq: 5, label: 'Add the Provost for a guest travel-class upgrade', conditions: [{ fact: 'guestUpgradeProvostPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)', order: 60 }] },
+    // Provost = the exception approver for a travel-class upgrade. Guest-only for now (the isGuest
+    // condition); an administrator can remove that condition to extend it to employee upgrades.
+    { seq: 5, label: 'Add the Provost for a travel-class upgrade (guest)', conditions: [{ fact: 'isGuest', op: 'is', value: true }, { fact: 'travelClassUpgradeException', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)', order: 60 }] },
     { seq: 6, label: 'Replace the DOA with the traveller for research PI self-approval', conditions: PI_SELF_APPROVAL, actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.DOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)', note: 'Research PI self-approval' }] },
   ],
 };

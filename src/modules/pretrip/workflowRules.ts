@@ -37,7 +37,7 @@ export const FACTS: FactDef[] = [
   { key: 'isGuest', label: 'Guest (non-employee) request', type: 'bool', source: 'Request' },
   { key: 'hasPolicyException', label: 'Has a policy exception', type: 'bool', source: 'Policy' },
   { key: 'additionalApproverPresent', label: 'Additional approver selected', type: 'bool', source: 'Request' },
-  { key: 'guestUpgradeProvostPresent', label: 'Guest-upgrade Provost selected', type: 'bool', source: 'Request' },
+  { key: 'travelClassUpgradeException', label: 'Travel-class upgrade (exception)', type: 'bool', source: 'Policy' },
   { key: 'isEmergency', label: 'Emergency (book-first) lane', type: 'bool', source: 'Request' },
   // ModuleSettings scalars the route conditions reference (so the workflow config, not code, gates them)
   { key: 'roRequirement', label: 'RO requirement (setting)', type: 'enum', values: ['ALWAYS', 'INDIVIDUAL_ONLY', 'NEVER'], source: 'Settings' },
@@ -46,7 +46,9 @@ export const FACTS: FactDef[] = [
   { key: 'selfApprovalLimitSgd', label: 'Self-approval limit (setting, SGD)', type: 'number', source: 'Settings' },
 ];
 export const OPS_BY_TYPE: Record<string, Cmp[]> = { number: ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'ne'], enum: ['eq', 'ne', 'in'], text: ['eq', 'ne', 'in'], bool: ['is'] };
-export const OP_LABEL: Record<Cmp, string> = { eq: '=', ne: '≠', gt: '>', gte: '≥', lt: '<', lte: '≤', in: 'in', between: 'between', is: 'is' };
+// ECS "Operator" wording (matches the Workflow Configurations ▸ Edit workflow rule screen). A boolean
+// field compares with 'is' but reads as "Equal To" + Yes/No, exactly as ECS presents it.
+export const OP_LABEL: Record<Cmp, string> = { eq: 'Equal To', ne: 'Not Equal To', gt: 'Greater Than', gte: 'Greater Or Equal To', lt: 'Less Than', lte: 'Less Or Equal To', in: 'In', between: 'Between', is: 'Equal To' };
 export const factDef = (key: string) => FACTS.find((f) => f.key === key);
 export const factLabel = (key: string) => factDef(key)?.label ?? key;
 
@@ -90,6 +92,7 @@ export function exprText(e: BoolExpr): string {
   if ('not' in e) return `NOT (${exprText(e.not)})`;
   const c = e as Condition;
   const val = isFactRef(c.value) ? factLabel(c.value.fact)
+    : c.op === 'is' ? (c.value ? 'Yes' : 'No')            // ECS boolean = Yes / No
     : Array.isArray(c.value) ? (c.value as (string | number)[]).join(' / ')
     : String(c.value);
   return `${factLabel(c.fact)} ${OP_LABEL[c.op]} ${val}`;
