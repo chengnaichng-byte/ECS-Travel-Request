@@ -38,6 +38,12 @@ export const FACTS: FactDef[] = [
   { key: 'hasPolicyException', label: 'Has a policy exception', type: 'bool', source: 'Policy' },
   { key: 'additionalApproverPresent', label: 'Additional approver selected', type: 'bool', source: 'Request' },
   { key: 'travelClassUpgradeException', label: 'Travel-class upgrade (exception)', type: 'bool', source: 'Policy' },
+  // §6.2 ECS-mirrored fields (Expense-Claim "Edit workflow rule" → Travel-Request equivalents)
+  { key: 'seniorManager', label: 'Senior manager (traveller)', type: 'bool', source: 'Workday' },
+  { key: 'traveller', label: 'Traveller (user)', type: 'text', source: 'Request' },
+  { key: 'travelPurpose', label: 'Travel purpose', type: 'text', source: 'Request' },
+  { key: 'chargingAccountCode', label: 'Charging account (CC / WBS code)', type: 'text', source: 'Charging' },
+  { key: 'chargingIsDefaultAccount', label: 'Charging = traveller default account (Workday)', type: 'bool', source: 'Charging' },
   { key: 'isEmergency', label: 'Emergency (book-first) lane', type: 'bool', source: 'Request' },
   // ModuleSettings scalars the route conditions reference (so the workflow config, not code, gates them)
   { key: 'roRequirement', label: 'RO requirement (setting)', type: 'enum', values: ['ALWAYS', 'INDIVIDUAL_ONLY', 'NEVER'], source: 'Settings' },

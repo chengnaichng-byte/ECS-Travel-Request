@@ -114,6 +114,16 @@ export const TR_STANDARD_SCENARIO: WorkflowScenario = {
     // condition); an administrator can remove that condition to extend it to employee upgrades.
     { seq: 5, label: 'Add the Provost for a travel-class upgrade (guest)', conditions: [{ fact: 'isGuest', op: 'is', value: true }, { fact: 'travelClassUpgradeException', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)', order: 60 }] },
     { seq: 6, label: 'Replace the DOA with the traveller for research PI self-approval', conditions: PI_SELF_APPROVAL, actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.DOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)', note: 'Research PI self-approval' }] },
+    // ---- ECS-mirrored decision points (from the Expense-Claim "Edit workflow rule" screen, mirrored to
+    //      the Travel-Request equivalents; only the ECS rules relevant to TR, not the claim-specific
+    //      report-category ones). ----
+    { seq: 7, label: 'Skip DOA for a senior-manager traveller (ECS #1)', conditions: [{ fact: 'seniorManager', op: 'is', value: true }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.DOA }] },
+    { seq: 8, label: 'Skip RO for a research-WBS trip (ECS #5/#6)', conditions: [{ fact: 'researchRoute', op: 'is', value: true }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
+    { seq: 9, label: 'Add DOA back for a research trip by a senior manager (ECS #7)', conditions: [{ fact: 'researchRoute', op: 'is', value: true }, { fact: 'seniorManager', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.DOA, resolver: 'BAND_DOA', resolverLabel: 'DOA of highest-charging dept by amount band', order: 70 }] },
+    { seq: 10, label: 'Skip DOA for a small trip on the traveller’s own default account (ECS #4)', conditions: [{ fact: 'chargingIsDefaultAccount', op: 'is', value: true }, { fact: 'approvalAmount', op: 'lte', value: 500 }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.DOA }] },
+    // Named-user RO override (ECS #2/#10 example): a designated traveller’s RO is replaced with a
+    // specific approver. Here the Head of School’s RO is replaced with the Provost (illustrative).
+    { seq: 11, label: 'Replace RO with the Provost for a designated traveller (ECS #2/#10)', conditions: [{ fact: 'traveller', op: 'eq', value: 'E-RO' }], actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.RO, approverId: 'E-PROVOST', note: 'Named-user RO override' }] },
   ],
 };
 

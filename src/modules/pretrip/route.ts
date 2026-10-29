@@ -99,17 +99,28 @@ export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch:
 /** §2.3 Gather the closed FACTS the workflow engine evaluates, from the request + settings. Presence
  *  facts already apply §13.5 self-approval exclusion so a step the originator would fill is not raised. */
 export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded: Set<string>): Ctx {
+  const emp = EcsIdentity.employee(req.travellerId);
+  // §6.2 ECS-mirrored facts: the main charging account (isMain / highest weightage) and whether it is
+  // the traveller's own default (Workday) account.
+  const mainAlloc = req.allocations.find((a) => a.isMain) ?? [...req.allocations].sort((a, b) => b.percent - a.percent)[0];
+  const mainCode = mainAlloc?.chargingCode ?? '';
   return {
     approvalAmount: opts.approvalAmount,
     isGroup: req.isGroup,
     researchRoute: isResearchRequest(req) && !opts.sameRouteResearch,
-    travellerIsPI: EcsIdentity.employee(req.travellerId)?.isPi === true,
+    travellerIsPI: emp?.isPi === true,
     isGuest: isGuestRequest(req),
     hasPolicyException: opts.hasException,
     additionalApproverPresent: !!(req.additionalApproverId && !excluded.has(req.additionalApproverId)),
     // §13.19 a travel-class upgrade raises a CLASS policy exception; the Provost is its exception approver.
     travelClassUpgradeException: req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception),
     isEmergency: !!opts.emergency,
+    // §6.2 ECS-mirrored decision-point facts (Expense-Claim fields → their Travel-Request equivalents)
+    seniorManager: emp?.workerType === 'EXECUTIVE',                   // ECS "Senior manager flag (RO)"
+    traveller: req.travellerId,                                       // ECS "User"
+    travelPurpose: req.purposeId ?? '',                              // ECS "Expense report" (report / purpose)
+    chargingAccountCode: mainCode,                                   // ECS "CC/WBS code (Charging Account Details)"
+    chargingIsDefaultAccount: !!(mainCode && emp?.defaultChargingCode && mainCode === emp.defaultChargingCode), // ECS "Charging account = claimant's charging account in Workday"
     roRequirement: opts.roRequirement,
     exceptionApproverRequired: opts.exceptionApproverRequired,
     researchPiSelfApproval: !!opts.researchPiSelfApproval,

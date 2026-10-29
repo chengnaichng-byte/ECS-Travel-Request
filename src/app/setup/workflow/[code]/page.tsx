@@ -19,6 +19,7 @@ const SIM_DEFAULTS: Ctx = {
   approvalAmount: 3000, isGroup: false, researchRoute: false, travellerIsPI: false, isGuest: false,
   hasPolicyException: false,
   additionalApproverPresent: false, travelClassUpgradeException: false, isEmergency: false,
+  seniorManager: false, traveller: 'E-TRAV', travelPurpose: '', chargingAccountCode: '', chargingIsDefaultAccount: false,
   roRequirement: 'INDIVIDUAL_ONLY', exceptionApproverRequired: true, researchPiSelfApproval: true,
   selfApprovalLimitSgd: 5000,
 };
