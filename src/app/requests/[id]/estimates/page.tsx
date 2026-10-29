@@ -18,6 +18,7 @@ import { isTmcArrangement } from '@/modules/pretrip/booking';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { EstimateAddTabs } from '@/components/EstimateAddTabs';
+import { AirfareForm } from '@/components/AirfareForm';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
@@ -84,6 +85,10 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   };
   const lineOutcome = (e: (typeof req.expenses)[number]) =>
     (e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception || airfareOverClass(e)) ? POLICY_OUTCOME.Exception : POLICY_OUTCOME.Pass;
+  // §13.19 the individual traveller's derived entitlement — the baseline the airfare form gates the
+  // upgrade justification against (the stored entitledClassId is often null, so derive it live).
+  const indivEntitledId = isGroup ? 'TC-ECO' : entitledClassFor(req.travellerId);
+  const indivEntitledName = travelClasses.find((c) => c.id === indivEntitledId)?.name ?? 'Economy';
   // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
@@ -275,58 +280,57 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         defaultActive={editKind}
         hint="Select a cost type above to add it. ODA is derived automatically from the itinerary and appears in the summary above."
         tabs={[
-        // Airfare (TR-06) — manual: a quoted fare, not policy-derived.
-        { key: 'airfare', label: 'Airfare', node: (
+        // Airfare (TR-06) — manual: a quoted fare, not policy-derived. A GROUP books each traveller at
+        // their entitlement (class locked) → server form; an INDIVIDUAL/guest can pick a class, so it
+        // uses the client AirfareForm which gates the Add button on the upgrade justification (§13.19).
+        { key: 'airfare', label: 'Airfare', node: isGroup ? (
           <>
           <p className="text-xs text-[var(--ecs-muted)] mb-2">{af ? <>Editing this airfare line{editTravellerLabel ? <> for <b>{editTravellerLabel}</b></> : null} — change the values and save.</> : <>Airfare is a <b>quoted fare</b> (not policy-derived) — add it from your quote.</>}</p>
           <form action={af ? updateAirfare.bind(null, id, af.id) : addAirfare.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Select name="originCode" label="Origin" defaultValue={af?.originCode ?? tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
               <Select name="destCode" label="Destination" defaultValue={af?.destCode ?? tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
-              {isGroup ? (
-                <div><label className="label">Proposed class</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed">Per traveller — set to entitlement</div></div>
-              ) : (
-                <Select name="proposedClassId" label="Proposed class" defaultValue={af?.proposedClassId ?? tripDefaults.classId} opts={travelClasses.map((c) => [c.id, c.name])} />
-              )}
+              <div><label className="label">Proposed class</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed">Per traveller — set to entitlement</div></div>
               <Input name="expectedDate" label="Expected date" type="date" defaultValue={af ? d(af.expectedDate) : tripDefaults.start} />
               <Select name="currency" label="Currency" defaultValue={af?.currency ?? 'SGD'} opts={currencies.map((c) => [c, c])} />
               <Input name="amount" label="Quoted amount" type="number" defaultValue={af ? String(af.foreignAmount) : undefined} />
               <Input name="sponsorship" label="Expected sponsorship" type="number" defaultValue={af ? String(af.sponsorForeign ?? 0) : undefined} />
-              {isGroup && !af && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
-              {isGroup && af && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
+              {!af && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
+              {af && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
             </div>
-            {!isGroup && (
-              <div>
-                <label className="label">Justification for higher class (required if above entitlement — §13.19)</label>
-                <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} className="field" placeholder="e.g. medical accommodation, red-eye connection…" />
-                <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledClassName}</strong> for this itinerary. Choosing a higher proposed class requires a justification.</p>
-              </div>
-            )}
-            {/* #14 travel-class upgrade — only the funding choice is captured here. The entitlement fare
-                and the upgrade differential are DERIVED (Model B) from the configured uplift % for the
-                class step; the M6 account the NTU-funded delta charges is selected on the Charging step. */}
-            {!isGroup && (
-              <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 space-y-2">
-                <Select name="upgradeFunding" label="If above entitlement — upgrade funded by" defaultValue="NTU" opts={[['NTU', 'NTU — differential charged to an M6 account'], ['SELF', 'Self-funded — traveller pays the TMC']]} />
-                <p className="text-xs text-[var(--ecs-muted)]">Only applies when the proposed class is above your <strong>{entitledClassName}</strong> entitlement. The entitlement fare and the upgrade differential are derived automatically from the configured uplift&nbsp;% for the class step (entitlement = chosen fare ÷ (1&nbsp;+&nbsp;uplift&nbsp;%)); the entitlement stays on your WBS/CC. <strong>NTU-funded</strong> charges the differential to an M6 account — select which on the Charging step; <strong>self-funded</strong> means you settle the differential with the TMC directly (not reimbursed).</p>
-              </div>
-            )}
-            {/* §8 / DD-25 Guest travel-class upgrade — a guest booked above Economy needs a host-school
-                Provost to authorise it; the Provost step is inserted ahead of the host DOA. */}
-            {guestRequest && (
-              <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
-                <label className="label">Provost authorisation (required for a guest booked above Economy — §8 / DD-25)</label>
-                <select name="provostId" defaultValue={req.provostId ?? ''} className="field">
-                  <option value="">— No upgrade / Economy (no Provost needed) —</option>
-                  {provostOptions.map((p) => <option key={p.id} value={p.approverId}>{p.name} · {p.title} ({EcsIdentity.department(p.schoolId)?.name ?? p.schoolId})</option>)}
-                </select>
-                <p className="text-xs text-[var(--ecs-muted)] mt-1">A guest flies <strong>Economy</strong> by default. Selecting a higher proposed class requires a justification <em>and</em> a Provost from the host school&apos;s list; approval routes to the Provost before the host DOA.{guestUpgrading && !req.provostId && <span className="text-[var(--ecs-red)]"> This guest is above Economy — select a Provost.</span>}</p>
-              </div>
-            )}
             <button className="btn-primary w-full">{af ? 'Save airfare changes' : 'Add airfare estimate'}</button>
             {af && cancelEdit}
           </form>
           </>
+        ) : (
+          <AirfareForm
+            action={af ? updateAirfare.bind(null, id, af.id) : addAirfare.bind(null, id)}
+            submitLabel={af ? 'Save airfare changes' : 'Add airfare estimate'}
+            editing={!!af}
+            cancel={af ? cancelEdit : undefined}
+            originOpts={airports.map((a) => [a.code, a.code])}
+            destOpts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])}
+            classOpts={travelClasses.map((c) => [c.id, c.name])}
+            classRanks={Object.fromEntries(travelClasses.map((c) => [c.id, c.rank]))}
+            currencyOpts={currencies.map((c) => c)}
+            defaults={{
+              origin: af?.originCode ?? tripDefaults.origin,
+              dest: af?.destCode ?? tripDefaults.destAirport,
+              proposedClassId: af?.proposedClassId ?? (req.travelClassId || indivEntitledId),
+              expectedDate: af ? d(af.expectedDate) : tripDefaults.start,
+              currency: af?.currency ?? 'SGD',
+              amount: af ? String(af.foreignAmount) : '',
+              sponsorship: af ? String(af.sponsorForeign ?? 0) : '',
+              classJustification: req.classJustification ?? '',
+              upgradeFunding: af?.upgradeFunding ?? 'NTU',
+            }}
+            entitledClassId={indivEntitledId}
+            entitledClassName={indivEntitledName}
+            guest={guestRequest}
+            provostOpts={provostOptions.map((p) => ({ approverId: p.approverId, name: p.name, title: p.title, dept: EcsIdentity.department(p.schoolId)?.name ?? p.schoolId }))}
+            provostDefault={req.provostId ?? ''}
+            guestUpgrading={guestUpgrading}
+          />
         ) },
 
         // Accommodation (TR-07) — auto per stop; a manual extra line can still be added.
