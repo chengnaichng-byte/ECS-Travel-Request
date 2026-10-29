@@ -3,7 +3,7 @@
 // Visa Letters page filter (Today / All dates + search) so the download matches what is on screen.
 import * as XLSX from 'xlsx';
 import { prisma } from '@/shared/db';
-import { buildVisaLetterRecord, VISA_LETTER_COLUMNS } from '@/modules/pretrip/visaLetterNotice';
+import { buildVisaLetterRecords, VISA_LETTER_COLUMNS } from '@/modules/pretrip/visaLetterNotice';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,11 +16,11 @@ export async function GET(request: Request) {
   const all = await prisma.travelRequest.findMany({
     where: { visaLetterRequired: true },
     orderBy: { updatedAt: 'desc' },
-    include: { allocations: true, versions: { where: { reason: 'SUBMISSION' }, orderBy: { createdAt: 'asc' }, take: 1 } },
+    include: { allocations: true, legs: true, versions: { where: { reason: 'SUBMISSION' }, orderBy: { createdAt: 'asc' }, take: 1 } },
   });
 
   const rows = all
-    .map((req) => ({ req, rec: buildVisaLetterRecord(req) }))
+    .flatMap((req) => buildVisaLetterRecords(req).map((rec) => ({ req, rec })))
     .filter(({ req, rec }) => {
       const notifiedToday = !!req.visaLetterNotifiedAt && req.visaLetterNotifiedAt.toISOString().slice(0, 10) === todayStr;
       if (view === 'today' && !(notifiedToday || !req.visaLetterNotifiedAt)) return false;

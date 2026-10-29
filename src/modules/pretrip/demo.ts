@@ -532,12 +532,12 @@ export async function seedDemoScenarios() {
   // §4.13 flag a few approved overseas trips as needing a visa letter, so the HR notification queue
   // lists travellers. Reset the daily-timer last-run so the first visit to the Visa Letters page fires
   // the automatic timer and notifies HR of these (demonstrating the timer, not a manual trigger).
-  const visaCandidates = await prisma.travelRequest.findMany({ where: { status: REQUEST_STATUS.Approved }, orderBy: { requestNumber: 'asc' }, take: 3, select: { id: true, requestNumber: true, startDate: true, endDate: true } });
-  for (const r of visaCandidates) await prisma.travelRequest.update({ where: { id: r.id }, data: {
-    visaLetterRequired: true,
-    invitationRef: `INV-${r.requestNumber.replace('TR-', '')}`,   // host invitation reference for the letter
-    eventStartDate: r.startDate, eventEndDate: r.endDate,          // event dates (conference / meeting)
-  } });
+  const visaCandidates = await prisma.travelRequest.findMany({ where: { status: REQUEST_STATUS.Approved }, orderBy: { requestNumber: 'asc' }, take: 2, select: { id: true } });
+  for (const r of visaCandidates) await prisma.travelRequest.update({ where: { id: r.id }, data: { visaLetterRequired: true } });
+  // also flag the approved MULTI-CITY trips (one of which spans >1 country) so the queue shows one
+  // visa letter per country for the multi-country trip.
+  const multiCity = await prisma.travelRequest.findMany({ where: { tripType: 'MULTI_CITY', status: REQUEST_STATUS.Approved }, select: { id: true } });
+  for (const r of multiCity) await prisma.travelRequest.update({ where: { id: r.id }, data: { visaLetterRequired: true } });
   await prisma.moduleSettings.updateMany({ data: { visaLetterBatchLastRunAt: null } });
 
   revalidatePath('/dashboard');

@@ -27,7 +27,7 @@ import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { getActiveWorkflowScenario } from './workflowConfig';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipient } from '@/config/visaLetter';
-import { buildVisaLetterRecord } from './visaLetterNotice';
+import { buildVisaLetterRecords } from './visaLetterNotice';
 import { randomUUID } from 'node:crypto';
 import { adapterFor } from '@/integrations/tmc/adapter';
 import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
@@ -1585,21 +1585,25 @@ export async function runVisaLetterTimerIfDue(): Promise<VisaTimerStatus> {
   }
   const pending = await prisma.travelRequest.findMany({
     where: { status: REQUEST_STATUS.Approved, visaLetterRequired: true, visaLetterNotifiedAt: null },
-    include: { allocations: true, versions: { where: { reason: 'SUBMISSION' }, orderBy: { createdAt: 'asc' }, take: 1 } },
+    include: { allocations: true, legs: true, versions: { where: { reason: 'SUBMISSION' }, orderBy: { createdAt: 'asc' }, take: 1 } },
   });
   let sent = 0;
   for (const req of pending) {
-    const payload = {
-      documentType: 'VISA_LETTER_NOTIFICATION',
-      to: `${rec.office} <${rec.email}>`,
-      attachment: 'visa-letter-hr-digest.xlsx — the day’s full list is attached to the HR email',
-      ...buildVisaLetterRecord(req),
-      generatedAt: now.toISOString(),
-    };
-    await prisma.integrationMessage.create({ data: { requestId: req.id, direction: 'OUTBOUND', kind: 'VISA_LETTER', payload: JSON.stringify(payload, null, 2) } });
+    // §4.13 a multi-city trip across several countries produces one visa-letter record per country.
+    const records = buildVisaLetterRecords(req);
+    for (const record of records) {
+      const payload = {
+        documentType: 'VISA_LETTER_NOTIFICATION',
+        to: `${rec.office} <${rec.email}>`,
+        attachment: 'visa-letter-hr-digest.xlsx — the day’s full list is attached to the HR email',
+        ...record,
+        generatedAt: now.toISOString(),
+      };
+      await prisma.integrationMessage.create({ data: { requestId: req.id, direction: 'OUTBOUND', kind: 'VISA_LETTER', payload: JSON.stringify(payload, null, 2) } });
+      sent++;
+    }
     await prisma.travelRequest.update({ where: { id: req.id }, data: { visaLetterNotifiedAt: now } });
-    await audit(req.id, 'STATUS', `Visa letter notification sent to HR — ${rec.office} (${rec.email}) for ${req.authorisationNo} — daily timer (§4.13)`);
-    sent++;
+    await audit(req.id, 'STATUS', `Visa letter notification sent to HR — ${rec.office} (${rec.email}) for ${req.authorisationNo} — ${records.length} country letter(s) — daily timer (§4.13)`);
   }
   await updateSettings({ visaLetterBatchLastRunAt: now });
   await audit(null, 'INTEGRATION', `Visa letter daily timer ran — ${sent} notification(s) sent to HR (${rec.email}) (§4.13)`);

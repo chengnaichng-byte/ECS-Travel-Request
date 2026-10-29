@@ -1,6 +1,7 @@
 // §4.13 Visa-letter HR notification datapoints — the EXACT set and order of the NTU visa-letter
-// template (NTU Visa Letter_<date>.xlsx). Only these fields are carried, in this column order, so the
-// HR notification payload and the downloaded Excel match the agreed format. Built once here so both agree.
+// template (NTU Visa Letter_<date>.xlsx). A multi-city trip that spans several COUNTRIES needs one
+// visa letter per country, so one TR produces one record PER foreign country (each with that country's
+// city and the dates of stay there). Built once here so the HR notification payload and the Excel agree.
 import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { travellerName } from './traveller';
 
@@ -29,6 +30,8 @@ export interface VisaLetterRecord {
   tripDates: string;
 }
 
+interface LegLike { seq: number; destCode: string | null; departDate: Date | null; arriveDate: Date | null }
+
 export interface VisaLetterReq {
   requestNumber: string;
   travellerType?: string | null;
@@ -40,27 +43,57 @@ export interface VisaLetterReq {
   endDate: Date | null;
   allocations: { chargingCode: string; isMain?: boolean; percent?: number }[];
   versions?: { reason: string; createdAt: Date }[];
+  legs?: LegLike[];
 }
 
-/** The visa-letter record for one request — exactly the NTU template's datapoints. */
-export function buildVisaLetterRecord(req: VisaLetterReq): VisaLetterRecord {
+/** The foreign countries visited on the itinerary, in order, each with a representative city and the
+ *  entry/exit dates of the stay in that country (home-country / return legs excluded). */
+function foreignCountrySegments(legs: LegLike[]): { countryCode: string; cityCode: string; entry: Date | null; exit: Date | null }[] {
+  const sorted = [...legs].sort((a, b) => a.seq - b.seq);
+  const byCountry = new Map<string, { cityCode: string; entry: Date | null; exit: Date | null }>();
+  const order: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const leg = sorted[i];
+    const cityCode = (leg.destCode && EcsReference.airport(leg.destCode)?.cityCode) || leg.destCode || '';
+    const countryCode = EcsReference.city(cityCode)?.countryCode;
+    if (!countryCode || countryCode === 'SG') continue; // skip the home country / return leg
+    const arrival = leg.arriveDate ?? leg.departDate;
+    const departure = sorted[i + 1]?.departDate ?? leg.arriveDate ?? leg.departDate; // leave on the next leg
+    const ex = byCountry.get(countryCode);
+    if (!ex) { byCountry.set(countryCode, { cityCode, entry: arrival, exit: departure }); order.push(countryCode); }
+    else {
+      if (arrival && (!ex.entry || arrival < ex.entry)) ex.entry = arrival;
+      if (departure && (!ex.exit || departure > ex.exit)) ex.exit = departure;
+    }
+  }
+  return order.map((c) => ({ countryCode: c, ...byCountry.get(c)! }));
+}
+
+/** The visa-letter record(s) for one request — the NTU template's datapoints, repeated per foreign
+ *  country for a multi-country trip (one visa letter per country). */
+export function buildVisaLetterRecords(req: VisaLetterReq): VisaLetterRecord[] {
   const emp = EcsIdentity.employee(req.travellerId);
   const main = req.allocations.find((a) => a.isMain) ?? [...req.allocations].sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))[0];
   const code = main?.chargingCode ?? '';
   const master = code ? EcsCharging.code(code) : undefined;
   const submit = req.versions?.find((v) => v.reason === 'SUBMISSION')?.createdAt ?? null;
-  return {
+  const base = {
     travelerSubmitDate: fmtDay(submit),
     preTripRequestBookingId: req.requestNumber,
     employeeName: travellerName(req),
     emailAddress: emp?.email ?? req.guestEmail ?? '—',
-    companyCode: EcsIdentity.entity().name,                                  // the company (NTU)
-    businessArea: master?.businessArea ?? '—',                              // SAP business area of the main charging account
-    wbsCostCentre: master ? `${master.code} ${master.name}` : (code || '—'), // main charging account (CC/WBS) + name
+    companyCode: EcsIdentity.entity().name,
+    businessArea: master?.businessArea ?? '—',
+    wbsCostCentre: master ? `${master.code} ${master.name}` : (code || '—'),
     visaLetterRequired: 'Yes',
-    destinationCity: EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—',
-    tripDates: fmtRange(req.startDate, req.endDate),
   };
+  const segs = foreignCountrySegments(req.legs ?? []);
+  if (segs.length === 0) {
+    // No itinerary detail — fall back to the request-level destination + overall dates (single row).
+    return [{ ...base, destinationCity: EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—', tripDates: fmtRange(req.startDate, req.endDate) }];
+  }
+  // One row per foreign country.
+  return segs.map((s) => ({ ...base, destinationCity: EcsReference.city(s.cityCode)?.name ?? s.cityCode, tripDates: fmtRange(s.entry, s.exit) }));
 }
 
 /** Column order + the exact NTU-template headers for the HR Excel attachment. */
