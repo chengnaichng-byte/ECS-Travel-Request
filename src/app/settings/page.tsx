@@ -107,6 +107,20 @@ export default async function SettingsPage() {
           </div>
         </Card>
 
+        <Card title="Visa Letter notification (§4.13)" className="mt-5">
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">When an approved request has flagged a visa letter, the daily batch notifies <strong>HR</strong> (not the immigration office). Set the HR officer / team and email that receive the notification.</p>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">HR officer / team</label>
+              <input name="visaLetterHrOfficer" defaultValue={String(s.visaLetterHrOfficer ?? '')} className="field" placeholder="HR Immigration &amp; Passes Office" />
+            </div>
+            <div>
+              <label className="label">HR officer email</label>
+              <input type="email" name="visaLetterHrEmail" defaultValue={String(s.visaLetterHrEmail ?? '')} className="field" placeholder="hr-immigration@ntu.edu.sg" />
+            </div>
+          </div>
+        </Card>
+
         <div className="mt-5 flex justify-end">
           <button type="submit" className="btn-primary">Save settings</button>
         </div>

@@ -26,7 +26,7 @@ import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, upliftPctFrom
 import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { getActiveWorkflowScenario } from './workflowConfig';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
-import { visaLetterRecipientFor } from '@/config/visaLetter';
+import { visaLetterRecipient } from '@/config/visaLetter';
 import { randomUUID } from 'node:crypto';
 import { adapterFor } from '@/integrations/tmc/adapter';
 import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
@@ -1566,18 +1566,22 @@ export async function runVisaLetterBatch() {
     where: { status: REQUEST_STATUS.Approved, visaLetterRequired: true, visaLetterNotifiedAt: null },
     include: { allocations: true },
   });
+  // §4.13 the notification informs the HR officer configured in the module settings.
+  const settings = await getSettings();
+  const rec = visaLetterRecipient(settings);
   const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '—');
-  let sent = 0, failed = 0;
+  let sent = 0;
+  if (!rec.email) {
+    await audit(null, 'INTEGRATION', 'Visa letter batch aborted — no HR officer email configured (§4.13)');
+    revalidatePath('/visa-letters'); revalidatePath('/notifications');
+    return;
+  }
   for (const req of pending) {
-    const rec = visaLetterRecipientFor(req.departmentId);
-    if (!rec?.email) {
-      await audit(req.id, 'INTEGRATION', `Visa letter notification FAILED — no recipient office mapped for ${req.requestNumber} (§4.13)`);
-      failed++; continue;
-    }
     const city = EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—';
     const country = EcsReference.country(req.destCountry ?? '')?.name ?? '';
     const payload = {
       documentType: 'VISA_LETTER_NOTIFICATION',
+      to: `${rec.office} <${rec.email}>`,
       travelRequestRef: req.requestNumber,
       authorisationNumber: req.authorisationNo,
       traveller: travellerName(req),
@@ -1590,10 +1594,10 @@ export async function runVisaLetterBatch() {
     };
     await prisma.integrationMessage.create({ data: { requestId: req.id, direction: 'OUTBOUND', kind: 'VISA_LETTER', payload: JSON.stringify(payload, null, 2) } });
     await prisma.travelRequest.update({ where: { id: req.id }, data: { visaLetterNotifiedAt: new Date() } });
-    await audit(req.id, 'STATUS', `Visa letter notification sent to ${rec.office} (${rec.email}) for ${req.authorisationNo} — daily batch (§4.13)`);
+    await audit(req.id, 'STATUS', `Visa letter notification sent to HR — ${rec.office} (${rec.email}) for ${req.authorisationNo} — daily batch (§4.13)`);
     sent++;
   }
-  await audit(null, 'INTEGRATION', `Visa letter daily batch — ${sent} sent, ${failed} failed, ${pending.length} candidate(s) (§4.13)`);
+  await audit(null, 'INTEGRATION', `Visa letter daily batch — ${sent} sent to HR (${rec.email}), ${pending.length} candidate(s) (§4.13)`);
   revalidatePath('/visa-letters');
   revalidatePath('/notifications');
 }

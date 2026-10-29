@@ -78,6 +78,9 @@ export async function saveModuleSettings(fd: FormData) {
   patch.sftpConfig = String(fd.get('sftpConfig') ?? '');
   patch.declarationText = String(fd.get('declarationText') ?? '');
   patch.coiText = String(fd.get('coiText') ?? '');
+  // §4.13 visa-letter HR officer recipient
+  patch.visaLetterHrOfficer = String(fd.get('visaLetterHrOfficer') ?? '');
+  patch.visaLetterHrEmail = String(fd.get('visaLetterHrEmail') ?? '');
   await updateSettings(patch);
   revalidatePath('/settings');
   revalidatePath('/', 'layout');

@@ -529,6 +529,11 @@ export async function seedDemoScenarios() {
     }
   }
 
+  // §4.13 flag a few approved overseas trips as needing a visa letter, so the HR notification queue
+  // lists travellers (they stay Pending until the daily batch notifies the HR officer).
+  const visaCandidates = await prisma.travelRequest.findMany({ where: { status: REQUEST_STATUS.Approved }, orderBy: { requestNumber: 'asc' }, take: 3, select: { id: true } });
+  for (const r of visaCandidates) await prisma.travelRequest.update({ where: { id: r.id }, data: { visaLetterRequired: true } });
+
   revalidatePath('/dashboard');
 }
 

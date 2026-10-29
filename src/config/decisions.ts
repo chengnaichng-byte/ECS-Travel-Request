@@ -28,6 +28,8 @@ export const moduleSettingsDefaults = {
   declarationText: 'I confirm that the trip is for official purposes, the estimated costs are reasonable, and the itinerary and personal travel days are accurate.',
   coiText: 'I declare no conflict of interest arising from this trip or its funding source.',
   sftpConfig: 'sftp://tmc-gateway.example:22 (key: ECS_TMC_2026)',
+  visaLetterHrOfficer: 'HR Immigration & Passes Office',  // §4.13 HR officer/team notified for a visa letter
+  visaLetterHrEmail: 'hr-immigration@ntu.edu.sg',          // §4.13 that HR officer's email
   authorisationValidityDays: 30,    // §13.3
   bookingDeadlineDays: 14,          // §13.3
   emergencyLeadDays: 14,            // §13.x/DD-23 emergency-lane standard lead-time window (days before departure)

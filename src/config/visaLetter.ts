@@ -1,19 +1,13 @@
-// §4.13 Visa letter notification configuration. Recipient determination is by
-// organisational unit (department) with a University-wide default office. In production
-// this is a configurable mapping maintained by the administrator.
+// §4.13 Visa letter notification configuration. The notification informs HR (the HR Immigration &
+// Passes Office / officer), NOT the immigration office. The HR officer and email are a runtime module
+// setting (Pre-Trip Module Settings), so the administrator maintains who receives the daily batch.
 export interface VisaLetterRecipient { office: string; email: string; }
 
-/** University-wide default immigration/passes office. */
-export const defaultVisaLetterRecipient: VisaLetterRecipient = {
-  office: 'HR Immigration & Passes Office',
-  email: 'immigration@ntu.edu.sg',
-};
-
-/** Optional per-department overrides (by departmentId). */
-export const visaLetterRecipientByDept: Record<string, VisaLetterRecipient> = {
-  'RI-AI': { office: 'RI-AI Research Admin (Immigration)', email: 'ri-ai.immigration@ntu.edu.sg' },
-};
-
-export function visaLetterRecipientFor(departmentId: string | null | undefined): VisaLetterRecipient {
-  return (departmentId && visaLetterRecipientByDept[departmentId]) || defaultVisaLetterRecipient;
+/** The HR officer that receives the visa-letter notification, from the module settings (with a
+ *  sensible default if unset). */
+export function visaLetterRecipient(s: { visaLetterHrOfficer?: string | null; visaLetterHrEmail?: string | null }): VisaLetterRecipient {
+  return {
+    office: s.visaLetterHrOfficer?.trim() || 'HR Immigration & Passes Office',
+    email: s.visaLetterHrEmail?.trim() || 'hr-immigration@ntu.edu.sg',
+  };
 }
