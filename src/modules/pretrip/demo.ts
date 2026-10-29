@@ -364,13 +364,14 @@ async function buildCtaCancelledReversalS32() {
     oda: { country: 'JP', city: 'TYO', arrive: '2026-12-21', depart: '2026-12-24' },
     charging: [{ code: 'CC-1000', pct: 100 }],
   });
-  await prisma.travelRequest.update({ where: { id }, data: { description: 'CTA airfare booked & posted, then cancelled — posting auto-reversed (S32)' } });
+  await prisma.travelRequest.update({ where: { id }, data: { description: 'CTA airfare booked & posted, then cancelled — refund reversed, SGD 150 penalty retained (S32)' } });
   await submit(id); await approveAll(id); await bookViaTmc(id, 0, 'CTA-SG-SGD', true);   // posts CTA airfare on receipt
-  // Cancellation after booking (DD-22) → CTA posting auto-reversed (DD-31).
+  // Cancellation after booking (DD-22): the airline retains a SGD 150 cancellation penalty and refunds
+  // the balance → the CTA posting is reversed for the REFUND only; the penalty stays a charge (DD-31).
   await prisma.travelBooking.updateMany({ where: { requestId: id, channel: 'TMC' }, data: { status: BOOKING_STATUS.Cancelled } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Cancelled } });
-  await reverseCtaChargesForRequest(id, '2026-12-16');
-  await audit(id, 'E-SYS', 'INTEGRATION', 'Booking cancelled — CTA posting auto-reversed');
+  await reverseCtaChargesForRequest(id, { penaltySgd: 150, dateIso: '2026-12-16' });
+  await audit(id, 'E-SYS', 'INTEGRATION', 'Booking cancelled — CTA refund reversed, SGD 150 penalty retained');
 }
 
 export async function seedDemoScenarios() {

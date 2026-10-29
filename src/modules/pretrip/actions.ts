@@ -1277,7 +1277,8 @@ export async function receiveCancellation(id: string, fd?: FormData) {
     await tx.travelBooking.updateMany({ where: { requestId: id, channel: 'TMC' }, data: { status: BOOKING_STATUS.Cancelled } });
     await tx.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Cancelled } });
   });
-  await reverseCtaChargesForRequest(id);   // DD-31 auto-reverse the CTA postings on cancellation
+  // DD-31 reverse the CTA postings using the feed's split: the refund reverses, the penalty stays.
+  await reverseCtaChargesForRequest(id, { penaltySgd: feeSgd, dateIso: meta.receivedAt.slice(0, 10) });
   await audit(id, 'INTEGRATION', `TMC confirmed cancellation — ${cancelRef}${feeSgd ? `, fee SGD ${feeSgd}, refund SGD ${refundSgd}` : ' (no fee)'}`);
   revalidatePath(`/requests/${id}`);
   revalidatePath(`/requests/${id}/booking`);

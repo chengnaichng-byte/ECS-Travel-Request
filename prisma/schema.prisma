@@ -171,6 +171,7 @@ model CtaPostingDocument {
   clearingGlAccount String
   reversalSapDocNo  String?                     // DD-31 auto-reversal: the reversing SAP document
   reversedDate      String?                     // DD-31 date the entry was reversed (cancellation/refund)
+  retainedSgd       Float    @default(0)        // DD-31 penalty retained on cancellation (NOT reversed) — refund = grossSgd − retainedSgd
   createdAt         DateTime @default(now())
   @@unique([bookingId, chargeType])
 }

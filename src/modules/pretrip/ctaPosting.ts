@@ -189,15 +189,23 @@ export async function postCtaChargesForRequest(requestId: string): Promise<void>
   }
 }
 
-/** DD-31 auto-reversal — on cancellation/refund, reverse every Posted CTA posting of the request:
- *  the original is marked Reversed and a reversing SAP document is recorded. */
-export async function reverseCtaChargesForRequest(requestId: string, dateIso?: string): Promise<void> {
-  const date = dateIso ?? new Date().toISOString().slice(0, 10);
-  const docs = await prisma.ctaPostingDocument.findMany({ where: { requestId, status: 'Posted' } });
+/** DD-31 auto-reversal — on cancellation/refund, reverse the request's Posted CTA postings using the
+ *  feed's refund/penalty split: the REFUNDED amount reverses, while a non-refundable PENALTY stays a
+ *  charge. The penalty is retained against the airfare charge first (the airline cancellation penalty),
+ *  spilling to the remaining charges; with no penalty (e.g. an un-ticketed void) the whole gross
+ *  reverses. The original is marked Reversed with the retained amount and a reversing SAP document. */
+export async function reverseCtaChargesForRequest(requestId: string, opts?: { penaltySgd?: number; dateIso?: string }): Promise<void> {
+  const date = opts?.dateIso ?? new Date().toISOString().slice(0, 10);
+  let remaining = Math.max(r2(opts?.penaltySgd ?? 0), 0);
+  const order: Record<string, number> = { Airfare: 0, Fee: 1, Car: 2, Visa: 3, Accommodation: 4 };
+  const docs = (await prisma.ctaPostingDocument.findMany({ where: { requestId, status: 'Posted' } }))
+    .sort((a, b) => (order[a.chargeType] ?? 9) - (order[b.chargeType] ?? 9));
   for (const d of docs) {
+    const retained = r2(Math.min(remaining, d.grossSgd));   // penalty kept on this charge (not reversed)
+    remaining = r2(remaining - retained);
     await prisma.ctaPostingDocument.update({
       where: { id: d.id },
-      data: { status: 'Reversed', reversalSapDocNo: d.sapDocNo.replace('SAP-CTA-', 'SAP-CTA-R'), reversedDate: date },
+      data: { status: 'Reversed', retainedSgd: retained, reversalSapDocNo: d.sapDocNo.replace('SAP-CTA-', 'SAP-CTA-R'), reversedDate: date },
     });
   }
 }
@@ -264,14 +272,32 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
         feedSourced: c.feedSourced, gstMismatch: c.gstMismatch, validationNote: c.validationNote,
         invoiceNo: b.invoiceNo, sapReference,
         lines, balanced: Math.abs(dr - cr) < 0.005,
-        sapDocNo: doc?.sapDocNo ?? null, postingDate: doc?.postingDate ?? null, postingStatus: doc?.status ?? 'Not posted',
+        sapDocNo: doc?.sapDocNo ?? null, postingDate: doc?.postingDate ?? null,
+        postingStatus: doc?.status === 'Reversed' && r2(doc.retainedSgd ?? 0) > 0 ? 'Partially reversed' : (doc?.status ?? 'Not posted'),
         isReversal: false,
       };
       postings.push(base);
-      // DD-31 auto-reversal: a Reversed charge also shows the reversing entry (Dr/Cr flipped).
+      // DD-31 auto-reversal: a Reversed charge also shows the reversing entry (Dr/Cr flipped). On a
+      // cancellation with a refund/penalty split, only the REFUNDED amount reverses (scaled); the
+      // retained penalty stays posted, so the charge's net = the penalty.
       if (doc?.status === 'Reversed') {
-        const revLines = lines.map((l) => ({ ...l, side: (l.side === 'DR' ? 'CR' : 'DR') as 'DR' | 'CR' }));
-        postings.push({ ...base, lines: revLines, sapDocNo: doc.reversalSapDocNo ?? null, postingDate: doc.reversedDate ?? null, postingStatus: 'Reversed', isReversal: true });
+        const retained = r2(doc.retainedSgd ?? 0);
+        const refunded = r2(gross - retained);
+        if (refunded > 0.005) {
+          const ratio = gross > 0 ? refunded / gross : 1;
+          const revLines = lines.map((l) => ({ ...l, side: (l.side === 'DR' ? 'CR' : 'DR') as 'DR' | 'CR', amountSgd: r2(l.amountSgd * ratio) }));
+          // keep the reversal balanced: the clearing line = the sum of the (scaled) expense + GST lines.
+          const clSum = r2(revLines.filter((l) => l.glAccount !== clearingGl).reduce((s, l) => s + l.amountSgd, 0));
+          const cl = revLines.find((l) => l.glAccount === clearingGl);
+          if (cl) cl.amountSgd = clSum;
+          const refTax = r2(tax * ratio);
+          postings.push({
+            ...base, lines: revLines, grossSgd: refunded, taxSgd: refTax, netSgd: r2(refunded - refTax),
+            source: retained > 0 ? `refund ${fmt(refunded)} — penalty ${fmt(retained)} retained` : base.source,
+            sapDocNo: doc.reversalSapDocNo ?? null, postingDate: doc.reversedDate ?? null,
+            postingStatus: retained > 0 ? 'Reversed (refund)' : 'Reversed', isReversal: true,
+          });
+        }
       }
     }
   }

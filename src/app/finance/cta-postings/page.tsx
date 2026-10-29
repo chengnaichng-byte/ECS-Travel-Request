@@ -54,7 +54,7 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
           <li><strong>Credit (clearing).</strong> The <strong>credit GL</strong> of the charge&apos;s CTA account, from the CTA master — the full gross.</li>
           <li><strong>Driven from the feed.</strong> Each charge is the TMC&apos;s own per-charge breakdown (<code>Feed</code>): its expense type, SAP tax code and GST amount are posted verbatim, keyed by the invoice number. ECS re-derives the tax via its own logic and flags a <strong>GST mismatch</strong> (store-and-validate). A booking with no feed rows falls back to ECS-<code>Derived</code> amounts.</li>
           <li><strong>Travel-class upgrade (#14).</strong> On an NTU-funded upgrade the airfare debit splits — the <strong>entitlement</strong> charges the approved cost object, the <strong>upgrade differential</strong> charges cost centre <strong>M6</strong>. A self-funded upgrade posts the entitlement only (the traveller settles the delta with the TMC directly).</li>
-          <li><strong>Reversal.</strong> A later cancellation / refund posts the <strong>same entry reversed</strong> (auto-reversal).</li>
+          <li><strong>Reversal.</strong> A cancellation reverses the <strong>refunded</strong> amount from the TMC feed; a non-refundable <strong>penalty</strong> stays posted, so the charge&apos;s net = the penalty.</li>
         </ul>
       </Card>
 
