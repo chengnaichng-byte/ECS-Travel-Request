@@ -8,7 +8,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/shared/db';
 import { currentPersonaId } from '@/shared/session';
 import { loadRequest, overlappingTripsFor, type FullRequest } from './queries';
-import { getSettings } from './settings';
+import { getSettings, updateSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
@@ -1561,21 +1561,33 @@ export async function amendAfterFailedBooking(id: string) {
 /** Daily visa-letter batch: notify the org-unit-mapped immigration office for every
  *  approved request that flagged a visa letter and has not yet been notified. Idempotent
  *  (notified requests carry `visaLetterNotifiedAt`); failures are logged and left pending. */
-export async function runVisaLetterBatch() {
+// §4.13 the daily visa-letter job is an automatic timer (not manually triggered). It runs at 02:00.
+const VISA_TIMER_HOUR = 2;
+interface VisaTimerStatus { lastRunAt: Date | null; nextRunAt: Date; ranNow: boolean; sentNow: number; }
+
+/** §4.13 Automatic daily visa-letter timer. Fires at most once per calendar day (simulating the
+ *  scheduled job): notifies HR — the configured HR officer — of every approved visa-letter request
+ *  not yet notified. Idempotent; call it to bring the queue up to date when the page is viewed. It
+ *  must NOT revalidate (it is called during the page render, which then reads the fresh data). */
+export async function runVisaLetterTimerIfDue(): Promise<VisaTimerStatus> {
+  const settings = await getSettings();
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nextRunAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, VISA_TIMER_HOUR, 0, 0);
+  const last = settings.visaLetterBatchLastRunAt ? new Date(settings.visaLetterBatchLastRunAt) : null;
+  if (last && last >= startOfToday) return { lastRunAt: last, nextRunAt, ranNow: false, sentNow: 0 }; // already ran today
+
+  const rec = visaLetterRecipient(settings);
+  if (!rec.email) {
+    await audit(null, 'INTEGRATION', 'Visa letter timer skipped — no HR officer email configured (§4.13)');
+    return { lastRunAt: last, nextRunAt, ranNow: false, sentNow: 0 };
+  }
   const pending = await prisma.travelRequest.findMany({
     where: { status: REQUEST_STATUS.Approved, visaLetterRequired: true, visaLetterNotifiedAt: null },
     include: { allocations: true },
   });
-  // §4.13 the notification informs the HR officer configured in the module settings.
-  const settings = await getSettings();
-  const rec = visaLetterRecipient(settings);
   const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '—');
   let sent = 0;
-  if (!rec.email) {
-    await audit(null, 'INTEGRATION', 'Visa letter batch aborted — no HR officer email configured (§4.13)');
-    revalidatePath('/visa-letters'); revalidatePath('/notifications');
-    return;
-  }
   for (const req of pending) {
     const city = EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—';
     const country = EcsReference.country(req.destCountry ?? '')?.name ?? '';
@@ -1590,16 +1602,16 @@ export async function runVisaLetterBatch() {
       travelPurpose: EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—',
       fundingSource: req.allocations.map((a) => a.chargingCode).join(', ') || '—',
       recipient: rec,
-      generatedAt: new Date().toISOString(),
+      generatedAt: now.toISOString(),
     };
     await prisma.integrationMessage.create({ data: { requestId: req.id, direction: 'OUTBOUND', kind: 'VISA_LETTER', payload: JSON.stringify(payload, null, 2) } });
-    await prisma.travelRequest.update({ where: { id: req.id }, data: { visaLetterNotifiedAt: new Date() } });
-    await audit(req.id, 'STATUS', `Visa letter notification sent to HR — ${rec.office} (${rec.email}) for ${req.authorisationNo} — daily batch (§4.13)`);
+    await prisma.travelRequest.update({ where: { id: req.id }, data: { visaLetterNotifiedAt: now } });
+    await audit(req.id, 'STATUS', `Visa letter notification sent to HR — ${rec.office} (${rec.email}) for ${req.authorisationNo} — daily timer (§4.13)`);
     sent++;
   }
-  await audit(null, 'INTEGRATION', `Visa letter daily batch — ${sent} sent to HR (${rec.email}), ${pending.length} candidate(s) (§4.13)`);
-  revalidatePath('/visa-letters');
-  revalidatePath('/notifications');
+  await updateSettings({ visaLetterBatchLastRunAt: now });
+  await audit(null, 'INTEGRATION', `Visa letter daily timer ran — ${sent} notification(s) sent to HR (${rec.email}) (§4.13)`);
+  return { lastRunAt: now, nextRunAt, ranNow: true, sentNow: sent };
 }
 
 /* ------------------------------------ comments / attachments (§13.21) */

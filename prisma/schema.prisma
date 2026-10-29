@@ -44,6 +44,7 @@ model ModuleSettings {
   sftpConfig             String  @default("sftp://tmc-gateway.example:22 (key: ECS_TMC_2026)") // §43 transport config (display only)
   visaLetterHrOfficer    String  @default("HR Immigration & Passes Office")  // §4.13 the HR officer/team that receives the visa-letter notification
   visaLetterHrEmail      String  @default("hr-immigration@ntu.edu.sg")        // §4.13 that HR officer's email
+  visaLetterBatchLastRunAt DateTime?                                          // §4.13 last run of the daily visa-letter timer job (automatic; gates the once-per-day run)
   authorisationValidityDays Int  @default(30)     // §13.3
   bookingDeadlineDays    Int     @default(14)     // §13.3
   emergencyLeadDays      Int     @default(14)     // §13.x/DD-23 emergency-lane standard lead-time window (days before departure); beyond it the out-of-window justification + confirmation are required
