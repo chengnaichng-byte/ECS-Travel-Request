@@ -67,7 +67,9 @@ export default async function VisaLettersPage({ searchParams }: { searchParams: 
             Last run: <strong className="text-[var(--ecs-text)]">{dt(timer.lastRunAt)}</strong>{timer.ranNow ? ` · just ran — ${timer.sentNow} notification(s) sent to HR` : ''} · Next run: {dt(timer.nextRunAt)}
             {pending > 0 && <span> · <strong className="text-[var(--ecs-red)]">{pending}</strong> awaiting the next run</span>}
           </div>
+          <div className="text-xs text-[var(--ecs-muted)]">The daily HR email includes the list below as an Excel attachment.</div>
         </div>
+        <a href={`/visa-letters/export?view=${view}${sp.q ? `&q=${encodeURIComponent(sp.q)}` : ''}`} className="btn-secondary whitespace-nowrap">⬇ Download Excel</a>
       </div>
 
       <Card title="Filter">

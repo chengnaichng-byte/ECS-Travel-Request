@@ -27,6 +27,7 @@ import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { getActiveWorkflowScenario } from './workflowConfig';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
 import { visaLetterRecipient } from '@/config/visaLetter';
+import { buildVisaLetterRecord } from './visaLetterNotice';
 import { randomUUID } from 'node:crypto';
 import { adapterFor } from '@/integrations/tmc/adapter';
 import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
@@ -1586,21 +1587,13 @@ export async function runVisaLetterTimerIfDue(): Promise<VisaTimerStatus> {
     where: { status: REQUEST_STATUS.Approved, visaLetterRequired: true, visaLetterNotifiedAt: null },
     include: { allocations: true },
   });
-  const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '—');
   let sent = 0;
   for (const req of pending) {
-    const city = EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—';
-    const country = EcsReference.country(req.destCountry ?? '')?.name ?? '';
     const payload = {
       documentType: 'VISA_LETTER_NOTIFICATION',
       to: `${rec.office} <${rec.email}>`,
-      travelRequestRef: req.requestNumber,
-      authorisationNumber: req.authorisationNo,
-      traveller: travellerName(req),
-      destination: `${city}${country ? `, ${country}` : ''}`,
-      travelDates: `${d(req.startDate)} → ${d(req.endDate)}`,
-      travelPurpose: EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—',
-      fundingSource: req.allocations.map((a) => a.chargingCode).join(', ') || '—',
+      attachment: 'visa-letter-hr-digest.xlsx — the day’s full list is attached to the HR email',
+      ...buildVisaLetterRecord(req),
       recipient: rec,
       generatedAt: now.toISOString(),
     };
