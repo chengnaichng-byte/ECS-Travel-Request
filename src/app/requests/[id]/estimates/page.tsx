@@ -16,11 +16,11 @@ const memberTag = (t: TagRef, sep: string) => isStudentMember(t) ? `${sep}studen
 import { isTmcArrangement } from '@/modules/pretrip/booking';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
-import { AddEstimatePanel } from '@/components/AddEstimatePanel';
+import { EstimateAddTabs } from '@/components/EstimateAddTabs';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
-import { hotelCaps, odaRates } from '@/data/policyRates';
+import { hotelCaps } from '@/data/policyRates';
 import { currencies } from '@/data/fxRates';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
@@ -239,11 +239,14 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         )}
       </Card>
 
-      {canEdit && <div className="grid md:grid-cols-2 gap-5">
-        {/* Airfare (TR-06) — manual: a quoted fare, not policy-derived. */}
-        <Card title="Airfare (TR-06)">
+      {canEdit && <EstimateAddTabs
+        hint="Select a cost type above to add it. ODA is derived automatically from the itinerary and appears in the summary above."
+        tabs={[
+        // Airfare (TR-06) — manual: a quoted fare, not policy-derived.
+        { key: 'airfare', label: 'Airfare', node: (
+          <>
           <p className="text-xs text-[var(--ecs-muted)] mb-2">Airfare is a <b>quoted fare</b> (not policy-derived) — add it from your quote.</p>
-          <AddEstimatePanel action={addAirfare.bind(null, id)} label="Add airfare">
+          <form action={addAirfare.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Select name="originCode" label="Origin" defaultValue={tripDefaults.origin} opts={airports.map((a) => [a.code, a.code])} />
               <Select name="destCode" label="Destination" defaultValue={tripDefaults.destAirport} opts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])} />
@@ -287,11 +290,13 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               </div>
             )}
             <button className="btn-primary w-full">Add airfare estimate</button>
-          </AddEstimatePanel>
-        </Card>
+          </form>
+          </>
+        ) },
 
-        {/* Accommodation (TR-07) — auto per stop; a manual extra line can still be added. */}
-        <Card title="Accommodation (TR-07)">
+        // Accommodation (TR-07) — auto per stop; a manual extra line can still be added.
+        { key: 'accommodation', label: 'Accommodation', node: (
+          <>
           <p className="text-xs text-[var(--ecs-muted)] mb-2">A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</p>
           {/* DD-19 hotel payment channel — CTA (central) only when the trip is a TMC arrangement. */}
           <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-2.5 mb-3">
@@ -306,7 +311,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               ? 'Hotel is centrally billed to the CTA — shown in the expense claim for reference only, not reimbursed to the traveller.'
               : 'Hotel is paid by the traveller and claimed back (reimbursable). Airfare is always on the CTA; ODA is always claimed.'}</p>
           </div>
-          <AddEstimatePanel action={addAccommodation.bind(null, id)} label="Add accommodation (extra)">
+          <form action={addAccommodation.bind(null, id)} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={tripDefaults.destCity} />
               <Input name="nights" label="Nights" type="number" defaultValue={tripDefaults.nights} />
@@ -320,38 +325,25 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             {isGroup && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
             <p className="text-xs text-[var(--ecs-muted)]">The rate <b>defaults to the selected city&apos;s cap</b> and is editable; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
             <button className="btn-primary w-full">Add accommodation estimate</button>
-          </AddEstimatePanel>
-        </Card>
+          </form>
+          </>
+        ) },
 
-        {/* ODA (TR-08) — §8 not available to guests */}
-        {guestRequest ? (
-          <Card title="Add ODA (TR-08)">
-            <p className="text-sm text-[var(--ecs-muted)]">ODA (overseas daily allowance) does not apply to a guest — it is not a guest entitlement and is settled centrally (§8). Guest cost is airfare and accommodation only.</p>
-          </Card>
-        ) : (
-        <Card title="ODA (TR-08) — automatic">
-          <p className="text-sm text-[var(--ecs-muted)]">ODA (overseas daily allowance) is <b>policy-based</b> and added <b>automatically</b> — <b>one line per city</b>, at that country&apos;s <b>full daily rate</b> × nights — for {isGroup ? 'each employee traveller' : 'the traveller'}, from the itinerary. It is <b>not edited here</b>; change the dates or stops on the <b>Trip</b> step to adjust it.</p>
-          <p className="text-xs text-[var(--ecs-muted)] mt-2">Rates — {odaRates.map((o) => `${o.countryCode} ${fmtSgd(o.dailyRateSgd)}/day`).join(', ')}.</p>
-        </Card>
-        )}
-
-        {/* Incidental (only when expense scope = ALL) */}
-        {allowIncidental && (
-          <Card title="Other / Conference Fee">
-            <AddEstimatePanel action={addOther.bind(null, id)} label="Add other / conference fee">
-              <div className="grid grid-cols-2 gap-3">
-                <Select name="expenseTypeId" label="Expense type" opts={expenseTypes.filter((t) => !t.isMajorCost).map((t) => [t.id, t.name])} />
-                <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
-                <Input name="amount" label="Amount" type="number" />
-                <Input name="notes" label="Note" />
-                {isGroup && <Select name="travellerId" label="Traveller (if individual)" opts={gTravellers} />}
-                {isGroup && <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion</label>}
-              </div>
-              <button className="btn-primary w-full">Add incidental estimate</button>
-            </AddEstimatePanel>
-          </Card>
-        )}
-      </div>}
+        // Incidental (only when expense scope = ALL) — ODA is NOT a tab: it is derived automatically.
+        ...(allowIncidental ? [{ key: 'other', label: 'Other / incidental', node: (
+          <form action={addOther.bind(null, id)} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Select name="expenseTypeId" label="Expense type" opts={expenseTypes.filter((t) => !t.isMajorCost).map((t) => [t.id, t.name])} />
+              <Select name="currency" label="Currency" defaultValue="SGD" opts={currencies.map((c) => [c, c])} />
+              <Input name="amount" label="Amount" type="number" />
+              <Input name="notes" label="Note" />
+              {isGroup && <Select name="travellerId" label="Traveller (if individual)" opts={gTravellers} />}
+              {isGroup && <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion</label>}
+            </div>
+            <button className="btn-primary w-full">Add incidental estimate</button>
+          </form>
+        ) }] : []),
+      ]} />}
 
       <div className="flex justify-between mt-5">
         <Link href={`/requests/${id}/trip`} className="btn-secondary">← Back</Link>
