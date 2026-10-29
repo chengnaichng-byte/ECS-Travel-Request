@@ -1585,17 +1585,15 @@ export async function runVisaLetterTimerIfDue(): Promise<VisaTimerStatus> {
   }
   const pending = await prisma.travelRequest.findMany({
     where: { status: REQUEST_STATUS.Approved, visaLetterRequired: true, visaLetterNotifiedAt: null },
-    include: { allocations: true },
+    include: { allocations: true, versions: { where: { reason: 'SUBMISSION' }, orderBy: { createdAt: 'asc' }, take: 1 } },
   });
   let sent = 0;
   for (const req of pending) {
-    req.visaLetterNotifiedAt = now; // this run is the notification — stamp it so the payload matches the Excel
     const payload = {
       documentType: 'VISA_LETTER_NOTIFICATION',
       to: `${rec.office} <${rec.email}>`,
       attachment: 'visa-letter-hr-digest.xlsx — the day’s full list is attached to the HR email',
       ...buildVisaLetterRecord(req),
-      recipient: rec,
       generatedAt: now.toISOString(),
     };
     await prisma.integrationMessage.create({ data: { requestId: req.id, direction: 'OUTBOUND', kind: 'VISA_LETTER', payload: JSON.stringify(payload, null, 2) } });

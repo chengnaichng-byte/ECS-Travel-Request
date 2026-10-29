@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const all = await prisma.travelRequest.findMany({
     where: { visaLetterRequired: true },
     orderBy: { updatedAt: 'desc' },
-    include: { allocations: true },
+    include: { allocations: true, versions: { where: { reason: 'SUBMISSION' }, orderBy: { createdAt: 'asc' }, take: 1 } },
   });
 
   const rows = all
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     .filter(({ req, rec }) => {
       const notifiedToday = !!req.visaLetterNotifiedAt && req.visaLetterNotifiedAt.toISOString().slice(0, 10) === todayStr;
       if (view === 'today' && !(notifiedToday || !req.visaLetterNotifiedAt)) return false;
-      if (q && !`${rec.travelRequestRef} ${rec.traveller} ${rec.destination}`.toLowerCase().includes(q)) return false;
+      if (q && !`${rec.preTripRequestBookingId} ${rec.employeeName} ${rec.destinationCity}`.toLowerCase().includes(q)) return false;
       return true;
     })
     .map((x) => x.rec);

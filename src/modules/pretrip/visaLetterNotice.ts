@@ -1,82 +1,78 @@
-// §4.13 Visa-letter notification record — the fields HR needs to draft the support letter for a staff
-// visa application: who is travelling (and their employing entity / department), where and when, the
-// purpose, the invitation / event context, and who bears the cost (the institution — employer-sponsored)
-// with the funding source. Built once here so the HR notification payload and the Excel export agree.
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+// §4.13 Visa-letter HR notification datapoints — the EXACT set and order of the NTU visa-letter
+// template (NTU Visa Letter_<date>.xlsx). Only these fields are carried, in this column order, so the
+// HR notification payload and the downloaded Excel match the agreed format. Built once here so both agree.
+import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
 import { travellerName } from './traveller';
 
-const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '—');
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const dd = (d: Date) => String(d.getUTCDate()).padStart(2, '0');
+const fmtDay = (d: Date | null) => (d ? `${dd(d)} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}` : '—');
+/** "03 - 08 November 2026" (same month); "03 November - 02 December 2026" (same year); else full. */
+function fmtRange(s: Date | null, e: Date | null): string {
+  if (!s || !e) return s ? fmtDay(s) : '—';
+  const sy = s.getUTCFullYear(), ey = e.getUTCFullYear(), sm = s.getUTCMonth(), em = e.getUTCMonth();
+  if (sy === ey && sm === em) return `${dd(s)} - ${dd(e)} ${MONTHS[sm]} ${sy}`;
+  if (sy === ey) return `${dd(s)} ${MONTHS[sm]} - ${dd(e)} ${MONTHS[em]} ${sy}`;
+  return `${fmtDay(s)} - ${fmtDay(e)}`;
+}
 
 export interface VisaLetterRecord {
-  travelRequestRef: string;
-  authorisationNumber: string | null;
-  traveller: string;
-  employingEntity: string;
-  department: string;
-  destination: string;
-  travelDates: string;
-  travelPurpose: string;
-  invitationReference: string;
-  eventDates: string;
-  costBorneBy: string;
-  fundingSource: string;
-  notifiedHr: string;
+  travelerSubmitDate: string;
+  preTripRequestBookingId: string;
+  employeeName: string;
+  emailAddress: string;
+  companyCode: string;
+  businessArea: string;
+  wbsCostCentre: string;
+  visaLetterRequired: string;
+  destinationCity: string;
+  tripDates: string;
 }
 
 export interface VisaLetterReq {
   requestNumber: string;
-  authorisationNo: string | null;
   travellerType?: string | null;
   travellerId: string;
   guestName?: string | null;
-  departmentId: string | null;
+  guestEmail?: string | null;
   destCity: string | null;
-  destCountry: string | null;
   startDate: Date | null;
   endDate: Date | null;
-  purposeId: string | null;
-  invitationRef: string | null;
-  eventStartDate: Date | null;
-  eventEndDate: Date | null;
-  visaLetterNotifiedAt: Date | null;
-  allocations: { chargingCode: string }[];
+  allocations: { chargingCode: string; isMain?: boolean; percent?: number }[];
+  versions?: { reason: string; createdAt: Date }[];
 }
 
-/** The visa-letter record for one request — the content of the HR notification / Excel row. */
+/** The visa-letter record for one request — exactly the NTU template's datapoints. */
 export function buildVisaLetterRecord(req: VisaLetterReq): VisaLetterRecord {
-  const city = EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—';
-  const country = EcsReference.country(req.destCountry ?? '')?.name ?? '';
-  const entity = EcsIdentity.entity().name;
+  const emp = EcsIdentity.employee(req.travellerId);
+  const main = req.allocations.find((a) => a.isMain) ?? [...req.allocations].sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))[0];
+  const code = main?.chargingCode ?? '';
+  const master = code ? EcsCharging.code(code) : undefined;
+  const submit = req.versions?.find((v) => v.reason === 'SUBMISSION')?.createdAt ?? null;
   return {
-    travelRequestRef: req.requestNumber,
-    authorisationNumber: req.authorisationNo,
-    traveller: travellerName(req),
-    employingEntity: entity,
-    department: EcsIdentity.department(req.departmentId ?? '')?.name ?? '—',
-    destination: `${city}${country ? `, ${country}` : ''}`,
-    travelDates: `${d(req.startDate)} → ${d(req.endDate)}`,
-    travelPurpose: EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—',
-    invitationReference: req.invitationRef?.trim() || '—',
-    eventDates: req.eventStartDate ? `${d(req.eventStartDate)} → ${d(req.eventEndDate)}` : '—',
-    costBorneBy: `${entity} (employer-sponsored)`,
-    fundingSource: req.allocations.map((a) => a.chargingCode).join(', ') || '—',
-    notifiedHr: d(req.visaLetterNotifiedAt),
+    travelerSubmitDate: fmtDay(submit),
+    preTripRequestBookingId: req.requestNumber,
+    employeeName: travellerName(req),
+    emailAddress: emp?.email ?? req.guestEmail ?? '—',
+    companyCode: EcsIdentity.entity().name,                                  // the company (NTU)
+    businessArea: master?.businessArea ?? '—',                              // SAP business area of the main charging account
+    wbsCostCentre: master ? `${master.code} ${master.name}` : (code || '—'), // main charging account (CC/WBS) + name
+    visaLetterRequired: 'Yes',
+    destinationCity: EcsReference.city(req.destCity ?? '')?.name ?? req.destCity ?? '—',
+    tripDates: fmtRange(req.startDate, req.endDate),
   };
 }
 
-/** Column order + human headers for the Excel export (the HR email attachment). */
+/** Column order + the exact NTU-template headers for the HR Excel attachment. */
 export const VISA_LETTER_COLUMNS: { key: keyof VisaLetterRecord; header: string }[] = [
-  { key: 'travelRequestRef', header: 'Travel Request' },
-  { key: 'authorisationNumber', header: 'Travel Authorisation' },
-  { key: 'traveller', header: 'Traveller' },
-  { key: 'employingEntity', header: 'Employing entity' },
-  { key: 'department', header: 'Department' },
-  { key: 'destination', header: 'Destination' },
-  { key: 'travelDates', header: 'Travel dates' },
-  { key: 'travelPurpose', header: 'Purpose of travel' },
-  { key: 'invitationReference', header: 'Invitation reference' },
-  { key: 'eventDates', header: 'Event dates' },
-  { key: 'costBorneBy', header: 'Cost borne by' },
-  { key: 'fundingSource', header: 'Funding source (CC/WBS)' },
-  { key: 'notifiedHr', header: 'Notified HR' },
+  { key: 'travelerSubmitDate', header: 'Traveler Submit Date' },
+  { key: 'preTripRequestBookingId', header: 'Pre-Trip Request Booking ID' },
+  { key: 'employeeName', header: 'Employee Name' },
+  { key: 'emailAddress', header: 'Email Address' },
+  { key: 'companyCode', header: 'Company Code' },
+  { key: 'businessArea', header: 'Business Area' },
+  { key: 'wbsCostCentre', header: 'WBS/Cost Centre' },
+  { key: 'visaLetterRequired', header: 'Visa Letter Required = "Yes"' },
+  { key: 'destinationCity', header: 'Destination City' },
+  { key: 'tripDates', header: 'Start and End Dates of Trip' },
 ];
