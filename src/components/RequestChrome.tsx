@@ -18,7 +18,7 @@ import { createClaimFromRequest } from '@/modules/te/actions';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
-const ROLE_LABEL: Record<string, string> = { RO: 'Reporting Officer', ADDITIONAL_APPROVER: 'Additional Approver', DOA: 'DOA Approver', RESEARCH_DOA: 'Research DOA', EXCEPTION: 'Exception Approver', PROVOST: 'Provost', FUNDING_OWNER: 'Funding Owner' };
+const ROLE_LABEL: Record<string, string> = { RO: 'Reporting Officer', ADDITIONAL_APPROVER: 'Additional Approver', DOA: 'DOA Approver', RESEARCH_DOA: 'Research DOA', EXCEPTION: 'Exception Approver', PROVOST: 'Provost' };
 
 export function RequestChrome({ req, id, persona, settings }: {
   req: FullRequest; id: string; persona: string; settings: { selfBookingEnabled: boolean };

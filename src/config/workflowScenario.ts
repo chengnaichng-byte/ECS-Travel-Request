@@ -57,11 +57,12 @@ export interface WorkflowScenario {
 }
 
 // Canonical precedence so the final route keeps the §6.2 order regardless of how steps were added:
-// Additional → RO → cross-charge Funding Owner → cross-BA concurrence → Exception → Provost → DOA.
-export function defaultOrder(roleType: string, ref?: string): number {
+// Additional → RO → Exception → Provost → DOA. Cross-charge and cross-business-area authority is the
+// DOA's — the DOA of the highest-share charging account — not a separate approver, so there is no
+// Funding Owner / Cross-BA step.
+export function defaultOrder(roleType: string, _ref?: string): number {
   if (roleType === APPROVER_ROLE.AdditionalApprover) return 10;
   if (roleType === APPROVER_ROLE.RO) return 20;
-  if (roleType === APPROVER_ROLE.FundingOwner) return ref === 'CROSS_BA' ? 40 : 30;
   if (roleType === APPROVER_ROLE.Exception) return 50;
   if (roleType === APPROVER_ROLE.Provost) return 60;
   return 70; // DOA / Research DOA
@@ -97,11 +98,12 @@ export const TR_STANDARD_SCENARIO: WorkflowScenario = {
     { seq: 1, label: 'Skip RO when the RO step is not configured', conditions: [{ fact: 'roRequirement', op: 'eq', value: 'NEVER' }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
     { seq: 2, label: 'Skip RO for a group request (RO is individual-only)', conditions: [{ fact: 'roRequirement', op: 'eq', value: 'INDIVIDUAL_ONLY' }, { fact: 'isGroup', op: 'is', value: true }], actions: [{ verb: 'SKIP', targetLevel: APPROVER_ROLE.RO }] },
     { seq: 3, label: 'Add the requestor-selected Additional Approver', conditions: [{ fact: 'additionalApproverPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.AdditionalApprover, resolver: 'FIXED', ref: 'ADDITIONAL', resolverLabel: 'Requestor-selected additional approver', order: 10 }] },
-    { seq: 4, label: 'Add the cross-charge funding owner', conditions: [{ fact: 'crossChargeFundingOwnerPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.FundingOwner, resolver: 'RELATIONSHIP', ref: 'FUNDING_OWNER', resolverLabel: 'Cross-charge account funding owner', order: 30 }] },
-    { seq: 5, label: 'Add cross-business-area concurrence', conditions: [{ fact: 'crossBaCount', op: 'gt', value: 1 }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.FundingOwner, resolver: 'RELATIONSHIP', ref: 'CROSS_BA', resolverLabel: 'Non-primary BA funding owner / DOA (over threshold)', order: 40 }] },
-    { seq: 6, label: 'Add the Exception Approver when a policy exception needs one', conditions: [{ fact: 'hasPolicyException', op: 'is', value: true }, { fact: 'exceptionApproverRequired', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Exception, resolver: 'ROLE', ref: 'EXCEPTION_APPROVER', resolverLabel: 'All users with Exception Approver role', order: 50 }] },
-    { seq: 7, label: 'Add the Provost for a guest travel-class upgrade', conditions: [{ fact: 'guestUpgradeProvostPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)', order: 60 }] },
-    { seq: 8, label: 'Replace the DOA with the traveller for research PI self-approval', conditions: PI_SELF_APPROVAL, actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.DOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)', note: 'Research PI self-approval' }] },
+    // Cross-charge and cross-business-area authority is the DOA's (the DOA of the highest-share charging
+    // account resolved by the base BAND_DOA level) — NOT a separate approver. There is no Funding Owner
+    // or Cross-BA concurrence step.
+    { seq: 4, label: 'Add the Exception Approver when a policy exception needs one', conditions: [{ fact: 'hasPolicyException', op: 'is', value: true }, { fact: 'exceptionApproverRequired', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Exception, resolver: 'ROLE', ref: 'EXCEPTION_APPROVER', resolverLabel: 'All users with Exception Approver role', order: 50 }] },
+    { seq: 5, label: 'Add the Provost for a guest travel-class upgrade', conditions: [{ fact: 'guestUpgradeProvostPresent', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)', order: 60 }] },
+    { seq: 6, label: 'Replace the DOA with the traveller for research PI self-approval', conditions: PI_SELF_APPROVAL, actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.DOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)', note: 'Research PI self-approval' }] },
   ],
 };
 

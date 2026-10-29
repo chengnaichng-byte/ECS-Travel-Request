@@ -201,7 +201,7 @@ async function submit(id: string): Promise<FullRequest> {
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
   await prisma.travelRequest.update({ where: { id }, data: { approvalAmountSgd: summary.approvalAmount } });
   req = await loadRequest(id);
-  const steps = buildRoute(req!, { exceptionApproverRequired: settings.exceptionApproverRequired, sameRouteResearch: settings.sameRouteResearch, approvalAmount: summary.approvalAmount, hasException: hasException(checks), crossBaThresholdSgd: settings.crossBaThresholdSgd, roRequirement: settings.roRequirement, researchPiSelfApproval: settings.researchPiSelfApproval, selfApprovalLimitSgd: settings.selfApprovalLimitSgd, workflowScenario: await getActiveWorkflowScenario() });
+  const steps = buildRoute(req!, { exceptionApproverRequired: settings.exceptionApproverRequired, sameRouteResearch: settings.sameRouteResearch, approvalAmount: summary.approvalAmount, hasException: hasException(checks), roRequirement: settings.roRequirement, researchPiSelfApproval: settings.researchPiSelfApproval, selfApprovalLimitSgd: settings.selfApprovalLimitSgd, workflowScenario: await getActiveWorkflowScenario() });
   await prisma.approvalStep.deleteMany({ where: { requestId: id } });
   for (const st of steps) await prisma.approvalStep.create({ data: { requestId: id, seq: st.seq, roleType: st.roleType, approverId: st.approverId, comments: st.note } });
   await prisma.travelRequestVersion.create({ data: { requestId: id, version: req!.currentVersion + 1, reason: 'SUBMISSION', approved: false, snapshot: JSON.stringify({ requestNumber: req!.requestNumber }) } });

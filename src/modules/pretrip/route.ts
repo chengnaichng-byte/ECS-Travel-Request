@@ -94,14 +94,11 @@ function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id
   return { id: line[idx], note };
 }
 
-export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; crossBaThresholdSgd: number; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean }; workflowScenario?: WorkflowScenario };
+export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean }; workflowScenario?: WorkflowScenario };
 
 /** §2.3 Gather the closed FACTS the workflow engine evaluates, from the request + settings. Presence
  *  facts already apply §13.5 self-approval exclusion so a step the originator would fill is not raised. */
 export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded: Set<string>): Ctx {
-  const baSet = new Set<string>();
-  for (const a of req.allocations) { const ba = EcsCharging.code(a.chargingCode)?.businessArea; if (ba) baSet.add(ba); }
-  const crossChargeFO = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.crossCharge && c.fundingOwnerId);
   return {
     approvalAmount: opts.approvalAmount,
     isGroup: req.isGroup,
@@ -109,8 +106,6 @@ export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded:
     travellerIsPI: EcsIdentity.employee(req.travellerId)?.isPi === true,
     isGuest: isGuestRequest(req),
     hasPolicyException: opts.hasException,
-    crossBaCount: baSet.size,
-    crossChargeFundingOwnerPresent: !!(crossChargeFO?.fundingOwnerId && !excluded.has(crossChargeFO.fundingOwnerId)),
     additionalApproverPresent: !!(req.additionalApproverId && !excluded.has(req.additionalApproverId)),
     guestUpgradeProvostPresent: !!(opts.guestUpgradeProvostId && !excluded.has(opts.guestUpgradeProvostId)),
     isEmergency: !!opts.emergency,
@@ -118,21 +113,20 @@ export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded:
     exceptionApproverRequired: opts.exceptionApproverRequired,
     researchPiSelfApproval: !!opts.researchPiSelfApproval,
     selfApprovalLimitSgd: opts.selfApprovalLimitSgd ?? 0,
-    crossBaThresholdSgd: opts.crossBaThresholdSgd,
   };
 }
 
 /** Resolve the engine's ordered step SPECS into concrete approval steps — reporting-line escalation,
- *  amount-band DOA tier, research line, cross-BA fan-out (0..N) and self-approval prevention all live
- *  here (the engine decides WHICH steps apply; this decides WHO fills each). */
+ *  amount-band DOA tier (the DOA of the highest-share charging account, which also carries cross-charge
+ *  and cross-BA authority), research line and self-approval prevention all live here (the engine decides
+ *  WHICH steps apply; this decides WHO fills each). */
 function resolveSpecs(specs: RouteStepSpec[], req: FullRequest, opts: RouteOpts, excluded: Set<string>): RouteStep[] {
   const steps: RouteStep[] = [];
-  const used = new Set<string>();   // approvers already on the route (cross-BA dedup, §13.5)
   const dept = EcsIdentity.department(highestChargingDept(req));
   const research = isResearchRequest(req) && !opts.sameRouteResearch;
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
   let seq = 1;
-  const push = (roleType: string, approverId: string | null, note: string) => { if (approverId) used.add(approverId); steps.push({ seq: seq++, roleType, approverId, note }); };
+  const push = (roleType: string, approverId: string | null, note: string) => { steps.push({ seq: seq++, roleType, approverId, note }); };
 
   for (const spec of specs) {
     // ECS "Approver" — a specific named approver pinned on the level overrides the resolver.
@@ -143,21 +137,6 @@ function resolveSpecs(specs: RouteStepSpec[], req: FullRequest, opts: RouteOpts,
     } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'RO') {
       const ro = resolveRoStep(req.travellerId, excluded);
       if (ro.id) push(APPROVER_ROLE.RO, ro.id, ro.escalated ? 'Reporting Officer (escalated — self-approval prevention)' : 'Reporting Officer');
-    } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'FUNDING_OWNER') {
-      const cc = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.crossCharge && c.fundingOwnerId);
-      if (cc?.fundingOwnerId && !excluded.has(cc.fundingOwnerId)) push(APPROVER_ROLE.FundingOwner, cc.fundingOwnerId, 'Cross-charge funding owner concurrence');
-    } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'CROSS_BA') {
-      const baShare: Record<string, number> = {};
-      for (const a of req.allocations) { const ba = EcsCharging.code(a.chargingCode)?.businessArea; if (ba) baShare[ba] = (baShare[ba] ?? 0) + a.percent; }
-      for (const [ba, pct] of Object.entries(baShare).sort((x, y) => y[1] - x[1]).slice(1)) {
-        const baAmount = opts.approvalAmount * (pct / 100);
-        if (baAmount <= opts.crossBaThresholdSgd) continue;
-        const code = req.allocations.map((a) => EcsCharging.code(a.chargingCode)).find((c) => c?.businessArea === ba);
-        const baDept = code?.departmentId ? EcsIdentity.department(code.departmentId) : undefined;
-        const candidates = [code?.fundingOwnerId, ...(baDept?.doaLine ?? [])].filter(Boolean) as string[];
-        const approver = candidates.find((a) => !excluded.has(a) && !used.has(a)) ?? null;
-        if (approver) push(APPROVER_ROLE.FundingOwner, approver, `Cross-BA concurrence — ${ba} share SGD ${baAmount.toFixed(0)} over SGD ${opts.crossBaThresholdSgd} threshold`);
-      }
     } else if (spec.resolver === 'ROLE' && spec.ref === 'EXCEPTION_APPROVER') {
       const exc = EcsRoles.employeesWithRole(ROLE.ExceptionApprover).find((e) => !excluded.has(e.id));
       if (exc) push(APPROVER_ROLE.Exception, exc.id, 'Policy exception review');

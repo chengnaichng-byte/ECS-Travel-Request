@@ -7,7 +7,7 @@ import { evaluateScenario, type WorkflowScenario } from '@/config/workflowScenar
 import { type FactDef, type Ctx, type ScalarValue } from '@/modules/pretrip/workflowRules';
 
 const ROLE_LABEL: Record<string, string> = {
-  ADDITIONAL_APPROVER: 'Additional Approver', RO: 'Reporting Officer', FUNDING_OWNER: 'Funding Owner',
+  ADDITIONAL_APPROVER: 'Additional Approver', RO: 'Reporting Officer',
   EXCEPTION: 'Exception Approver', PROVOST: 'Provost', DOA: 'DOA', RESEARCH_DOA: 'Research DOA',
 };
 

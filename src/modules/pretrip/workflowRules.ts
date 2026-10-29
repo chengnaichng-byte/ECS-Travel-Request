@@ -15,7 +15,7 @@ export type BoolExpr = Condition | { all: BoolExpr[] } | { any: BoolExpr[] } | {
 // How a step spec is resolved to a concrete approver in route.ts.
 export type ResolverType = 'BAND_DOA' | 'RELATIONSHIP' | 'ROLE' | 'SELF' | 'FIXED';
 // RELATIONSHIP refs (resolved relative to the traveller / charging), ROLE refs, FIXED refs.
-export type RelationshipRef = 'RO' | 'FUNDING_OWNER' | 'CROSS_BA' | 'PROVOST';
+export type RelationshipRef = 'RO' | 'PROVOST';
 
 export type RouteStepSpec = {
   resolver: ResolverType;
@@ -36,8 +36,6 @@ export const FACTS: FactDef[] = [
   { key: 'travellerIsPI', label: 'Traveller is Principal Investigator', type: 'bool', source: 'Workday' },
   { key: 'isGuest', label: 'Guest (non-employee) request', type: 'bool', source: 'Request' },
   { key: 'hasPolicyException', label: 'Has a policy exception', type: 'bool', source: 'Policy' },
-  { key: 'crossBaCount', label: 'Business areas charged', type: 'number', source: 'Charging' },
-  { key: 'crossChargeFundingOwnerPresent', label: 'Cross-charge funding owner present', type: 'bool', source: 'Charging' },
   { key: 'additionalApproverPresent', label: 'Additional approver selected', type: 'bool', source: 'Request' },
   { key: 'guestUpgradeProvostPresent', label: 'Guest-upgrade Provost selected', type: 'bool', source: 'Request' },
   { key: 'isEmergency', label: 'Emergency (book-first) lane', type: 'bool', source: 'Request' },
@@ -46,7 +44,6 @@ export const FACTS: FactDef[] = [
   { key: 'exceptionApproverRequired', label: 'Exception approver required (setting)', type: 'bool', source: 'Settings' },
   { key: 'researchPiSelfApproval', label: 'Research PI self-approval enabled (setting)', type: 'bool', source: 'Settings' },
   { key: 'selfApprovalLimitSgd', label: 'Self-approval limit (setting, SGD)', type: 'number', source: 'Settings' },
-  { key: 'crossBaThresholdSgd', label: 'Cross-BA concurrence threshold (setting, SGD)', type: 'number', source: 'Settings' },
 ];
 export const OPS_BY_TYPE: Record<string, Cmp[]> = { number: ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'ne'], enum: ['eq', 'ne', 'in'], text: ['eq', 'ne', 'in'], bool: ['is'] };
 export const OP_LABEL: Record<Cmp, string> = { eq: '=', ne: '≠', gt: '>', gte: '≥', lt: '<', lte: '≤', in: 'in', between: 'between', is: 'is' };

@@ -17,10 +17,10 @@ export const dynamic = 'force-dynamic';
 
 const SIM_DEFAULTS: Ctx = {
   approvalAmount: 3000, isGroup: false, researchRoute: false, travellerIsPI: false, isGuest: false,
-  hasPolicyException: false, crossBaCount: 1, crossChargeFundingOwnerPresent: false,
+  hasPolicyException: false,
   additionalApproverPresent: false, guestUpgradeProvostPresent: false, isEmergency: false,
   roRequirement: 'INDIVIDUAL_ONLY', exceptionApproverRequired: true, researchPiSelfApproval: true,
-  selfApprovalLimitSgd: 5000, crossBaThresholdSgd: 500,
+  selfApprovalLimitSgd: 5000,
 };
 
 export default async function EditWorkflowPage({ params }: { params: Promise<{ code: string }> }) {

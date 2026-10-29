@@ -68,7 +68,6 @@ export async function applyMaterialAmendment(id: string, reason: string) {
     sameRouteResearch: settings.sameRouteResearch,
     approvalAmount: summary.approvalAmount,
     hasException: hasException(checks),
-    crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,

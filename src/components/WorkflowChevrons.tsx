@@ -8,7 +8,7 @@ import type { FullRequest } from '@/modules/pretrip/queries';
 
 const ROLE_LABEL: Record<string, string> = {
   [APPROVER_ROLE.RO]: 'RO', [APPROVER_ROLE.AdditionalApprover]: 'Additional Approver', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA',
-  [APPROVER_ROLE.Exception]: 'Exception', [APPROVER_ROLE.Provost]: 'Provost', [APPROVER_ROLE.FundingOwner]: 'Funding Owner',
+  [APPROVER_ROLE.Exception]: 'Exception', [APPROVER_ROLE.Provost]: 'Provost',
 };
 
 type State = 'done' | 'current' | 'todo' | 'stop';

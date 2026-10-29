@@ -26,7 +26,7 @@ import { OutcomePill } from '@/components/StatusPill';
 import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
 
 const ROUTE_ROLE_LABEL: Record<string, string> = {
-  [APPROVER_ROLE.AdditionalApprover]: 'Additional Approver', [APPROVER_ROLE.FundingOwner]: 'Funding Owner / Cross-BA',
+  [APPROVER_ROLE.AdditionalApprover]: 'Additional Approver',
   [APPROVER_ROLE.Exception]: 'Exception Approver', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA', [APPROVER_ROLE.RO]: 'RO',
 };
 
@@ -66,7 +66,6 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
     sameRouteResearch: settings.sameRouteResearch,
     approvalAmount: summary.approvalAmount,
     hasException: exceptions.length > 0,
-    crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,

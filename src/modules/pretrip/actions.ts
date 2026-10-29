@@ -1082,7 +1082,6 @@ export async function submitRequest(id: string, fd?: FormData) {
     sameRouteResearch: settings.sameRouteResearch,
     approvalAmount: summary.approvalAmount,
     hasException: routeHasException,
-    crossBaThresholdSgd: settings.crossBaThresholdSgd,
     roRequirement: settings.roRequirement,
     guestUpgradeProvostId,
     researchPiSelfApproval: settings.researchPiSelfApproval,

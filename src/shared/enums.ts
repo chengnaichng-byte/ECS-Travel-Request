@@ -86,7 +86,6 @@ export const APPROVER_ROLE = {
   ResearchDOA: 'RESEARCH_DOA',
   Exception: 'EXCEPTION',
   Provost: 'PROVOST',              // §8 / DD-25 guest travel-class upgrade authority
-  FundingOwner: 'FUNDING_OWNER',
   Verifier: 'VERIFIER',            // §51 TE claim verifier (claim-stage only)
 } as const;
 

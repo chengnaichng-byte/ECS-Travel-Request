@@ -30,7 +30,7 @@ model ModuleSettings {
   roRequirement          String  @default("INDIVIDUAL_ONLY") // §51 RO decision point: ALWAYS | INDIVIDUAL_ONLY (drop for group) | NEVER
   teAutoGrantTolerancePct Int    @default(10)     // §51 TE claim DOA auto-grant tolerance (% over approved)
   teAutoGrantToleranceAbsSgd Int @default(500)    // §51 TE claim DOA auto-grant tolerance (SGD over approved)
-  crossBaThresholdSgd    Int     @default(500)    // §18 cross-business-area concurrence threshold (AC5)
+  crossBaThresholdSgd    Int     @default(500)    // DEPRECATED — retained column, no longer used. Cross-charge & cross-BA authority is the DOA's (highest-share charging account), not a separate approver, so there is no cross-BA concurrence step.
   selfBookingEnabled     Boolean @default(true)   // §13.17
   // §43 Settings breadth
   selfApprovalLimitSgd   Int     @default(0)      // approval amount at/below which a traveller-approver self-approves (0 = never)

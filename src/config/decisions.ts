@@ -18,7 +18,6 @@ export const moduleSettingsDefaults = {
   roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
   teAutoGrantTolerancePct: 10,      // §51 TE claim DOA auto-grant tolerance (% over approved)
   teAutoGrantToleranceAbsSgd: 500,  // §51 TE claim DOA auto-grant tolerance (SGD over approved)
-  crossBaThresholdSgd: 500,         // §18 cross-business-area concurrence threshold (AC5)
   selfBookingEnabled: true,         // §13.17
   selfApprovalLimitSgd: 5000,       // §43 self-approval limit (0 = never); the research PI self-approval band
   researchPiSelfApproval: true,     // #1 research WBS raised for a PI traveller ≤ limit → self-approved (PI is the DOA)
@@ -52,8 +51,6 @@ export const decisionCatalogue = [
     effect: 'When on, the NTU-funded differential of a travel-class upgrade is charged to a separate M6 (upgrade-differential) account for the governing business area — selected on the Charging step — while the entitlement stays on the original WBS/CC. When off, the whole NTU-funded fare charges the normal allocation (#14).' },
   { key: 'upgradeDeltaSelectionRequired', label: 'Require M6 account selection when the BA has several', kind: 'boolean',
     effect: 'When on, if the governing business area offers more than one M6 account the traveller must pick which the upgrade differential charges (a hard stop until set); a BA with a single account auto-selects. When off, the BA default account is applied automatically (#14).' },
-  { key: 'crossBaThresholdSgd', label: 'Cross-BA concurrence threshold (SGD)', kind: 'number',
-    effect: 'When charging spans more than one business area, each non-primary BA whose share exceeds this amount must concur (its DOA is added to the route); the primary-BA DOA still owns the request (§18, AC5).' },
   { key: 'expenseScope', label: 'Expense scope', kind: 'enum', options: ['MAJOR_ONLY', 'ALL'],
     effect: 'Controls which expense types are available (major only vs all travel expenses).' },
   { key: 'hotelEstimateBasis', label: 'Hotel estimate basis', kind: 'enum', options: ['QUOTED', 'CAP', 'LOWER'],
