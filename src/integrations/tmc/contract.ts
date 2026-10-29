@@ -97,12 +97,17 @@ export interface GroupFanoutInbound {
  *  This replaces the single fare/taxes/fees aggregate as the authoritative posting basis: the agency
  *  fee is its OWN line (I9 9% claimable), never rolled into the zero-rated (IZ) airfare. */
 export interface InboundCharge {
-  type: 'AIRFARE' | 'ACCOMMODATION' | 'FEE' | 'CAR' | 'VISA';
+  type: 'AIRFARE' | 'ACCOMMODATION' | 'FEE' | 'CAR' | 'VISA' | 'ANCILLARY';   // ANCILLARY = seat / baggage / etc.
   expenseTypeId: string;               // ECS expense-type master id → debit GL + default SAP tax code
-  amountSgd: number;                   // gross, GST-inclusive
+  amountSgd: number;                   // gross, GST-inclusive (SGD — the posting basis)
   gstCode: string;                     // SAP tax code (IZ zero-rated / IO out-of-scope / I9 / P9)
   gstAmountSgd: number;                // external tax amount (0 for IZ / IO)
   gstClaimable?: boolean;              // fee lines only: drives I9 (true) vs P9 (false)
+  // Original booking currency (audit only — ECS posts the SGD amount above). The TMC often books in
+  // a foreign currency and converts; carrying the source figures lets finance reconcile the statement.
+  currency?: string;                   // ISO currency the supplier billed in
+  foreignAmount?: number;              // gross in the original currency
+  fxRate?: number;                     // SGD per unit applied by the TMC / card feed
 }
 
 export interface CanonicalInbound {
@@ -116,10 +121,29 @@ export interface CanonicalInbound {
   fareSgd: number;
   taxesSgd: number;
   feesSgd: number;
+  bookedAt?: string | null;            // ISO — when the booking was confirmed / space held
+  ticketedAt?: string | null;          // ISO — when the ticket was issued (drives when a charge may post)
   ctaAccountId?: string | null;        // DD-30 the CTA account the central charges were lodged to (feed-reported)
+  ctaCardRef?: string | null;          // DD-30 masked CTA card reference (e.g. last-4) for statement reconciliation
+  statementPeriod?: string | null;     // DD-30 the card billing / statement period the charge falls in (e.g. 2026-11)
   ctaCharged?: boolean;                 // DD-30 the central charges have settled on the CTA (ticketed/charged), not just confirmed
   ctaChargeDate?: string | null;        // DD-30 date the charge posted to the CTA (ISO)
   charges?: InboundCharge[];            // DD-31 per-charge CTA breakdown with GST — the SAP posting datapoints
+  // Lifecycle events the feed reports AFTER the initial confirmation. A cancellation drives the CTA
+  // reversal (the refund credits, the penalty stays a charge); a reissue carries the change fee and
+  // the new booking reference so ECS can reconcile the amendment against the approved request.
+  cancellation?: {
+    cancelledAt: string;
+    reason?: string | null;
+    cancellationFeeSgd?: number;        // non-refundable penalty retained by the supplier / TMC
+    refundSgd?: number;                 // amount refunded to the CTA
+  };
+  reissue?: {
+    reissuedAt: string;
+    changeFeeSgd?: number;
+    newPnr?: string | null;
+    newTicketNumbers?: string[];
+  };
   segments: {
     type: 'AIR' | 'HOTEL';
     origin?: string;
@@ -130,5 +154,8 @@ export interface CanonicalInbound {
     city?: string;
     roomRateSgd?: number;
     amountSgd?: number;
+    supplierName?: string;          // airline / hotel name (for reconciliation)
+    supplierCode?: string;          // IATA airline code / hotel chain code
+    confirmationNo?: string;        // hotel confirmation number (distinct from the air PNR)
   }[];
 }

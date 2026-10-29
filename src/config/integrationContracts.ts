@@ -13,7 +13,7 @@ import { REQUEST_STATUS, BOOKING_STATUS, BOOKING_METHOD } from '@/shared/enums';
 
 // Version stamped into each message's provenance header (§13.9). Bump when the
 // contract shape changes so downstream logs can correlate payloads to a contract.
-export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.1';
+export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.2';
 
 export type TeTreatment = 'LOCKED' | 'EDITABLE' | 'REFERENCE' | 'EXCLUDED';
 
@@ -101,6 +101,18 @@ export const CONTRACT_FIELDS: ContractField[] = [
 
   { key: 'teBookedAmounts', group: 'Claim actuals', label: 'Booked amounts (from TMC feed)', source: 'booking.fare / taxes / fees', te: 'actual', defaultTe: 'REFERENCE', note: 'Inbound TMC actuals shown for estimate-to-actual (§13.17). Set Excluded for self-booked trips.' },
 
+  // ============ BOOKING CONFIRMATION — TMC FEED (§30 / §39 lifecycle · DD-17) ============
+  // The datapoints the TMC booking feed syncs back on confirmation. Reference-only: they update the
+  // booking + estimate-to-actual view, not claim lines. Keyed by the Travel Authorisation (one TR → N PNRs).
+  { key: 'feedBookingStatus', group: 'Booking confirmation (feed)', label: 'Booking status (lifecycle)', source: 'inbound.bookingStatus', te: 'actual', defaultTe: 'REFERENCE', note: '§30/§39 the booking lifecycle status — Booked / Ticketed / Partially booked / Traveller action required / Cancelled / Failed. Also gates the inbound-accept guard.' },
+  { key: 'feedPnr', group: 'Booking confirmation (feed)', label: 'PNR / record locator', source: 'inbound.pnr', te: 'actual', defaultTe: 'REFERENCE', note: 'The supplier booking reference; carried into the claim (see Booking reference).' },
+  { key: 'feedTickets', group: 'Booking confirmation (feed)', label: 'E-ticket numbers', source: 'inbound.ticketNumbers[]', te: 'actual', defaultTe: 'REFERENCE', note: 'One e-ticket per air coupon.' },
+  { key: 'feedBookedClass', group: 'Booking confirmation (feed)', label: 'Booked cabin class', source: 'inbound.segments[].bookedClass', te: 'actual', defaultTe: 'REFERENCE', note: '§6.4 the actual class booked — compared to the approved class to raise a booking deviation.' },
+  { key: 'feedBookedDates', group: 'Booking confirmation (feed)', label: 'Booked travel dates', source: 'inbound.segments[].departDate / arriveDate', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-17 the booked depart / arrival dates (persisted on the segment).' },
+  { key: 'feedChannel', group: 'Booking confirmation (feed)', label: 'Fulfilment channel', source: 'inbound.channel', te: 'actual', defaultTe: 'REFERENCE', note: 'TMC online / agent-assisted / offline — the channel that fulfilled the booking.' },
+  { key: 'feedTimestamps', group: 'Booking confirmation (feed)', label: 'Booked / ticketed timestamps', source: 'inbound.bookedAt / ticketedAt', te: 'actual', defaultTe: 'REFERENCE', note: 'When the booking was confirmed and the ticket issued — a charge may post to SAP only once ticketed.' },
+  { key: 'feedSupplier', group: 'Booking confirmation (feed)', label: 'Supplier (airline / hotel)', source: 'inbound.segments[].supplierName / supplierCode', te: 'actual', defaultTe: 'REFERENCE', note: 'Airline / hotel name + code (and hotel confirmation no.) for reconciliation.' },
+
   // ==================== CTA CHARGES — TMC FEED (DD-30 / DD-31) ====================
   // The inbound datapoints the TMC feed carries for centrally-settled (CTA) charges, which ECS
   // posts to SAP on receipt (Dr expense ⇄ Cr CTA clearing). Reference-only: not claim lines.
@@ -109,6 +121,14 @@ export const CONTRACT_FIELDS: ContractField[] = [
   { key: 'ctaFeedInvoice', group: 'CTA charges (feed)', label: 'Provider invoice number', source: 'inbound.invoiceNumber', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-31 SAP posting Reference for the journal (the PNR is used when absent).' },
   { key: 'ctaFeedCharges', group: 'CTA charges (feed)', label: 'Per-charge breakdown (type · expense type · amount)', source: 'inbound.charges[]', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-31 one Dr line per expense type (airfare / fee / hotel / car / visa) — each maps to the ECS expense-type master for its GL; the agency fee is its own line, never folded into the zero-rated airfare.' },
   { key: 'ctaFeedGst', group: 'CTA charges (feed)', label: 'Per-charge tax code + GST amount', source: 'inbound.charges[].gstCode / gstAmountSgd', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-31 SAP tax code (IZ / IO / I9 / P9) + external tax amount per charge. Resolved via the shared GST logic (src/data/gstCodes.ts); the I9 ↔ P9 fork follows the charging-account GST-claimable flag.' },
+  { key: 'ctaFeedCard', group: 'CTA charges (feed)', label: 'CTA card reference + statement period', source: 'inbound.ctaCardRef / statementPeriod', te: 'actual', defaultTe: 'REFERENCE', note: 'DD-30 masked card reference and billing period — reconciles the SAP posting to the CTA card statement.' },
+  { key: 'ctaFeedCurrency', group: 'CTA charges (feed)', label: 'Original booking currency + FX', source: 'inbound.charges[].currency / foreignAmount / fxRate', te: 'actual', defaultTe: 'REFERENCE', note: 'Audit only — ECS posts the SGD amount; the source currency / foreign amount / FX rate let finance reconcile a foreign-currency booking.' },
+
+  // ==================== CANCELLATION, REFUND & CHANGE — TMC FEED ====================
+  // Lifecycle events after confirmation. A cancellation drives the CTA reversal (the refund credits
+  // back, the non-refundable penalty stays a charge); a reissue carries the change fee + new reference.
+  { key: 'feedCancellation', group: 'Cancellation & change (feed)', label: 'Cancellation / refund', source: 'inbound.cancellation', te: 'actual', defaultTe: 'REFERENCE', note: 'Cancelled date + reason, the non-refundable penalty (stays a charge) and the refund credited to the CTA — drives the auto-reversal of the CTA posting.' },
+  { key: 'feedReissue', group: 'Cancellation & change (feed)', label: 'Change / reissue', source: 'inbound.reissue', te: 'actual', defaultTe: 'REFERENCE', note: 'Reissue date, change fee and the new PNR / e-ticket when a booking is amended — reconciled against the approved request (§6.4 deviation).' },
 ];
 
 // ============================ PARAMETER FILTERS (message guards) ============================

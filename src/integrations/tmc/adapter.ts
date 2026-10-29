@@ -127,16 +127,20 @@ export function simulateInbound(out: CanonicalOutbound, opts?: { overFarePct?: n
     ticketNumbers: air.map((_, i) => `TKT-${pnrSeed}-${i + 1}`),
     bookingStatus: BOOKING_STATUS.Booked,
     channel: out.bookingMethod,
+    bookedAt: opts?.chargeDate ?? null,                 // §30/§39 when the booking confirmed
+    ticketedAt: (opts?.charged ?? true) ? (opts?.chargeDate ?? null) : null, // issued only once charged
     fareSgd,
     taxesSgd,
     feesSgd,
     ctaAccountId: opts?.ctaAccountId ?? 'CTA-SG-SGD',   // DD-30 feed-reported CTA account (the card the charges hit)
+    ctaCardRef: 'xxxx-4821',                            // DD-30 masked CTA card reference for statement reconciliation
+    statementPeriod: opts?.chargeDate ? opts.chargeDate.slice(0, 7) : null, // DD-30 billing period (YYYY-MM)
     ctaCharged: opts?.charged ?? true,                  // DD-30 default: a confirmed TMC booking is ticketed/charged
     ctaChargeDate: opts?.charged === false ? null : (opts?.chargeDate ?? null),
     charges,                                            // DD-31 authoritative per-charge CTA breakdown with GST
     segments: [
-      ...air.map((s) => ({ type: 'AIR' as const, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, departDate: s.departDate, arriveDate: s.arriveDate ?? s.departDate })),
-      ...hotel.map((s) => ({ type: 'HOTEL' as const, city: s.city, roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0) })),
+      ...air.map((s) => ({ type: 'AIR' as const, origin: s.origin, destination: s.destination, bookedClass: s.approvedClass, departDate: s.departDate, arriveDate: s.arriveDate ?? s.departDate, supplierName: 'Singapore Airlines', supplierCode: 'SQ' })),
+      ...hotel.map((s) => ({ type: 'HOTEL' as const, city: s.city, roomRateSgd: s.cappedNightlySgd, amountSgd: (s.cappedNightlySgd ?? 0) * (s.nights ?? 0), supplierName: 'Partner Hotel', confirmationNo: `HTL-${pnrSeed}` })),
     ],
   };
 }
