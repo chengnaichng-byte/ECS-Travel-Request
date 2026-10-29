@@ -23,6 +23,7 @@ export interface PolicyRuleCfg { seq: number; code: string; description: string;
 export interface PolicyConfig {
   code: string;
   name: string;
+  documentType: string;     // §6.3 overarching scope — the DOCUMENT this policy applies to (TRAVEL_REQUEST | EXPENSE_CLAIM)
   category: string;
   companyCode: string;
   effectiveFrom: string;
@@ -37,7 +38,7 @@ export const POLICY_COMPANY_CODES = ['NTU', 'INTU'] as const;
 
 export const DEFAULT_POLICY_CONFIGS: PolicyConfig[] = [
   {
-    code: 'TR_ADVISORIES', name: 'NTU_Travel Advisories', category: 'Others', companyCode: 'NTU',
+    code: 'TR_ADVISORIES', name: 'NTU_Travel Advisories', documentType: 'TRAVEL_REQUEST', category: 'Others', companyCode: 'NTU',
     effectiveFrom: '2024-04-01', effectiveTo: '2031-03-31', enabled: true,
     rules: [
       { seq: 1, code: 'LEAD', description: 'Short lead time',

@@ -391,6 +391,7 @@ model WorkflowScenario {
   id            String   @id @default(cuid())
   code          String   @unique
   name          String
+  documentType  String   @default("TRAVEL_REQUEST")  // §6.2 overarching scope: TRAVEL_REQUEST | EXPENSE_CLAIM
   effectiveFrom DateTime
   effectiveTo   DateTime
   enabled       Boolean  @default(true)
@@ -410,6 +411,7 @@ model PolicyConfig {
   id            String   @id @default(cuid())
   code          String   @unique
   name          String
+  documentType  String   @default("TRAVEL_REQUEST")  // §6.3 overarching scope: TRAVEL_REQUEST | EXPENSE_CLAIM
   category      String
   companyCode   String   @default("NTU")
   effectiveFrom DateTime

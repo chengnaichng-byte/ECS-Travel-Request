@@ -3,6 +3,7 @@
 // (ECS "Edit Policy Rule" + Enable toggle + Copy to new version). The rules are stored as a JSON
 // payload (PolicyRuleCfg[]); the evaluator (policyConfigEval.ts) runs them with the shared engine.
 import { prisma } from '@/shared/db';
+import { DOCUMENT_TYPE } from '@/shared/enums';
 import { DEFAULT_POLICY_CONFIGS, type PolicyConfig, type PolicyRuleCfg } from '@/config/policyConfigs';
 
 export async function ensurePolicyConfigSeed(): Promise<void> {
@@ -11,24 +12,24 @@ export async function ensurePolicyConfigSeed(): Promise<void> {
     await prisma.policyConfig.upsert({
       where: { code: p.code },
       update: {},
-      create: { code: p.code, name: p.name, category: p.category, companyCode: p.companyCode, effectiveFrom: new Date(p.effectiveFrom), effectiveTo: new Date(p.effectiveTo), enabled: p.enabled, rulesJson: JSON.stringify(p.rules) },
+      create: { code: p.code, name: p.name, documentType: p.documentType, category: p.category, companyCode: p.companyCode, effectiveFrom: new Date(p.effectiveFrom), effectiveTo: new Date(p.effectiveTo), enabled: p.enabled, rulesJson: JSON.stringify(p.rules) },
     });
   }
 }
 
-type Row = { id: string; code: string; name: string; category: string; companyCode: string; effectiveFrom: Date; effectiveTo: Date; enabled: boolean; rulesJson: string; version: number };
+type Row = { id: string; code: string; name: string; documentType: string; category: string; companyCode: string; effectiveFrom: Date; effectiveTo: Date; enabled: boolean; rulesJson: string; version: number };
 
 function toConfig(r: Row): PolicyConfig {
   let rules: PolicyRuleCfg[] = [];
   try { rules = JSON.parse(r.rulesJson); } catch { rules = []; }
-  return { code: r.code, name: r.name, category: r.category, companyCode: r.companyCode, effectiveFrom: r.effectiveFrom.toISOString().slice(0, 10), effectiveTo: r.effectiveTo.toISOString().slice(0, 10), enabled: r.enabled, rules };
+  return { code: r.code, name: r.name, documentType: r.documentType, category: r.category, companyCode: r.companyCode, effectiveFrom: r.effectiveFrom.toISOString().slice(0, 10), effectiveTo: r.effectiveTo.toISOString().slice(0, 10), enabled: r.enabled, rules };
 }
 
-export interface PolicyListRow { id: string; code: string; name: string; category: string; companyCode: string; effectiveFrom: Date; effectiveTo: Date; enabled: boolean; version: number }
+export interface PolicyListRow { id: string; code: string; name: string; documentType: string; category: string; companyCode: string; effectiveFrom: Date; effectiveTo: Date; enabled: boolean; version: number }
 
 export async function listPolicyConfigs(): Promise<PolicyListRow[]> {
   await ensurePolicyConfigSeed();
-  return prisma.policyConfig.findMany({ orderBy: [{ category: 'asc' }, { name: 'asc' }] });
+  return prisma.policyConfig.findMany({ orderBy: [{ documentType: 'asc' }, { category: 'asc' }, { name: 'asc' }] });
 }
 
 export async function getPolicyConfig(code: string): Promise<PolicyConfig | null> {
@@ -37,11 +38,12 @@ export async function getPolicyConfig(code: string): Promise<PolicyConfig | null
   return r ? toConfig(r) : null;
 }
 
-/** Active (enabled + effective-dated + company-matched) policies for the evaluator. */
-export async function listActivePolicyConfigs(companyCode: string): Promise<PolicyConfig[]> {
+/** Active (enabled + effective-dated + document- & company-matched) policies for the evaluator.
+ *  The DOCUMENT is the overarching scope — the Pre-Trip evaluator passes TRAVEL_REQUEST. */
+export async function listActivePolicyConfigs(companyCode: string, documentType: string = DOCUMENT_TYPE.TravelRequest): Promise<PolicyConfig[]> {
   await ensurePolicyConfigSeed();
   const today = new Date();
-  const rows = await prisma.policyConfig.findMany({ where: { enabled: true, companyCode, effectiveFrom: { lte: today }, effectiveTo: { gte: today } } });
+  const rows = await prisma.policyConfig.findMany({ where: { enabled: true, documentType, companyCode, effectiveFrom: { lte: today }, effectiveTo: { gte: today } } });
   return rows.map(toConfig);
 }
 
@@ -49,8 +51,8 @@ export async function listActivePolicyConfigs(companyCode: string): Promise<Poli
 export async function savePolicyConfig(p: PolicyConfig): Promise<void> {
   await prisma.policyConfig.upsert({
     where: { code: p.code },
-    update: { name: p.name, category: p.category, companyCode: p.companyCode, effectiveFrom: new Date(p.effectiveFrom), effectiveTo: new Date(p.effectiveTo), enabled: p.enabled, rulesJson: JSON.stringify(p.rules) },
-    create: { code: p.code, name: p.name, category: p.category, companyCode: p.companyCode, effectiveFrom: new Date(p.effectiveFrom), effectiveTo: new Date(p.effectiveTo), enabled: p.enabled, rulesJson: JSON.stringify(p.rules) },
+    update: { name: p.name, documentType: p.documentType, category: p.category, companyCode: p.companyCode, effectiveFrom: new Date(p.effectiveFrom), effectiveTo: new Date(p.effectiveTo), enabled: p.enabled, rulesJson: JSON.stringify(p.rules) },
+    create: { code: p.code, name: p.name, documentType: p.documentType, category: p.category, companyCode: p.companyCode, effectiveFrom: new Date(p.effectiveFrom), effectiveTo: new Date(p.effectiveTo), enabled: p.enabled, rulesJson: JSON.stringify(p.rules) },
   });
 }
 

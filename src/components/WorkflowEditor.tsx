@@ -7,6 +7,7 @@ import { useState, useTransition } from 'react';
 import type { WorkflowScenario, ApprovalTier, ApprovingLevel, DecisionPoint, DecisionAction, DecisionVerb } from '@/config/workflowScenario';
 import type { Cmp, Condition, FactDef, ResolverType } from '@/modules/pretrip/workflowRules';
 import { OPS_BY_TYPE, OP_LABEL } from '@/modules/pretrip/workflowRules';
+import { DOCUMENT_TYPES } from '@/shared/enums';
 
 // APPROVER_ROLE values (kept as string literals; the client can't import the server enum freely).
 const ROLES: { value: string; label: string }[] = [
@@ -111,6 +112,7 @@ export function WorkflowEditor({ initial, facts, canEdit, action }: {
         <h3 className="font-semibold text-[var(--ecs-navy)] mb-3">Workflow details</h3>
         <div className="grid md:grid-cols-4 gap-4 items-end">
           <div className="md:col-span-2"><label className="label">Workflow Name</label><input className="field" disabled={dis} value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} /></div>
+          <div><label className="label">Document</label><select className="field" disabled={dis} value={s.documentType} onChange={(e) => setS({ ...s, documentType: e.target.value })}>{DOCUMENT_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}</select></div>
           <div><label className="label">Effective Start Date</label><input type="date" className="field" disabled={dis} value={s.effectiveFrom} onChange={(e) => setS({ ...s, effectiveFrom: e.target.value })} /></div>
           <div><label className="label">Effective End Date</label><input type="date" className="field" disabled={dis} value={s.effectiveTo} onChange={(e) => setS({ ...s, effectiveTo: e.target.value })} /></div>
           <label className="flex items-center gap-2 text-sm font-semibold text-[var(--ecs-navy)]"><input type="checkbox" className="w-4 h-4" disabled={dis} checked={s.enabled} onChange={(e) => setS({ ...s, enabled: e.target.checked })} /> Enable This Rule</label>

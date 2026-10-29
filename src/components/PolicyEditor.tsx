@@ -6,6 +6,7 @@
 import { useState, useTransition } from 'react';
 import type { PolicyConfig, PolicyRuleCfg, PolicyAction, PolicyActionType } from '@/config/policyConfigs';
 import { POLICY_ACTION_LABEL, POLICY_CATEGORIES, POLICY_COMPANY_CODES } from '@/config/policyConfigs';
+import { DOCUMENT_TYPES } from '@/shared/enums';
 import type { PolicyField } from '@/config/policyFields';
 import { OPS_FOR_TYPE } from '@/config/policyFields';
 import type { Cmp, Condition } from '@/modules/pretrip/workflowRules';
@@ -56,6 +57,8 @@ export function PolicyEditor({ initial, fields, canEdit, action }: {
         <h3 className="font-semibold text-[var(--ecs-navy)] mb-3">Policy details</h3>
         <div className="grid md:grid-cols-3 gap-4">
           <div><label className="label">Policy Name</label><input className="field" disabled={dis} value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} /></div>
+          <div><label className="label">Document</label>
+            <select className="field" disabled={dis} value={p.documentType} onChange={(e) => setP({ ...p, documentType: e.target.value })}>{DOCUMENT_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}</select></div>
           <div><label className="label">Policy Category</label>
             <select className="field" disabled={dis} value={p.category} onChange={(e) => setP({ ...p, category: e.target.value })}>{POLICY_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
           <div><label className="label">Company Code</label>

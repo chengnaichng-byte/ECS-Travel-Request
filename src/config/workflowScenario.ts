@@ -49,6 +49,7 @@ export interface DecisionPoint {
 export interface WorkflowScenario {
   code: string;
   name: string;
+  documentType: string;     // §6.2 overarching scope — the DOCUMENT this scenario approves (TRAVEL_REQUEST | EXPENSE_CLAIM)
   effectiveFrom: string;
   effectiveTo: string;
   enabled: boolean;
@@ -86,6 +87,7 @@ const PI_SELF_APPROVAL: Condition[] = [
 export const TR_STANDARD_SCENARIO: WorkflowScenario = {
   code: 'TR_STANDARD',
   name: 'Travel Request Approval Workflow',
+  documentType: 'TRAVEL_REQUEST',
   effectiveFrom: '2024-04-01',
   effectiveTo: '2031-03-31',
   enabled: true,

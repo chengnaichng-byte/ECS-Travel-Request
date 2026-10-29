@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { listScenarios } from '@/modules/pretrip/workflowConfig';
 import { toggleWorkflowScenarioAction } from './actions';
 import { currentPersona } from '@/shared/session';
-import { ROLE } from '@/shared/enums';
+import { ROLE, DOCUMENT_TYPE_LABEL } from '@/shared/enums';
 import { PageTitle, Card } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -27,11 +27,12 @@ export default async function WorkflowConfigListPage() {
 
       <Card title="Workflow configurations">
         <table className="w-full text-sm">
-          <thead><tr><th className="th">Scenario name</th><th className="th">Effective from</th><th className="th">Effective to</th><th className="th text-center">Status</th>{isAdmin && <th className="th text-right">Action</th>}</tr></thead>
+          <thead><tr><th className="th">Scenario name</th><th className="th">Document</th><th className="th">Effective from</th><th className="th">Effective to</th><th className="th text-center">Status</th>{isAdmin && <th className="th text-right">Action</th>}</tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="hover:bg-[var(--ecs-panel-2)]">
                 <td className="td font-medium"><Link className="underline" href={`/setup/workflow/${r.code}`}>{r.name}</Link></td>
+                <td className="td">{DOCUMENT_TYPE_LABEL[r.documentType] ?? r.documentType}</td>
                 <td className="td">{fmtDate(r.effectiveFrom)}</td>
                 <td className="td">{fmtDate(r.effectiveTo)}</td>
                 <td className="td text-center">{r.enabled ? <span className="pill-pass">Enabled</span> : <span className="pill-stop">Disabled</span>}</td>

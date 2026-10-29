@@ -165,6 +165,22 @@ export const EXPENSE_CATEGORY = {
   Other: 'OTHER',
 } as const;
 
+/** §6.2 / §6.3 Document the approval-workflow / policy configuration applies to. The configuration
+ *  framework is shared across documents; the DOCUMENT is the overarching scope on every workflow
+ *  scenario and policy — ECS configs are Expense-Claim; the Pre-Trip module adds Travel-Request ones. */
+export const DOCUMENT_TYPE = {
+  TravelRequest: 'TRAVEL_REQUEST',
+  ExpenseClaim: 'EXPENSE_CLAIM',
+} as const;
+export const DOCUMENT_TYPE_LABEL: Record<string, string> = {
+  TRAVEL_REQUEST: 'Travel Request',
+  EXPENSE_CLAIM: 'Expense Claim',
+};
+export const DOCUMENT_TYPES: { value: string; label: string }[] = [
+  { value: DOCUMENT_TYPE.TravelRequest, label: 'Travel Request' },
+  { value: DOCUMENT_TYPE.ExpenseClaim, label: 'Expense Claim' },
+];
+
 /** ECS roles (§13.7 personas). */
 export const ROLE = {
   Traveller: 'TRAVELLER',
