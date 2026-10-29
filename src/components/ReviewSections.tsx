@@ -639,7 +639,13 @@ function budgetBasisPhrase(a: { quotedNightly: number; capNightly: number }, bas
 }
 
 /* --------------------------------------- Estimated Cost Items (+ merged summary) */
-export function CostItems({ req, summary, basis, letter }: { req: FullRequest; summary: CostSummary; basis: string; letter?: string }) {
+export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor }: {
+  req: FullRequest; summary: CostSummary; basis: string; letter?: string;
+  // Estimates step only: per-line Edit/Remove or rate-edit controls shown in a row's expanded
+  // breakdown, and a LIVE policy outcome (the Review step omits both and uses the persisted checks).
+  lineActions?: (e: FullRequest['expenses'][number]) => React.ReactNode;
+  outcomeFor?: (category: string, lines: FullRequest['expenses']) => { exc: boolean; label: string };
+}) {
   const legs = sharedLegs(req);
   const exView = exceptionViews(req);
   const clsName = (id?: string | null) => EcsReference.travelClass(id ?? '')?.name ?? '—';
@@ -693,6 +699,7 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
           ] },
         ],
         computation: `Quoted fare ${fmtSgd(e.sgdAmount)}${e.sponsorSgd ? ` less sponsorship ${fmtSgd(e.sponsorSgd)}` : ''}.`,
+        actions: lineActions?.(e),
       });
     } else if (r.category === EXPENSE_CATEGORY.Accommodation) {
       const a0 = r.lines[0].accommodation;
@@ -702,7 +709,7 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
         const a = e.accommodation; if (!a) continue;
         const city = EcsReference.city(a.city)?.name ?? a.city;
         if (e.isShared) {
-          for (const t of req.travellers) {
+          req.travellers.forEach((t, ti) => {
             const nights = travellerNightsAtCity(req, t.employeeId, a.city);
             breakdown.push({
               heading: `${empName(t.employeeId)} · ${city}`,
@@ -712,8 +719,9 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
                 { title: 'Rate', fields: [['Rate / night', fmtSgd(a.budgetedNightly)], ['Cap / night', fmtSgd(a.capNightly)]] },
               ],
               computation: `${nights} nights × ${fmtSgd(a.budgetedNightly)} = ${fmtSgd(nights * a.budgetedNightly)}.`,
+              actions: ti === 0 ? lineActions?.(e) : undefined,
             });
-          }
+          });
         } else {
           const chargeable = Math.max(a.nights - a.personalNights, 0);
           const stayFields: BreakField[] = [
@@ -732,6 +740,7 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
             total: e.sgdAmount,
             groups: [{ title: 'Stay', fields: stayFields }, { title: 'Rate', fields: rateFields }],
             computation: `${chargeable} nights × ${fmtSgd(a.budgetedNightly)} (${budgetBasisPhrase(a, e.estimateBasis)}) = ${fmtSgd(e.sgdAmount)}.${a.capVariance ? ` Quoted ${fmtSgd(a.quotedNightly)}/night exceeds cap ${fmtSgd(a.capNightly)}/night → variance ${fmtSgd(a.capVariance)} (exception).` : ''}`,
+            actions: lineActions?.(e),
           });
         }
       }
@@ -771,6 +780,7 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
             { title: 'Rate', fields: rateFields },
           ],
           computation,
+          actions: lineActions?.(e),
         });
       }
     } else {
@@ -779,15 +789,19 @@ export function CostItems({ req, summary, basis, letter }: { req: FullRequest; s
         total: e.sgdAmount,
         groups: [{ title: 'Detail', fields: e.notes ? [['Amount', fmtSgd(e.sgdAmount)], ['Note', e.notes]] : [['Amount', fmtSgd(e.sgdAmount)]] }],
         computation: e.notes ?? 'Quoted estimate.',
+        actions: lineActions?.(e),
       });
     }
 
     const catExc = exView.filter((v) => (v.code === 'CLASS' && r.category === EXPENSE_CATEGORY.Airfare) || (v.code === 'HOTEL_CAP' && r.category === EXPENSE_CATEGORY.Accommodation));
+    // Estimates step passes a live outcome (evaluated from the current lines); the Review step uses
+    // the persisted policy checks (exView).
+    const live = outcomeFor?.(r.category, r.lines);
     return {
       typeName: EcsReference.expenseType(r.typeId)?.name ?? r.typeId,
       detail, basis: basisLabel, gross: r.gross, sponsor: r.sponsor, ntu: r.gross - r.sponsor,
-      outcomeExc: catExc.length > 0,
-      outcomeLabel: catExc.length === 0 ? 'Within Policy' : req.isGroup ? `${catExc.length} Traveller${catExc.length > 1 ? 's' : ''} with Exception` : 'Exception',
+      outcomeExc: live ? live.exc : catExc.length > 0,
+      outcomeLabel: live ? live.label : catExc.length === 0 ? 'Within Policy' : req.isGroup ? `${catExc.length} Traveller${catExc.length > 1 ? 's' : ''} with Exception` : 'Exception',
       breakdown,
     };
   });

@@ -7,7 +7,7 @@ import { fmtSgd } from '@/modules/pretrip/pricing';
 
 export type BreakField = [string, string] | [string, string, string]; // [label, value, caption?]
 export interface BreakGroup { title: string; fields: BreakField[] }
-export interface BreakLine { heading: string; total?: number; computation: string; groups: BreakGroup[] }
+export interface BreakLine { heading: string; total?: number; computation: string; groups: BreakGroup[]; actions?: React.ReactNode }
 export interface CostRow {
   typeName: string; detail: string; basis: string;
   gross: number; sponsor: number; ntu: number;
@@ -49,9 +49,12 @@ export function CostItemsTable({ rows, group, summaryRows = [] }: { rows: CostRo
                       {r.breakdown.map((b, j) => (
                         <div key={j} className="bg-white border border-[var(--ecs-border)] rounded-lg p-3.5">
                           {/* header — who/where on the left, the line total on the right */}
-                          <div className="flex items-baseline justify-between gap-3 border-b border-[var(--ecs-border)] pb-2 mb-2.5">
+                          <div className="flex items-center justify-between gap-3 border-b border-[var(--ecs-border)] pb-2 mb-2.5">
                             <span className="text-sm font-semibold text-[var(--ecs-navy)]">{b.heading}</span>
-                            {b.total != null && <span className="text-sm font-semibold text-[var(--ecs-navy)] whitespace-nowrap">{fmtSgd(b.total)}</span>}
+                            <div className="flex items-center gap-3">
+                              {b.actions}
+                              {b.total != null && <span className="text-sm font-semibold text-[var(--ecs-navy)] whitespace-nowrap">{fmtSgd(b.total)}</span>}
+                            </div>
                           </div>
                           {/* two labelled groups — e.g. Stay | Rate */}
                           <div className="grid sm:grid-cols-2 gap-x-10 gap-y-3">

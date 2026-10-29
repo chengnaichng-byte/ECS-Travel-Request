@@ -19,6 +19,7 @@ import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { EstimateAddTabs } from '@/components/EstimateAddTabs';
 import { AirfareForm } from '@/components/AirfareForm';
+import { CostItems } from '@/components/ReviewSections';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
@@ -28,7 +29,6 @@ import { expenseTypes } from '@/data/expenseTypes';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import { Card, Stepper, Empty } from '@/components/ui';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
-import { OutcomePill } from '@/components/StatusPill';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,12 +83,32 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     const employeeId = (isGroup ? e.travellerId : null) ?? req.travellerId;
     return EcsTravelClassRegister.rank(e.proposedClassId) > EcsTravelClassRegister.rank(entitledClassFor(employeeId));
   };
-  const lineOutcome = (e: (typeof req.expenses)[number]) =>
-    (e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception || airfareOverClass(e)) ? POLICY_OUTCOME.Exception : POLICY_OUTCOME.Pass;
   // §13.19 the individual traveller's derived entitlement — the baseline the airfare form gates the
   // upgrade justification against (the stored entitledClassId is often null, so derive it live).
   const indivEntitledId = isGroup ? 'TC-ECO' : entitledClassFor(req.travellerId);
   const indivEntitledName = travelClasses.find((c) => c.id === indivEntitledId)?.name ?? 'Economy';
+
+  // Controls shown inside each cost row's expanded breakdown on the Estimates step: the auto hotel
+  // nightly-rate edit, or Edit / Remove for a manual line (auto ODA has none).
+  const lineActions = (e: (typeof req.expenses)[number]) => {
+    if (!canEdit) return null;
+    if (e.autoDerived) return e.accommodation ? <RateCell id={id} e={e} canEdit={canEdit} /> : null;
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link>
+        <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>
+      </span>
+    );
+  };
+  // Live policy outcome per expense type — airfare above the derived entitlement, or accommodation
+  // above the city cap — so the estimate shows the deviation without waiting for a policy run.
+  const outcomeFor = (category: string, lines: (typeof req.expenses)) => {
+    let excLines = 0;
+    if (category === EXPENSE_CATEGORY.Airfare) excLines = lines.filter(airfareOverClass).length;
+    else if (category === EXPENSE_CATEGORY.Accommodation) excLines = lines.filter((l) => l.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception).length;
+    const exc = excLines > 0;
+    return { exc, label: !exc ? 'Within Policy' : isGroup ? `${excLines} traveller${excLines > 1 ? 's' : ''} with Exception` : 'Exception' };
+  };
   // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
@@ -105,51 +125,11 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const guestUpgrading = guestRequest && !!req.travelClassId && req.travelClassId !== economyId;
   // §4.5 hotel cap per city — the accommodation rate defaults to this (editable).
   const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
+  // Label a traveller (or the requestor) for the group airfare/accommodation edit forms.
   const memberLabel = (key: string | null) => {
     const t = req.travellers.find((x) => x.employeeId === key);
     return t ? memberName(t) + memberTag(t, ' · ') : (EcsIdentity.employee(key ?? '')?.name ?? '—');
   };
-  const attribution = (e: { isShared: boolean; travellerId: string | null }) =>
-    e.isShared ? 'Shared (apportioned)' : memberLabel(e.travellerId);
-  // §13.14 a genuinely shared line (e.g. a shared taxi) is shown apportioned across the group —
-  // one row per traveller at their share (shareMap, else an equal split). Accommodation is no
-  // longer shared (each traveller books their own room), so this applies only to shared incidentals.
-  // §8 shared incidentals split across employee members only — guests carry no share.
-  const guestIds = new Set(req.travellers.filter(isNonEmployeeMember).map((t) => t.employeeId));
-  const sharers = req.travellers.filter((t) => !guestIds.has(t.employeeId));
-  const apportion = (e: { sgdAmount: number; shareMap: string | null }) => {
-    let sm: Record<string, number> = {};
-    try { sm = e.shareMap ? JSON.parse(e.shareMap) : {}; } catch { sm = {}; }
-    const entries = Object.entries(sm).filter(([eid]) => !guestIds.has(eid));
-    const list = entries.length
-      ? entries.map(([eid, pct]) => ({ eid, amount: e.sgdAmount * Number(pct) / 100 }))
-      : sharers.map((t) => ({ eid: t.employeeId, amount: e.sgdAmount / (sharers.length || 1) }));
-    return list.map((x) => ({ name: memberLabel(x.eid), amount: x.amount }));
-  };
-  // §13.14 group estimates grouped by cost item (expense type) with a per-traveller breakdown
-  // and a rolled-up subtotal, so allocation can be reasoned about per expense.
-  const grouped = (() => {
-    const order: string[] = [];
-    const by = new Map<string, { key: string; name: string; gross: number; lines: typeof req.expenses }>();
-    for (const e of req.expenses) {
-      const k = e.expenseTypeId;
-      if (!by.has(k)) { by.set(k, { key: k, name: EcsReference.expenseType(k)?.name ?? e.category, gross: 0, lines: [] }); order.push(k); }
-      const g = by.get(k)!; g.gross += e.sgdAmount; g.lines.push(e);
-    }
-    return order.map((k) => by.get(k)!);
-  })();
-
-  // Table-cell helpers — City/Country, From, To, Nights for a line (hotel / ODA / airfare / other).
-  const fmtD2 = (x: Date | null | undefined) => (x ? x.toISOString().slice(0, 10) : '—');
-  const cityCountryText = (e: (typeof req.expenses)[number]) => {
-    if (e.accommodation) { const c = EcsReference.city(e.accommodation.city); return c ? [c.name, EcsReference.country(c.countryCode)?.name].filter(Boolean).join(', ') : e.accommodation.city; }
-    if (e.oda) { const c = e.oda.city ? EcsReference.city(e.oda.city) : null; return [c?.name, EcsReference.country(e.oda.country)?.name ?? e.oda.country].filter(Boolean).join(', '); }
-    if (e.category === EXPENSE_CATEGORY.Airfare) return `${e.originCode ?? ''} → ${e.destCode ?? ''}`;
-    return '—';
-  };
-  const fromOf = (e: (typeof req.expenses)[number]) => e.accommodation?.checkIn ?? e.oda?.arrive ?? e.expectedDate ?? null;
-  const toOf = (e: (typeof req.expenses)[number]) => e.accommodation?.checkOut ?? e.oda?.depart ?? null;
-  const nightsOf = (e: (typeof req.expenses)[number]) => (e.accommodation ? e.accommodation.nights : e.oda ? e.oda.eligibleDays : null);
 
   // Edit-in-place: ?edit=<lineId> opens that line's category tab pre-filled with its current values,
   // and the form updates the line (no duplicate). Only a manual (non-auto) airfare / accommodation /
@@ -185,96 +165,14 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         </Card>
       )}
 
-      {/* Existing lines */}
-      <Card title={`Estimated Travel Costs (${req.expenses.length})`} className="mb-5">
-        {req.expenses.length === 0 ? <Empty>No estimate lines yet — ODA and a hotel line per stop are added automatically once the trip has a destination and dates (set them on the Trip step). Add airfare from your quote below.</Empty> : isGroup ? (
-          // §13.14 group: one collapsible row per cost item (expense type); expand to the
-          // per-traveller breakdown. A shared/apportioned line shows one row per traveller (each
-          // one's apportioned share), so the row count matches the travellers.
-          <div className="space-y-2">
-            {grouped.map((g) => {
-              const rowCount = g.lines.reduce((n, e) => n + (e.isShared ? apportion(e).length : 1), 0);
-              return (
-                <details key={g.key} className="group rounded border border-[var(--ecs-border)]">
-                  <summary className="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer select-none bg-[var(--ecs-panel)] text-sm font-semibold text-[var(--ecs-navy)] list-none [&::-webkit-details-marker]:hidden">
-                    <span className="flex items-center gap-1.5"><span className="chev-x inline-block shrink-0 text-[var(--ecs-muted)] text-xs leading-none" aria-hidden="true">▾</span>{g.name} <span className="font-normal text-[var(--ecs-muted)]">· {rowCount} traveller line{rowCount > 1 ? 's' : ''}</span></span>
-                    <span className="whitespace-nowrap">{fmtSgd(g.gross)}</span>
-                  </summary>
-                  <table className="w-full text-sm">
-                    <thead><tr>
-                      <th className="th pl-6">Traveller</th><th className="th">City / Country</th><th className="th">From</th><th className="th">To</th>
-                      <th className="th text-right">Nights</th><th className="th text-right">Rate</th><th className="th text-right">Total (SGD)</th>
-                      <th className="th">Policy</th><th className="th"></th>
-                    </tr></thead>
-                    <tbody>
-                      {g.lines.flatMap((e) =>
-                        e.isShared
-                          ? apportion(e).map((a, i) => (
-                              <tr key={`${e.id}-${i}`} className="hover:bg-[var(--ecs-panel-2)]">
-                                <td className="td text-xs text-[var(--ecs-navy-2)] pl-6 whitespace-nowrap">▸ {a.name}</td>
-                                <td className="td text-xs">{i === 0 ? <>{cityCountryText(e)} <span className="pill-info ml-1">shared</span></> : <span className="text-[var(--ecs-muted)]">apportioned share</span>}</td>
-                                <td className="td text-xs whitespace-nowrap">{i === 0 ? fmtD2(fromOf(e)) : ''}</td>
-                                <td className="td text-xs whitespace-nowrap">{i === 0 ? fmtD2(toOf(e)) : ''}</td>
-                                <td className="td text-right text-xs">{i === 0 ? (nightsOf(e) ?? '—') : ''}</td>
-                                <td className="td text-right">{i === 0 ? <RateCell id={id} e={e} canEdit={canEdit} /> : ''}</td>
-                                <td className="td text-right whitespace-nowrap">{fmtSgd(a.amount)}</td>
-                                <td className="td">{i === 0 && <OutcomePill outcome={lineOutcome(e)} />}</td>
-                                <td className="td text-right">{i === 0 && !e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
-                              </tr>
-                            ))
-                          : [
-                              <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
-                                <td className="td text-xs text-[var(--ecs-navy-2)] pl-6 whitespace-nowrap">▸ {attribution(e)}<AutoBadge e={e} /></td>
-                                <td className="td text-xs">{cityCountryText(e)}</td>
-                                <td className="td text-xs whitespace-nowrap">{fmtD2(fromOf(e))}</td>
-                                <td className="td text-xs whitespace-nowrap">{fmtD2(toOf(e))}</td>
-                                <td className="td text-right text-xs">{nightsOf(e) ?? '—'}</td>
-                                <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
-                                <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
-                                <td className="td">{<OutcomePill outcome={lineOutcome(e)} />}</td>
-                                <td className="td text-right">{!e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
-                              </tr>,
-                            ],
-                      )}
-                    </tbody>
-                  </table>
-                </details>
-              );
-            })}
-            <div className="flex items-center justify-between px-3 py-2 font-semibold border-t border-[var(--ecs-border)] text-[var(--ecs-navy)]">
-              <span>Gross estimate</span><span>{fmtSgd(summary.gross)}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr>
-                <th className="th">Type</th><th className="th">City / Country</th><th className="th">From</th><th className="th">To</th>
-                <th className="th text-right">Nights</th><th className="th text-right">Rate</th><th className="th text-right">Total (SGD)</th>
-                <th className="th">Policy</th><th className="th"></th>
-              </tr></thead>
-              <tbody>
-                {req.expenses.map((e) => (
-                  <tr key={e.id} className="hover:bg-[var(--ecs-panel-2)]">
-                    <td className="td font-medium whitespace-nowrap">{EcsReference.expenseType(e.expenseTypeId)?.name}<AutoBadge e={e} /></td>
-                    <td className="td text-xs">{cityCountryText(e)}</td>
-                    <td className="td text-xs whitespace-nowrap">{fmtD2(fromOf(e))}</td>
-                    <td className="td text-xs whitespace-nowrap">{fmtD2(toOf(e))}</td>
-                    <td className="td text-right text-xs">{nightsOf(e) ?? '—'}</td>
-                    <td className="td text-right"><RateCell id={id} e={e} canEdit={canEdit} /></td>
-                    <td className="td text-right whitespace-nowrap">{fmtSgd(e.sgdAmount)}{e.sponsorSgd > 0 && <div className="text-xs text-[var(--ecs-muted)]">− {fmtSgd(e.sponsorSgd)} sponsor</div>}</td>
-                    <td className="td">{<OutcomePill outcome={lineOutcome(e)} />}</td>
-                    <td className="td text-right">{!e.autoDerived && canEdit && <div className="flex items-center justify-end gap-1"><Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link><form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form></div>}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="font-semibold"><td className="td" colSpan={6}>Gross estimate</td><td className="td text-right">{fmtSgd(summary.gross)}</td><td className="td" colSpan={2}></td></tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </Card>
+      {/* Existing lines — the same expandable cost-items table as the Review step (Basis,
+          Sponsorship/Personal, NTU-funded and a live Policy Outcome). Each row expands to the
+          per-traveller computation; Edit / Remove and the auto hotel rate edit sit in that breakdown. */}
+      {req.expenses.length === 0 ? (
+        <Card title="Estimated Travel Costs" className="mb-5"><Empty>No estimate lines yet — ODA and a hotel line per stop are added automatically once the trip has a destination and dates (set them on the Trip step). Add airfare from your quote below.</Empty></Card>
+      ) : (
+        <div className="mb-5"><CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} lineActions={lineActions} outcomeFor={outcomeFor} /></div>
+      )}
 
       {canEdit && <div id="add-cost"><EstimateAddTabs
         defaultActive={editKind}
@@ -423,9 +321,6 @@ function RateCell({ id, e, canEdit }: { id: string; e: { id: string; autoDerived
   }
   if (e.oda) return <span className="text-xs whitespace-nowrap">{fmtSgd(e.oda.dailyRate)}<span className="text-[var(--ecs-muted)]">/day</span></span>;
   return <span className="text-xs text-[var(--ecs-muted)]">—</span>;
-}
-function AutoBadge({ e }: { e: { autoDerived: boolean } }) {
-  return e.autoDerived ? <span className="pill-info ml-1" title="Policy-derived from the itinerary — re-derived if you change the travel dates">Auto</span> : null;
 }
 function Input({ name, label, type = 'text', defaultValue }: { name: string; label: string; type?: string; defaultValue?: string }) {
   return <div><label className="label">{label}</label><input name={name} type={type} step="any" defaultValue={defaultValue} className="field" /></div>;
