@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest, type FullRequest } from '@/modules/pretrip/queries';
-import { saveCharging, setUpgradeDeltaAccount } from '@/modules/pretrip/actions';
+import { saveCharging, setUpgradeDeltaAccount, deleteExpense } from '@/modules/pretrip/actions';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
@@ -142,6 +142,18 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
 
   // Live policy outcome (airfare above entitlement; accommodation above cap) — same as the Estimates step.
   const outcomeFor = makeOutcomeFor(req);
+  // Edit / Remove per manual cost line, shown in each row's expanded breakdown. Edit opens the line
+  // on the Estimates step (where the add/edit forms live); Remove deletes it here. Auto lines (the
+  // per-stop hotel and ODA) are policy-derived from the trip and carry no Edit/Remove.
+  const lineActions = (e: FullRequest['expenses'][number]) => {
+    if (!canEdit || e.autoDerived) return null;
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Link href={`/requests/${id}/estimates?edit=${e.id}#add-cost`} className="btn-ghost text-xs">Edit</Link>
+        <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>
+      </span>
+    );
+  };
 
   return (
     <div>
@@ -196,7 +208,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
       {req.expenses.length === 0 ? (
         <Card title="Estimated Cost Lines" className="mb-5"><Empty>No estimate lines yet — add airfare, accommodation and ODA on the Estimates step.</Empty></Card>
       ) : (
-        <div className="mb-5"><CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} outcomeFor={outcomeFor} /></div>
+        <div className="mb-5"><CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} outcomeFor={outcomeFor} lineActions={lineActions} /></div>
       )}
 
       <ChargingAccountEditor

@@ -878,6 +878,7 @@ export async function deleteExpense(id: string, expenseId: string) {
   await prisma.estimatedExpense.delete({ where: { id: expenseId } });
   await audit(id, 'AMEND', 'Estimate line removed');
   revalidatePath(`/requests/${id}/estimates`);
+  revalidatePath(`/requests/${id}/charging`); // the Charging step lists the same lines (Remove acts there too)
 }
 
 /* ---- Edit an existing estimate line IN PLACE (no delete + re-add). Only manual (non-auto) lines are
