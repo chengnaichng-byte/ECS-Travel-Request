@@ -17,9 +17,9 @@ export function PageTitle({ id, title, subtitle, actions }: { id?: string; title
   );
 }
 
-export function Card({ title, children, actions, className = '' }: { title?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string }) {
+export function Card({ title, children, actions, className = '', id }: { title?: string; children: React.ReactNode; actions?: React.ReactNode; className?: string; id?: string }) {
   return (
-    <section className={`card ${className}`}>
+    <section id={id} className={`card ${className}`}>
       {title && (
         <div className="card-head flex items-center justify-between">
           <span>{title}</span>

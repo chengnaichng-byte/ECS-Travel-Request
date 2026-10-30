@@ -20,6 +20,7 @@ import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import { listUpgradeAccounts, accountsForBA, effectiveDeltaCode } from '@/modules/pretrip/upgradeConfig';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { CostItems } from '@/components/ReviewSections';
+import { EstimateLineEditor } from '@/components/EstimateLineEditor';
 import { makeOutcomeFor } from '@/modules/pretrip/liveOutcome';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { UpgradeDeltaPicker, type UpgradePickLine } from '@/components/UpgradeDeltaPicker';
@@ -28,13 +29,16 @@ import { DuplicateWarning } from '@/components/DuplicateWarning';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ChargingStep({ params }: { params: Promise<{ id: string }> }) {
+export default async function ChargingStep({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ edit?: string }> }) {
   const { id } = await params;
+  const { edit } = await searchParams;
   const req = await loadRequest(id);
   if (!req) notFound();
   const settings = await getSettings();
   const canEdit = canEditRequest(await currentPersonaId(), req);
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
+  // ?edit=<lineId> opens that manual line's edit form inline (returns to this Charging step on save).
+  const editExp = canEdit && edit ? req.expenses.find((e) => e.id === edit && !e.autoDerived) ?? null : null;
 
   // #14 travel-class upgrade split — the entitlement is derived (Model B); the NTU-funded differential
   // routes to a traveller-selected M6 account from the governing BA's pool.
@@ -149,7 +153,7 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
     if (!canEdit || e.autoDerived) return null;
     return (
       <span className="inline-flex items-center gap-1">
-        <Link href={`/requests/${id}/estimates?edit=${e.id}#add-cost`} className="btn-ghost text-xs">Edit</Link>
+        <Link href={`/requests/${id}/charging?edit=${e.id}#edit-line`} className="btn-ghost text-xs">Edit</Link>
         <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>
       </span>
     );
@@ -201,6 +205,8 @@ export default async function ChargingStep({ params }: { params: Promise<{ id: s
           )}
         </Card>
       )}
+
+      {editExp && <EstimateLineEditor req={req} editExp={editExp} id={id} returnTo={`/requests/${id}/charging`} />}
 
       {/* Estimated cost lines — the same expandable cost-items table as the Estimates & Review steps
           (Basis · Sponsorship/Personal · NTU-funded · Policy Outcome; each row expands to the

@@ -10,13 +10,13 @@ interface ProvostOpt { approverId: string; name: string; title: string; dept: st
 interface Defaults { origin: string; dest: string; proposedClassId: string; expectedDate: string; currency: string; amount: string; sponsorship: string; classJustification: string; upgradeFunding: string }
 
 export function AirfareForm({
-  action, submitLabel, editing, cancel,
+  action, submitLabel, editing, cancel, returnTo,
   originOpts, destOpts, classOpts, classRanks, currencyOpts,
   defaults, entitledClassId, entitledClassName,
   guest, provostOpts, provostDefault, guestUpgrading,
 }: {
   action: (fd: FormData) => Promise<void>;
-  submitLabel: string; editing: boolean; cancel?: React.ReactNode;
+  submitLabel: string; editing: boolean; cancel?: React.ReactNode; returnTo?: string;
   originOpts: [string, string][]; destOpts: [string, string][]; classOpts: [string, string][];
   classRanks: Record<string, number>; currencyOpts: string[];
   defaults: Defaults; entitledClassId: string; entitledClassName: string;
@@ -33,6 +33,7 @@ export function AirfareForm({
     <>
       <p className="text-xs text-[var(--ecs-muted)] mb-2">{editing ? 'Editing this airfare line — change the values and save.' : <>Airfare is a <b>quoted fare</b> (not policy-derived) — add it from your quote.</>}</p>
       <form action={action} className="space-y-3">
+        {returnTo && <input type="hidden" name="returnTo" value={returnTo} />}
         <div className="grid grid-cols-2 gap-3">
           <div><label className="label">Origin</label><select name="originCode" defaultValue={defaults.origin} className="field">{originOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
           <div><label className="label">Destination</label><select name="destCode" defaultValue={defaults.dest} className="field">{destOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>

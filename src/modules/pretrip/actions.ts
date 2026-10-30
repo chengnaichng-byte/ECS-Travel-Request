@@ -889,7 +889,9 @@ export async function updateAirfare(id: string, expenseId: string, fd: FormData)
   if (!(await requireEdit(id))) return;
   const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId } });
   if (!exp || exp.requestId !== id || exp.category !== EXPENSE_CATEGORY.Airfare || exp.autoDerived) return;
-  const back = (msg: string) => redirect(`/requests/${id}/estimates?edit=${expenseId}&error=${encodeURIComponent(msg)}`);
+  // The line can be edited from the Estimates OR the Charging step; return to whichever opened it.
+  const returnTo = str(fd, 'returnTo') || `/requests/${id}/estimates`;
+  const back = (msg: string) => redirect(`${returnTo}?edit=${expenseId}&error=${encodeURIComponent(msg)}`);
   const currency = str(fd, 'currency') || 'SGD';
   const foreign = num(fd, 'amount');
   if (foreign <= 0) back('Airfare amount must be greater than 0.');
@@ -944,19 +946,21 @@ export async function updateAirfare(id: string, expenseId: string, fd: FormData)
   });
   await audit(id, 'AMEND', `Airfare estimate updated (${currency} ${foreign})`);
   revalidatePath(`/requests/${id}/estimates`);
-  redirect(`/requests/${id}/estimates`);
+  revalidatePath(`/requests/${id}/charging`);
+  redirect(returnTo);
 }
 
 export async function updateAccommodation(id: string, expenseId: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
   const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId }, include: { accommodation: true } });
   if (!exp || exp.requestId !== id || exp.category !== EXPENSE_CATEGORY.Accommodation || exp.autoDerived || !exp.accommodation) return;
+  const returnTo = str(fd, 'returnTo') || `/requests/${id}/estimates`;
   const settings = await getSettings();
   const city = str(fd, 'city');
   const nights = Math.round(num(fd, 'nights'));
   const personalNights = Math.round(num(fd, 'personalNights'));
   const quotedNightly = num(fd, 'quotedNightly');
-  if (!city || nights <= 0 || quotedNightly <= 0) redirect(`/requests/${id}/estimates?edit=${expenseId}&error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
+  if (!city || nights <= 0 || quotedNightly <= 0) redirect(`${returnTo}?edit=${expenseId}&error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
   const calc = computeAccommodation({ cityCode: city, nights, personalNights, quotedNightly, basis: settings.hotelEstimateBasis });
   await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, expectedDate: dateOrNull(fd, 'checkIn'), notes: str(fd, 'notes') } });
   await prisma.accommodationEstimate.update({
@@ -969,16 +973,18 @@ export async function updateAccommodation(id: string, expenseId: string, fd: For
   });
   await audit(id, 'AMEND', `Accommodation estimate updated (${city}, ${nights} nights)`);
   revalidatePath(`/requests/${id}/estimates`);
-  redirect(`/requests/${id}/estimates`);
+  revalidatePath(`/requests/${id}/charging`);
+  redirect(returnTo);
 }
 
 export async function updateOther(id: string, expenseId: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
   const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId } });
   if (!exp || exp.requestId !== id || exp.autoDerived) return;
+  const returnTo = str(fd, 'returnTo') || `/requests/${id}/estimates`;
   const currency = str(fd, 'currency') || 'SGD';
   const foreign = num(fd, 'amount');
-  if (foreign <= 0) redirect(`/requests/${id}/estimates?edit=${expenseId}&error=${encodeURIComponent('Amount must be greater than 0.')}`);
+  if (foreign <= 0) redirect(`${returnTo}?edit=${expenseId}&error=${encodeURIComponent('Amount must be greater than 0.')}`);
   const typeId = str(fd, 'expenseTypeId') || exp.expenseTypeId;
   const type = EcsReference.expenseType(typeId);
   await prisma.estimatedExpense.update({
@@ -987,7 +993,8 @@ export async function updateOther(id: string, expenseId: string, fd: FormData) {
   });
   await audit(id, 'AMEND', `${type?.name ?? 'Other'} estimate updated`);
   revalidatePath(`/requests/${id}/estimates`);
-  redirect(`/requests/${id}/estimates`);
+  revalidatePath(`/requests/${id}/charging`);
+  redirect(returnTo);
 }
 
 /* --------------------------------------------------------- charging (TR-09) */
