@@ -8,8 +8,7 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
-import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { effectiveLegs, sharedLegs as groupSharedLegs } from '@/modules/pretrip/group';
+import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
 /** " · student" / " · guest" / "" — the non-employee label suffix for a member, with a chosen separator. */
@@ -20,13 +19,14 @@ import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { EstimateAddTabs } from '@/components/EstimateAddTabs';
 import { AirfareForm } from '@/components/AirfareForm';
 import { CostItems } from '@/components/ReviewSections';
+import { makeEntitledClassFor, makeOutcomeFor } from '@/modules/pretrip/liveOutcome';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { hotelCaps } from '@/data/policyRates';
 import { currencies } from '@/data/fxRates';
 import { expenseTypes } from '@/data/expenseTypes';
-import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
+import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { Card, Stepper, Empty } from '@/components/ui';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
 
@@ -67,25 +67,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const hasAirfare = req.expenses.some((e) => e.category === EXPENSE_CATEGORY.Airfare);
   const isClassUpgrade = !isGroup && !!req.travelClassId && !!req.entitledClassId && classRank(req.travelClassId) > classRank(req.entitledClassId) && hasAirfare;
   const chosenClassName = travelClasses.find((c) => c.id === req.travelClassId)?.name ?? req.travelClassId ?? '';
-  // §13.19 Per-line policy outcome. A travel class above the derived entitlement is a policy
-  // deviation (Exception) — mirror the policy engine so the airfare line shows it, not just the
-  // Policy Review step. Accommodation above cap already carries its own exception outcome.
-  const onDateForClass = req.startDate ?? new Date();
-  const fallbackClassLegs = req.destCity ? [{ durationHours: EcsReference.flightHours(req.destCity), destCode: req.destCity, isPersonal: false }] : [];
-  const entitledClassFor = (employeeId: string) => {
-    const legs = isGroup
-      ? (effectiveLegs(req, employeeId).length ? effectiveLegs(req, employeeId) : fallbackClassLegs)
-      : (groupSharedLegs(req).length ? groupSharedLegs(req) : fallbackClassLegs);
-    return EcsTravelClassRegister.entitledForItinerary(employeeId, legs, onDateForClass).classId;
-  };
-  const airfareOverClass = (e: (typeof req.expenses)[number]) => {
-    if (e.category !== EXPENSE_CATEGORY.Airfare || !e.proposedClassId) return false;
-    const employeeId = (isGroup ? e.travellerId : null) ?? req.travellerId;
-    return EcsTravelClassRegister.rank(e.proposedClassId) > EcsTravelClassRegister.rank(entitledClassFor(employeeId));
-  };
   // §13.19 the individual traveller's derived entitlement — the baseline the airfare form gates the
   // upgrade justification against (the stored entitledClassId is often null, so derive it live).
-  const indivEntitledId = isGroup ? 'TC-ECO' : entitledClassFor(req.travellerId);
+  const indivEntitledId = isGroup ? 'TC-ECO' : makeEntitledClassFor(req)(req.travellerId);
   const indivEntitledName = travelClasses.find((c) => c.id === indivEntitledId)?.name ?? 'Economy';
 
   // Controls shown inside each cost row's expanded breakdown on the Estimates step: the auto hotel
@@ -102,13 +86,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   };
   // Live policy outcome per expense type — airfare above the derived entitlement, or accommodation
   // above the city cap — so the estimate shows the deviation without waiting for a policy run.
-  const outcomeFor = (category: string, lines: (typeof req.expenses)) => {
-    let excLines = 0;
-    if (category === EXPENSE_CATEGORY.Airfare) excLines = lines.filter(airfareOverClass).length;
-    else if (category === EXPENSE_CATEGORY.Accommodation) excLines = lines.filter((l) => l.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception).length;
-    const exc = excLines > 0;
-    return { exc, label: !exc ? 'Within Policy' : isGroup ? `${excLines} traveller${excLines > 1 ? 's' : ''} with Exception` : 'Exception' };
-  };
+  const outcomeFor = makeOutcomeFor(req);
   // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
