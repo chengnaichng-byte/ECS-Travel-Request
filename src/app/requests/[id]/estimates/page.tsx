@@ -8,8 +8,7 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
-import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { m6GroupCodes } from '@/modules/pretrip/policyGroups';
+import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
 /** " · student" / " · guest" / "" — the non-employee label suffix for a member, with a chosen separator. */
@@ -25,7 +24,6 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { hotelCaps } from '@/data/policyRates';
-import { currencies } from '@/data/fxRates';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { Card, Stepper, Empty } from '@/components/ui';
@@ -103,17 +101,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // upgrade justification against (the stored entitledClassId is often null, so derive it live).
   const indivEntitledId = isGroup ? 'TC-ECO' : makeEntitledClassFor(req)(req.travellerId);
   const indivEntitledName = travelClasses.find((c) => c.id === indivEntitledId)?.name ?? 'Economy';
-  // §13.19 M6 note — shown on the individual airfare form when the traveller's policy group attracts
-  // M6 and the entitlement is above Economy: the Economy→entitled differential is funded automatically.
-  const m6OnDate = req.startDate ?? new Date();
-  const indivGroupCode = isGroup ? null : EcsTravelClassRegister.policyGroup(req.travellerId, m6OnDate);
-  const m6Codes = await m6GroupCodes();
-  const indivAttractsM6 = !isGroup && !!indivGroupCode && m6Codes.has(indivGroupCode) && classRank(indivEntitledId) > classRank('TC-ECO');
-  const airfareM6Note = indivAttractsM6 ? (
-    <div className="rounded border border-[#bfe3c9] bg-[#f0faf3] p-3 text-xs text-[#1f5131]">
-      <b>M6 — entitlement differential (automatic).</b> Your travel policy group <b>{indivGroupCode}</b> attracts M6, so the <b>Economy → {indivEntitledName}</b> portion of your entitled fare is funded from an M6 account automatically — no action needed, and no justification. This is <b>not</b> a travel-class upgrade: you fly your <b>{indivEntitledName}</b> entitlement as of right. (A class <i>above</i> {indivEntitledName} would be a separate policy exception.)
-    </div>
-  ) : null;
+  // M6 (entitlement differential) is a CHARGING concern — explained in full on the Charging step.
+  // It is deliberately NOT surfaced on the airfare form: the traveller flies their entitlement and
+  // need not think about which account funds the Economy→entitled portion at estimate time.
 
   // Controls shown inside each cost row's expanded breakdown on the Estimates step: the auto hotel
   // nightly-rate edit, or Edit / Remove for a manual line (auto ODA has none).
@@ -221,8 +211,8 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 </div>
                 <input type="hidden" name="expectedDate" value={af ? airfareDepart(af.originCode, af.destCode) : airfareDepart(firstLeg?.originCode, firstLeg?.destCode)} />
               </div>
-              <Select name="currency" label="Currency" defaultValue={af?.currency ?? 'SGD'} opts={currencies.map((c) => [c, c])} />
-              <Input name="amount" label="Quoted amount" type="number" defaultValue={af ? String(af.foreignAmount) : undefined} />
+              <input type="hidden" name="currency" value="SGD" />
+              <Input name="amount" label="Quoted amount (SGD)" type="number" defaultValue={af ? String(af.foreignAmount) : undefined} />
               <Input name="sponsorship" label="Expected sponsorship" type="number" defaultValue={af ? String(af.sponsorForeign ?? 0) : undefined} />
               {!af && <Select name="travellerId" label="Traveller (individual)" opts={gTravellers} />}
               {af && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
@@ -235,7 +225,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             editing={!!af}
             cancel={cancelLink}
             multiCity={isMultiCity}
-            m6Note={airfareM6Note}
             multiCityNote={airfareMultiCityNote}
             legAction={isMultiCity ? addAirfareLegs.bind(null, id) : undefined}
             legs={isMultiCity ? airLegs.map((l) => [l.from, l.to] as [string, string]) : undefined}
@@ -243,7 +232,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             destOpts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])}
             classOpts={travelClasses.map((c) => [c.id, c.name])}
             classRanks={Object.fromEntries(travelClasses.map((c) => [c.id, c.rank]))}
-            currencyOpts={currencies.map((c) => c)}
             defaults={{
               origin: af?.originCode ?? tripDefaults.origin,
               dest: af?.destCode ?? tripDefaults.destAirport,
@@ -312,8 +300,8 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             </FormBar>
             <div className="grid grid-cols-2 gap-3">
               <Select name="expenseTypeId" label="Expense type" defaultValue={ot?.expenseTypeId} opts={expenseTypes.filter((t) => !t.isMajorCost).map((t) => [t.id, t.name])} />
-              <Select name="currency" label="Currency" defaultValue={ot?.currency ?? 'SGD'} opts={currencies.map((c) => [c, c])} />
-              <Input name="amount" label="Amount" type="number" defaultValue={ot ? String(ot.foreignAmount) : undefined} />
+              <input type="hidden" name="currency" value="SGD" />
+              <Input name="amount" label="Amount (SGD)" type="number" defaultValue={ot ? String(ot.foreignAmount) : undefined} />
               <Input name="notes" label="Note" defaultValue={ot ? (ot.notes ?? '') : undefined} />
               {isGroup && !ot && <Select name="travellerId" label="Traveller (if individual)" opts={gTravellers} />}
               {isGroup && !ot && <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" name="shared" /> Shared — apportion</label>}

@@ -11,14 +11,14 @@ interface Defaults { origin: string; dest: string; proposedClassId: string; expe
 
 export function AirfareForm({
   action, submitLabel, editing, cancel, returnTo,
-  originOpts, destOpts, classOpts, classRanks, currencyOpts,
+  originOpts, destOpts, classOpts, classRanks,
   defaults, entitledClassId, entitledClassName,
-  guest, provostOpts, provostDefault, guestUpgrading, multiCityNote, legAction, legs, multiCity, m6Note,
+  guest, provostOpts, provostDefault, guestUpgrading, multiCityNote, legAction, legs, multiCity,
 }: {
   action: (fd: FormData) => Promise<void>;
   submitLabel: string; editing: boolean; cancel?: React.ReactNode; returnTo?: string;
   originOpts: [string, string][]; destOpts: [string, string][]; classOpts: [string, string][];
-  classRanks: Record<string, number>; currencyOpts: string[];
+  classRanks: Record<string, number>;
   defaults: Defaults; entitledClassId: string; entitledClassName: string;
   guest: boolean; provostOpts: ProvostOpt[]; provostDefault: string; guestUpgrading: boolean;
   // §13.20 multi-city note — lists the full itinerary and explains the two ways to book the fare;
@@ -33,9 +33,6 @@ export function AirfareForm({
   // relabel them "Departure from" / "Primary destination" so a loop trip that returns home doesn't
   // read as if its destination were home. The full route is carried from the itinerary regardless.
   multiCity?: boolean;
-  // §13.19 M6 note — shown when the traveller's policy group attracts M6 (the entitlement differential
-  // is funded automatically). Rendered in place of the old upgrade-funding control. Null otherwise.
-  m6Note?: React.ReactNode;
 }) {
   const [proposed, setProposed] = useState(defaults.proposedClassId);
   const [justification, setJustification] = useState(defaults.classJustification);
@@ -59,37 +56,41 @@ export function AirfareForm({
           </div>
         </div>
         {multiCityNote}
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">{multiCity ? 'Departure from' : 'Origin'}</label><select name="originCode" defaultValue={defaults.origin} className="field">{originOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-          <div><label className="label">{multiCity ? 'Primary destination' : 'Destination'}</label><select name="destCode" defaultValue={defaults.dest} className="field">{destOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-          <div><label className="label">Proposed class</label><select name="proposedClassId" value={proposed} onChange={(e) => setProposed(e.target.value)} className="field">{classOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-          {/* Expected date of travel is READ-ONLY here — it is the airfare's flight date, which is
-              the itinerary's business, not a second value to key on this line (that would drift from
-              the legs). Derived from the matching leg's departure; change it on the Trip step. A hidden
-              input carries the derived value so the stored line stays consistent. */}
-          <div>
-            <label className="label">Expected date of travel</label>
-            <div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed flex items-center justify-between gap-2">
-              <span>{defaults.expectedDate || 'Set on the Trip step'}</span>
-              <span className="text-[11px] whitespace-nowrap">from the itinerary</span>
+        {/* Left column: outbound routing → proposed class → its justification (directly beneath the
+            class, disabled unless an above-entitlement class is chosen). Right column: destination →
+            the derived flight date (beneath the destination) → quoted amount → sponsorship. All SGD. */}
+        <div className="grid md:grid-cols-2 gap-x-4 gap-y-3 items-start">
+          <div className="space-y-3">
+            <div><label className="label">{multiCity ? 'Departure from' : 'Origin'}</label><select name="originCode" defaultValue={defaults.origin} className="field">{originOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div><label className="label">Proposed class</label><select name="proposedClassId" value={proposed} onChange={(e) => setProposed(e.target.value)} className="field">{classOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            {/* §13.19 Justification sits directly under the class and is DISABLED unless the selected
+                class is above the traveller's entitlement; it then becomes required (gates Add). */}
+            <div>
+              <label className="label">Justification{isUpgrade ? ' — class above entitlement (policy exception, §13.19)' : ''}</label>
+              <textarea name="classJustification" value={isUpgrade ? justification : ''} onChange={(e) => setJustification(e.target.value)} rows={2} disabled={!isUpgrade}
+                className={`field ${!isUpgrade ? 'bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed' : needJustification ? '!border-[var(--ecs-red)]' : ''}`}
+                placeholder={isUpgrade ? 'e.g. medical reason, red-eye connection…' : 'Enabled only for a class above your entitlement'} />
+              <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledClassName}</strong> for this itinerary. A class <strong>above</strong> your entitlement is a <strong>policy exception</strong> — it needs a justification and is routed to a policy-exception approver.</p>
+              {needJustification && <p className="text-xs text-[var(--ecs-red)] mt-1">{proposedName} is above your {entitledClassName} entitlement — enter a justification for the exception before this airfare can be added.</p>}
             </div>
-            <input type="hidden" name="expectedDate" value={defaults.expectedDate} />
-            <p className="text-xs text-[var(--ecs-muted)] mt-1">Derived from the itinerary — to change it, edit the leg dates on the Trip step.</p>
           </div>
-          <div><label className="label">Currency</label><select name="currency" defaultValue={defaults.currency} className="field">{currencyOpts.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
-          <div><label className="label">Quoted amount</label><input name="amount" type="number" step="any" defaultValue={defaults.amount || undefined} className="field" /></div>
-          <div><label className="label">Expected sponsorship</label><input name="sponsorship" type="number" step="any" defaultValue={defaults.sponsorship || undefined} className="field" /></div>
-        </div>
-
-        {/* §13.19 M6 entitlement differential — automatic, funded from an M6 account; no action here. */}
-        {m6Note}
-
-        <div>
-          <label className="label">Justification{isUpgrade ? ' — class above entitlement (policy exception, §13.19)' : ' (required only if you request a class above entitlement — §13.19)'}</label>
-          <textarea name="classJustification" value={justification} onChange={(e) => setJustification(e.target.value)} rows={2}
-            className={`field ${needJustification ? '!border-[var(--ecs-red)]' : ''}`} placeholder="e.g. medical reason, red-eye connection…" />
-          <p className="text-xs text-[var(--ecs-muted)] mt-1">Entitled: <strong>{entitledClassName}</strong> for this itinerary. A class <strong>above</strong> your entitlement is a <strong>policy exception</strong> — it needs a justification and is routed to a policy-exception approver.</p>
-          {needJustification && <p className="text-xs text-[var(--ecs-red)] mt-1">{proposedName} is above your {entitledClassName} entitlement — enter a justification for the exception before this airfare can be added.</p>}
+          <div className="space-y-3">
+            <div><label className="label">{multiCity ? 'Primary destination' : 'Destination'}</label><select name="destCode" defaultValue={defaults.dest} className="field">{destOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            {/* Expected date of travel — READ-ONLY, directly beneath the destination; it is the airfare's
+                flight date, derived from the matching leg's departure (editing it would drift from the legs). */}
+            <div>
+              <label className="label">Expected date of travel</label>
+              <div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed flex items-center justify-between gap-2">
+                <span>{defaults.expectedDate || 'Set on the Trip step'}</span>
+                <span className="text-[11px] whitespace-nowrap">from the itinerary</span>
+              </div>
+              <input type="hidden" name="expectedDate" value={defaults.expectedDate} />
+              <p className="text-xs text-[var(--ecs-muted)] mt-1">Derived from the itinerary — to change it, edit the leg dates on the Trip step.</p>
+            </div>
+            <div><label className="label">Quoted amount (SGD)</label><input name="amount" type="number" step="any" defaultValue={defaults.amount || undefined} className="field" /></div>
+            <div><label className="label">Expected sponsorship (SGD)</label><input name="sponsorship" type="number" step="any" defaultValue={defaults.sponsorship || undefined} className="field" /></div>
+          </div>
+          <input type="hidden" name="currency" value="SGD" />
         </div>
 
         {/* §8 / DD-25 Guest travel-class upgrade — a guest booked above Economy needs a host-school Provost. */}
@@ -124,7 +125,7 @@ export function AirfareForm({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr>
-            <th className="th">Leg</th><th className="th">From</th><th className="th">To</th><th className="th">Currency</th><th className="th">Quoted fare</th>
+            <th className="th">Leg</th><th className="th">From</th><th className="th">To</th><th className="th">Quoted fare (SGD)</th>
           </tr></thead>
           <tbody>
             {legs!.map(([o, dd], i) => (
@@ -132,8 +133,7 @@ export function AirfareForm({
                 <td className="td whitespace-nowrap font-medium">Leg {i + 1}</td>
                 <td className="td"><select name={`legOrigin_${i}`} defaultValue={o} className="field">{originOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
                 <td className="td"><select name={`legDest_${i}`} defaultValue={dd} className="field">{originOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
-                <td className="td"><select name={`legCurrency_${i}`} defaultValue="SGD" className="field !w-24">{currencyOpts.map((c) => <option key={c} value={c}>{c}</option>)}</select></td>
-                <td className="td"><input name={`legAmount_${i}`} type="number" step="any" min="0" className="field" placeholder="—" /></td>
+                <td className="td"><input name={`legAmount_${i}`} type="number" step="any" min="0" className="field" placeholder="—" /><input type="hidden" name={`legCurrency_${i}`} value="SGD" /></td>
               </tr>
             ))}
           </tbody>

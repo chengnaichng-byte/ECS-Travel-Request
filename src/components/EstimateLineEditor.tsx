@@ -10,10 +10,8 @@ import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { cities, airports } from '@/data/locations';
 import { travelClasses } from '@/data/travelClass';
 import { hotelCaps } from '@/data/policyRates';
-import { currencies } from '@/data/fxRates';
 import { expenseTypes } from '@/data/expenseTypes';
-import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { m6GroupCodes } from '@/modules/pretrip/policyGroups';
+import { EcsIdentity } from '@/shared/ecs/services';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { makeEntitledClassFor } from '@/modules/pretrip/liveOutcome';
 import { isGuestRequest, memberName } from '@/modules/pretrip/traveller';
@@ -65,8 +63,8 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
                 </div>
                 <input type="hidden" name="expectedDate" value={airfareDepart(e.originCode, e.destCode)} />
               </div>
-              <Field label="Currency"><select name="currency" defaultValue={e.currency} className="field">{currencies.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
-              <Field label="Quoted amount"><input name="amount" type="number" step="any" defaultValue={String(e.foreignAmount)} className="field" /></Field>
+              <input type="hidden" name="currency" value="SGD" />
+              <Field label="Quoted amount (SGD)"><input name="amount" type="number" step="any" defaultValue={String(e.foreignAmount)} className="field" /></Field>
               <Field label="Expected sponsorship"><input name="sponsorship" type="number" step="any" defaultValue={String(e.sponsorForeign ?? 0)} className="field" /></Field>
               <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{travellerLabel ?? '—'}</div></div>
             </div>
@@ -76,16 +74,7 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
     }
     const entitledFor = makeEntitledClassFor(req);
     const entId = entitledFor(req.travellerId);
-    const entName = EcsReference.travelClass(entId)?.name ?? 'Economy';
-    // §13.19 M6 note — group attracts M6 and entitlement above Economy → automatic differential.
-    const m6OnDate = req.startDate ?? new Date();
-    const grpCode = EcsTravelClassRegister.policyGroup(req.travellerId, m6OnDate);
-    const showM6 = !!grpCode && (await m6GroupCodes()).has(grpCode) && EcsTravelClassRegister.rank(entId) > EcsTravelClassRegister.rank('TC-ECO');
-    const m6Note = showM6 ? (
-      <div className="rounded border border-[#bfe3c9] bg-[#f0faf3] p-3 text-xs text-[#1f5131]">
-        <b>M6 — entitlement differential (automatic).</b> Travel policy group <b>{grpCode}</b> attracts M6: the <b>Economy → {entName}</b> portion is funded from an M6 account automatically. This is not a travel-class upgrade.
-      </div>
-    ) : null;
+    // M6 (entitlement differential) is a Charging concern — intentionally not surfaced on the airfare card.
     const guest = isGuestRequest(req);
     const hostSchoolId = req.departmentId ?? EcsIdentity.employee(req.requestorId)?.departmentId ?? null;
     const provostOptions = guest ? await provostsForSchool(hostSchoolId) : [];
@@ -97,14 +86,12 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
           submitLabel="Save airfare changes"
           editing
           multiCity={isMultiCity}
-          m6Note={m6Note}
           cancel={cancel}
           returnTo={returnTo}
           originOpts={airports.map((a) => [a.code, a.code])}
           destOpts={airports.filter((a) => a.cityCode !== 'SIN').map((a) => [a.code, a.code])}
           classOpts={travelClasses.map((c) => [c.id, c.name])}
           classRanks={Object.fromEntries(travelClasses.map((c) => [c.id, c.rank]))}
-          currencyOpts={currencies.map((c) => c)}
           defaults={{
             origin: e.originCode ?? 'SIN',
             dest: e.destCode ?? '',
@@ -157,8 +144,8 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
         {travellerLabel && <p className="text-xs text-[var(--ecs-muted)]">Editing this line for <b>{travellerLabel}</b>.</p>}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Expense type"><select name="expenseTypeId" defaultValue={e.expenseTypeId} className="field">{expenseTypes.filter((t) => !t.isMajorCost).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
-          <Field label="Currency"><select name="currency" defaultValue={e.currency} className="field">{currencies.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
-          <Field label="Amount"><input name="amount" type="number" step="any" defaultValue={String(e.foreignAmount)} className="field" /></Field>
+          <input type="hidden" name="currency" value="SGD" />
+          <Field label="Amount (SGD)"><input name="amount" type="number" step="any" defaultValue={String(e.foreignAmount)} className="field" /></Field>
           <Field label="Note"><input name="notes" defaultValue={e.notes ?? ''} className="field" /></Field>
         </div>
       </form>
