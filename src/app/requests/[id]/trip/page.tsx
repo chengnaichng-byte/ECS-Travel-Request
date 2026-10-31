@@ -8,6 +8,7 @@ import { saveTrip, addAttachment, attachNamedFile } from '@/modules/pretrip/acti
 import { getSettings } from '@/modules/pretrip/settings';
 import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
 import { NON_TERM_APPROVAL_DOC, nonTermResearchEligible } from '@/modules/pretrip/nonTerm';
+import { NonTermField } from '@/components/NonTermField';
 import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { employees } from '@/data/employees';
 import Link from 'next/link';
@@ -86,6 +87,8 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               <label className="label">TMC (resolved)</label>
               <div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{tmcText}<span className="ml-1 text-xs">· derived from the booking arrangement on save (§2.2)</span></div>
             </div>
+            {/* §13.x Non-term research — a research-gated dropdown under the booking arrangement. */}
+            <NonTermField eligible={nonTermEligible} declared={req.nonTermDeclared} approvals={nonTermApprovals} attachAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} />
             <div className="md:col-span-3">
               <label className="label">Description / justification</label>
               <textarea name="description" defaultValue={req.description ?? ''} rows={2} className="field" placeholder="e.g. Presenting a paper at IEEE conference" />
@@ -187,46 +190,6 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           </div>
         </details>
 
-        {/* §13.x Non-term research travel — offline-approval attestation (research-funded travel only). */}
-        <details className="group card p-0 overflow-hidden" open={req.nonTermDeclared || nonTermEligible}>
-          <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
-            <span className="transition-transform group-open:rotate-90">▸</span> Non-term research travel — offline approval
-            {req.nonTermDeclared
-              ? <span className="pill-exc ml-1">Attested</span>
-              : nonTermEligible
-                ? <span className="ml-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f3ec] text-[#2f7d4f]">Available</span>
-                : <span className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] text-[var(--ecs-muted)] border border-[var(--ecs-border)]">Not available · research-funded travel only</span>}
-          </summary>
-          <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
-            <p className="text-xs text-[var(--ecs-muted)]">When a <strong>research-funded</strong> trip takes place in <strong>non-term time</strong>, the required approval has already been obtained offline. Attest below and attach the approval e-mail; where enabled in the workflow configuration, this fast-tracks the pre-trip approval. Available only for research-funded travel (the Is-Research flag follows the charging account — set it on the Charging step).</p>
-            {!nonTermEligible ? (
-              <div className="text-sm rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 text-[var(--ecs-muted)]">
-                <strong className="text-[var(--ecs-text)]">Available for research-funded travel only.</strong> This trip is not research-funded (your default charging account is not a research WBS). Charge it to a research cost object on the <Link href={`/requests/${id}/charging`} className="underline">Charging step</Link> to use this.
-              </div>
-            ) : (
-              <>
-                <label className="flex items-start gap-2 text-sm">
-                  <input type="checkbox" name="nonTerm" value="on" defaultChecked={req.nonTermDeclared} className="mt-0.5 w-4 h-4" />
-                  <span>This trip is in <strong>non-term time</strong> and the required <strong>offline approval has already been obtained</strong>.</span>
-                </label>
-                <div className="pl-6">
-                  <label className="label">Offline approval e-mail <span className="text-[var(--ecs-red)]">*</span> — attach the approving e-mail (PDF/PNG/JPEG)</label>
-                  {nonTermApprovals.length > 0 ? (
-                    <ul className="text-xs mb-1 space-y-0.5">
-                      {nonTermApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-[var(--ecs-muted)] mb-1">Attach the approval e-mail that supports this attestation.</p>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <input type="file" name="nonTermEmail" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
-                    <button formAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} className="btn-secondary text-xs">Attach approval e-mail</button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </details>
           </>}
         />
       </form>

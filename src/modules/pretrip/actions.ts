@@ -13,7 +13,7 @@ import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travellerIsEligibleDoa } from './route';
-import { hasNonTermApproval, NON_TERM_APPROVAL_DOC } from './nonTerm';
+import { hasNonTermApproval, nonTermResearchEligible } from './nonTerm';
 import { exceptionNeedsApproval } from '@/config/policyThresholds';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { findBlockingDuplicates } from './duplicates';
@@ -1117,15 +1117,9 @@ export async function saveCharging(id: string, fd: FormData) {
     });
   }
   await audit(id, 'AMEND', raw.mode === 'ITEM' ? 'Charging allocated per expense item (cross-charge)' : raw.mode === 'CLAIM' ? 'Charging allocated at claim level' : 'Charging allocation saved');
-  // §13.x The non-term lane follows the research funding. If the new charging is NOT research-funded,
-  // the lane is no longer available — clear the attestation and its evidence so it cannot ride through
-  // on a non-research trip (the Trip step will then show it unavailable).
-  const nowResearch = raw.rows.some((r) => !!EcsCharging.code(r.chargingCode)?.isResearch);
-  if (req.nonTermDeclared && !nowResearch) {
-    await prisma.travelRequest.update({ where: { id }, data: { nonTermDeclared: false } });
-    await prisma.attachment.deleteMany({ where: { requestId: id, docType: NON_TERM_APPROVAL_DOC } });
-    await audit(id, 'AMEND', 'Non-term research attestation cleared — the trip is no longer research-funded');
-  }
+  // §13.x The non-term lane follows the research funding. If the charging is no longer research-funded
+  // but a non-term declaration still stands, it is NOT silently cleared — it surfaces as a submit-blocking
+  // validation (see submitRequest / the Review step) so the traveller knowingly updates it first.
   // #14 resolve the M6 account on NTU-funded upgrade lines (auto when the governing BA has one;
   // left unset — hard stop — when a choice is required) before re-running policy.
   await applyDefaultDeltaCodes(id);
@@ -1197,6 +1191,12 @@ export async function submitRequest(id: string, fd?: FormData) {
     // §13.x non-term research travel attestation (captured here; the auto-approve routing is gated
     // separately and off by default — this only records the declaration + its evidence attachment).
     const nonTermDeclared = str(fd, 'nonTerm') === 'on';
+    // §13.x submit-blocking validation — if a non-term declaration still stands but the trip is no longer
+    // research-funded (the charging changed), the traveller must update it first; it is not silently cleared.
+    if (nonTermDeclared && !nonTermResearchEligible(req)) {
+      await audit(id, 'STATUS', 'Submission blocked — non-term declaration on a trip that is no longer research-funded');
+      redirect(`/requests/${id}/review?error=${encodeURIComponent('This trip is no longer research-funded but still carries a non-term research declaration. Update the non-term option on the Trip step (or charge it back to a research account) before submitting.')}`);
+    }
     // §13.x PI self-approval gate (decision 3) — a PI defaults as their own DOA only when they are a
     // FOUND eligible DOA (in the DOA line at the required tier) AND within the self-approval threshold;
     // otherwise they pick a DOA from the list, self excluded. Mirrors the PI_SELF_APPROVAL scenario rule.
