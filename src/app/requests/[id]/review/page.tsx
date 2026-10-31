@@ -123,7 +123,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // the top without relying on the Airfare cost line.
   const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   const routeText = sharedLegs.length ? [sharedLegs[0].originCode, ...sharedLegs.map((l) => l.destCode)].join(' → ') : '';
-  // §13.x Main country/city of travel — the country with the LONGEST stay, then its longest-stay city
+  // §13.x Main city/country of stay — the country with the LONGEST stay, then its longest-stay city
   // (shared with the Trip-step save via mainDestination, so both record the same main destination).
   const mainDest = mainDestination(sharedLegs);
   const mainCountryName = EcsReference.country(mainDest.countryCode || (req.destCountry ?? ''))?.name;
@@ -206,7 +206,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             <dl className="space-y-3">
               <KV label="Traveller">{travellerName(req)}</KV>
               <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
-              <KV label="Main country/city of travel">{mainCityName ? `${mainCityName}, ${mainCountryName ?? ''}` : (mainCountryName ?? '—')}</KV>
+              <KV label="Main city/country of stay">{mainCityName ? `${mainCityName}, ${mainCountryName ?? ''}` : (mainCountryName ?? '—')}</KV>
               {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
             </dl>
             {/* Col 2 — dates and class */}
