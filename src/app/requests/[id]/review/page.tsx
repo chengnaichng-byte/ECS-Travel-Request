@@ -23,6 +23,7 @@ import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { isHighRisk } from '@/modules/pretrip/risk';
 import { findDuplicateRequests } from '@/modules/pretrip/duplicates';
 import { bookingsForAuthorisation } from '@/modules/pretrip/tmcRetrieval';
+import { mainDestination } from '@/modules/pretrip/destination';
 import { bookingSummaryText, isTmcArrangement } from '@/modules/pretrip/booking';
 import { CostItems, CostAllocationCard } from '@/components/ReviewSections';
 import { ReviewRoute } from '@/components/ReviewRoute';
@@ -122,24 +123,11 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // the top without relying on the Airfare cost line.
   const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   const routeText = sharedLegs.length ? [sharedLegs[0].originCode, ...sharedLegs.map((l) => l.destCode)].join(' → ') : '';
-  // §13.x Main country/city of travel — derived from the country with the LONGEST stay (nights summed by
-  // the destination country across the official itinerary), then the city within it with the longest stay.
-  // Falls back to the persisted main destination when no nights are captured.
-  const nightsByCountry = new Map<string, number>();
-  const nightsByCity = new Map<string, number>();
-  for (const l of sharedLegs) {
-    if (l.isPersonal) continue;
-    const city = EcsReference.city(EcsReference.airport(l.destCode)?.cityCode ?? '');
-    if (!city) continue;
-    nightsByCountry.set(city.countryCode, (nightsByCountry.get(city.countryCode) ?? 0) + (l.nights ?? 0));
-    nightsByCity.set(city.code, (nightsByCity.get(city.code) ?? 0) + (l.nights ?? 0));
-  }
-  const mainCountryCode = [...nightsByCountry.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? req.destCountry ?? '';
-  const mainCityCode = [...nightsByCity.entries()]
-    .filter(([code]) => EcsReference.city(code)?.countryCode === mainCountryCode)
-    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? req.destCity ?? '';
-  const mainCountryName = EcsReference.country(mainCountryCode)?.name;
-  const mainCityName = EcsReference.city(mainCityCode)?.name;
+  // §13.x Main country/city of travel — the country with the LONGEST stay, then its longest-stay city
+  // (shared with the Trip-step save via mainDestination, so both record the same main destination).
+  const mainDest = mainDestination(sharedLegs);
+  const mainCountryName = EcsReference.country(mainDest.countryCode || (req.destCountry ?? ''))?.name;
+  const mainCityName = EcsReference.city(mainDest.cityCode || (req.destCity ?? ''))?.name;
   // DD-17 PNR provenance on the TR: the TA-keyed booking set (all PNRs under this authorisation),
   // shown once the request is booked.
   const bookingSet = bookingsForAuthorisation(req);

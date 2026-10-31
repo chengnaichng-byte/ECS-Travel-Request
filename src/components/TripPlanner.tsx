@@ -91,17 +91,33 @@ export function TripPlanner({
   const [legs, setLegs] = useState<LegIn[]>(() => reshape(initialTripType, initialLegs));
   const multi = type === 'MULTI_CITY';
 
-  // §13.14 main destination — derived from the longest-stay non-personal leg (same rule the
-  // server applies on save), shown read-only so the traveller sees what the review/approval
-  // pages will record without a second editable destination field to keep in sync.
+  // §13.14 main destination — the COUNTRY with the LONGEST stay (nights summed by destination country),
+  // then the longest-stay city within it (same rule the server applies on save via mainDestination).
+  // Shown read-only so the traveller sees what the review/approval pages will record.
   const mainDest = useMemo(() => {
-    const idx = legs.map((l, i) => ({ l, i })).filter(({ l }) => l.destCode);
+    const idx = legs.map((l, i) => ({ l, i })).filter(({ l }) => l.destCode && airportMeta?.[l.destCode]);
     if (!idx.length) return null;
     const nonP = idx.filter(({ l }) => !l.isPersonal);
     const pool = nonP.length ? nonP : idx;
+    type Agg = { nights: number; city: string; country: string; cityCode: string; countryCode: string; code: string };
+    const byCountry = new Map<string, number>();
+    const byCity = new Map<string, Agg>();
+    for (const { l, i } of pool) {
+      const m = airportMeta![l.destCode];
+      const n = computeLegNights(legs, i);
+      byCountry.set(m.countryCode, (byCountry.get(m.countryCode) ?? 0) + n);
+      const cur = byCity.get(m.cityCode);
+      byCity.set(m.cityCode, { nights: (cur?.nights ?? 0) + n, city: m.city, country: m.country, cityCode: m.cityCode, countryCode: m.countryCode, code: cur?.code ?? l.destCode });
+    }
+    const topCountry = [...byCountry.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (topCountry && topCountry[1] > 0) {
+      const chosen = [...byCity.values()].filter((c) => c.countryCode === topCountry[0]).sort((a, b) => b.nights - a.nights)[0];
+      if (chosen) return { code: chosen.code, city: chosen.city, country: chosen.country, cityCode: chosen.cityCode, countryCode: chosen.countryCode, nights: topCountry[1] };
+    }
+    // Fallback — longest-stay single leg (e.g. a same-day return with no nights captured).
     const main = [...pool].sort((a, b) => computeLegNights(legs, b.i) - computeLegNights(legs, a.i))[0];
-    const m = airportMeta?.[main.l.destCode];
-    return m ? { code: main.l.destCode, city: m.city, country: m.country, cityCode: m.cityCode, countryCode: m.countryCode, nights: computeLegNights(legs, main.i) } : null;
+    const m = airportMeta![main.l.destCode];
+    return { code: main.l.destCode, city: m.city, country: m.country, cityCode: m.cityCode, countryCode: m.countryCode, nights: computeLegNights(legs, main.i) };
   }, [legs, airportMeta]);
 
   const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => {
@@ -255,7 +271,7 @@ export function TripPlanner({
           <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] px-3 py-2 text-sm">
             <span className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mr-2">Main destination</span>
             {mainDest
-              ? <span><strong>{mainDest.city}, {mainDest.country}</strong> <span className="text-[var(--ecs-muted)]">· derived from the longest-stay leg ({mainDest.code}{mainDest.nights ? `, ${mainDest.nights} night${mainDest.nights > 1 ? 's' : ''}` : ''})</span></span>
+              ? <span><strong>{mainDest.city}, {mainDest.country}</strong> <span className="text-[var(--ecs-muted)]">· derived from the longest-stay country ({mainDest.country}{mainDest.nights ? `, ${mainDest.nights} night${mainDest.nights > 1 ? 's' : ''}` : ''})</span></span>
               : <span className="text-[var(--ecs-muted)] italic">Select a destination in the legs below.</span>}
           </div>
 
@@ -290,7 +306,7 @@ export function TripPlanner({
             </div>
             {multi && !disabled && <button type="button" className="btn-secondary mt-2" onClick={addLeg}>＋ Add leg</button>}
             <p className="text-xs text-[var(--ecs-muted)] mt-2">
-              Airports are the shared ECS Location master (IATA) — the same reference the TMC books against; each leg&apos;s code is carried verbatim into the booking instruction. In production this master is synced from the TMC/GDS airport feed. The main destination (for ODA defaults and class entitlement) is the longest-stay city, derived from the legs on save.
+              Airports are the shared ECS Location master (IATA) — the same reference the TMC books against; each leg&apos;s code is carried verbatim into the booking instruction. In production this master is synced from the TMC/GDS airport feed. The main destination (for ODA defaults and class entitlement) is the longest-stay country — and the longest-stay city within it — derived from the legs on save.
             </p>
           </div>
 

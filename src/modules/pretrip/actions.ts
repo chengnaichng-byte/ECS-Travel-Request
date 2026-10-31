@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/shared/db';
 import { currentPersonaId } from '@/shared/session';
 import { loadRequest, overlappingTripsFor, type FullRequest } from './queries';
+import { mainDestination } from './destination';
 import { getSettings, updateSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
@@ -260,11 +261,9 @@ export async function saveTrip(id: string, fd: FormData) {
   let formLegs: FormLeg[] = [];
   try { formLegs = (JSON.parse(str(fd, 'legsJson') || '[]') as FormLeg[]).filter((l) => l.destCode); } catch { formLegs = []; }
   const cityOf = (ap: string) => EcsReference.airport(ap)?.cityCode ?? ap;
-  const countryOf = (city: string) => EcsReference.city(city)?.countryCode ?? '';
-  // Main destination = longest-stay non-personal leg (fall back to the first leg), for all types.
-  const mainLeg = [...formLegs].filter((l) => !l.isPersonal).sort((a, b) => b.nights - a.nights)[0] ?? formLegs[0];
-  let destCity = ''; let destCountry = '';
-  if (mainLeg) { destCity = cityOf(mainLeg.destCode); destCountry = countryOf(destCity); }
+  // Main destination = the COUNTRY with the longest stay (nights summed by destination country), then the
+  // longest-stay city within it (shared with the Review page via mainDestination — same rule everywhere).
+  const { cityCode: destCity, countryCode: destCountry } = mainDestination(formLegs);
   // Server-side validation (the browser `required` attributes are only a first gate).
   const missing: string[] = [];
   if (!purposeId) missing.push('travel purpose');
