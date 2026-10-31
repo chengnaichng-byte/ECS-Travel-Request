@@ -104,11 +104,15 @@ export function RequestChrome({ req, id, persona, settings }: {
             {req.emergencyOutsideWindow && <span className="pill-warn">Outside standard window</span>}
           </div>
           <div className="mt-1">
-            {req.emergencyAuthoriserId && <>Authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId)?.name ?? '—'}</strong>; </>}The trip is handed to the TMC <strong>concurrently on submit</strong> and may be booked ahead of approval.{' '}
-            The <strong>full approval workflow still applies</strong> and is ratified <strong>retrospectively</strong> — the emergency changes the timing of the booking hand-off, not who approves.{' '}
-            {isApproved ? <span className="font-semibold">Ratified ✓</span> : <span className="font-semibold">Ratification {req.status.startsWith('Pending') ? 'in progress' : '—'}.</span>}
+            {req.emergencyAuthoriserId && <>Authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId)?.name ?? '—'}</strong>. </>}The trip is handed to the TMC <strong>concurrently on submit</strong> and may be booked ahead of approval.{' '}
+            The <strong>full approval workflow still applies</strong> and is ratified <strong>retrospectively</strong> — the emergency changes the timing of the booking hand-off, not who approves.
           </div>
-          {req.emergencyJustification && <div className="mt-1 text-xs italic">&ldquo;{req.emergencyJustification}&rdquo;</div>}
+          {/* Structured status strip — booking hand-off state, the authorising DOA, and the ratification state. */}
+          <div className="mt-3 pt-2 border-t border-amber-300 flex flex-wrap items-center gap-x-6 gap-y-1.5 text-xs">
+            <div className="flex items-center gap-1.5"><span className="text-amber-900/70">Booking Status:</span><span className="inline-block px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 font-medium">{req.bookingStatus}</span></div>
+            {req.emergencyAuthoriserId && <div><span className="text-amber-900/70">Authorised By: </span><span className="font-semibold">{EcsIdentity.employee(req.emergencyAuthoriserId)?.name ?? '—'}</span></div>}
+            <div><span className="text-amber-900/70">Final Approval: </span><span className="font-semibold">{isApproved ? 'Ratified ✓' : 'DOA ratification pending'}</span></div>
+          </div>
         </div>
       )}
 

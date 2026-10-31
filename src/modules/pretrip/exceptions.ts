@@ -9,6 +9,7 @@ import { travelClasses } from '@/data/travelClass';
 import { policyThresholds as PT } from '@/config/policyThresholds';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
 import { effectiveLegs } from './group';
+import { fmtSgd } from './pricing';
 import type { FullRequest } from './queries';
 
 export type Severity = 'Low' | 'Medium' | 'High';
@@ -22,6 +23,9 @@ export interface ExceptionView {
   impactSgd: number;
   severity: Severity;
   justification?: string | null;
+  // The before/after figures behind the impact (shown as a small grid on the approval summary):
+  // hotel = policy cap vs estimated rate per night; class = entitled vs proposed class.
+  breakdown?: { leftLabel: string; leftValue: string; rightLabel: string; rightValue: string };
 }
 
 /** The traveller-provided justification for an exception, from where that exception captures it:
@@ -74,14 +78,44 @@ export function hotelCapImpact(req: FullRequest, travellerId: string | null): nu
     .reduce((s, e) => s + Math.max(0, e.accommodation!.capVariance), 0);
 }
 
+/** Policy cap vs estimated nightly rate behind an over-cap hotel exception — only when exactly one
+ *  accommodation line is over cap (so the per-night figures are unambiguous). */
+function hotelCapBreakdown(req: FullRequest, travellerId: string | null): ExceptionView['breakdown'] {
+  const lines = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation
+    && (!travellerId || e.travellerId === travellerId || e.isShared) && (e.accommodation.capVariance ?? 0) > 0);
+  if (lines.length !== 1) return undefined;
+  const a = lines[0].accommodation!;
+  return { leftLabel: 'Policy cap', leftValue: `${fmtSgd(a.capNightly)}/night`, rightLabel: 'Estimated rate', rightValue: `${fmtSgd(a.quotedNightly)}/night` };
+}
+
+/** Entitled vs proposed travel class behind a class-upgrade exception. */
+function classBreakdown(req: FullRequest, travellerId: string | null): ExceptionView['breakdown'] {
+  const empId = travellerId ?? req.travellerId;
+  const chosenId = travellerId
+    ? req.travellers.find((t) => t.employeeId === travellerId)?.chosenClassId ?? req.travelClassId
+    : req.travelClassId;
+  if (!chosenId) return undefined;
+  const onDate = req.startDate ?? new Date();
+  const entitled = EcsTravelClassRegister.entitledForItinerary(
+    empId,
+    effectiveLegs(req, empId).map((l) => ({ durationHours: l.durationHours, isPersonal: l.isPersonal, destCode: EcsReference.airport(l.destCode)?.cityCode ?? l.destCode })),
+    onDate,
+  );
+  const entName = EcsReference.travelClass(entitled.classId)?.name;
+  const propName = EcsReference.travelClass(chosenId)?.name;
+  if (!entName || !propName) return undefined;
+  return { leftLabel: 'Entitled class', leftValue: entName, rightLabel: 'Proposed class', rightValue: propName };
+}
+
 /** Build the enriched exception views for the review page. */
 export function exceptionViews(req: FullRequest): ExceptionView[] {
   return req.policyChecks
     .filter((c) => c.outcome === POLICY_OUTCOME.Exception)
     .map((c) => {
       let impactSgd = 0;
-      if (c.code === 'CLASS') impactSgd = classUpgradeImpact(req, c.travellerId);
-      else if (c.code === 'HOTEL_CAP') impactSgd = hotelCapImpact(req, c.travellerId);
+      let breakdown: ExceptionView['breakdown'];
+      if (c.code === 'CLASS') { impactSgd = classUpgradeImpact(req, c.travellerId); breakdown = classBreakdown(req, c.travellerId); }
+      else if (c.code === 'HOTEL_CAP') { impactSgd = hotelCapImpact(req, c.travellerId); breakdown = hotelCapBreakdown(req, c.travellerId); }
       return {
         code: c.code,
         label: c.label,
@@ -91,6 +125,7 @@ export function exceptionViews(req: FullRequest): ExceptionView[] {
         impactSgd,
         severity: severityFor(impactSgd),
         justification: exceptionJustification(req, c.code, c.travellerId),
+        breakdown,
       } as ExceptionView;
     });
 }

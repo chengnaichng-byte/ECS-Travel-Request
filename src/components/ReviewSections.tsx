@@ -25,6 +25,8 @@ function durationDN(a: Date | null, b: Date | null) {
   const days = Math.round((b.getTime() - a.getTime()) / 86400000) + 1;
   return `${days}D/${Math.max(days - 1, 0)}N`;
 }
+// Days-to-book pill colour — amber once there is no runway left (0 days or overdue), green otherwise.
+const daysPill = (days: number) => (days <= 0 ? 'pill-warn' : 'pill-pass');
 function primaryCharging(req: FullRequest) {
   const p = [...req.allocations].sort((a, b) => b.percent - a.percent)[0];
   if (!p) return null;
@@ -151,6 +153,9 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const exImpact = exViews.reduce((s, e) => s + e.impactSgd, 0);
   // §26/§DD-25 was the exception already approved upstream (Exception Approver / Provost)?
   const upstreamExStep = req.approvalSteps.find((s) => (s.roleType === APPROVER_ROLE.Exception || s.roleType === APPROVER_ROLE.Provost) && s.status === 'Approved');
+  const exApproved = !!upstreamExStep;
+  const exApproverName = upstreamExStep ? (EcsIdentity.employee(upstreamExStep.approverId ?? '')?.name ?? '—') : '';
+  const exApproverRole = upstreamExStep?.roleType === APPROVER_ROLE.Provost ? 'Provost' : 'Exception Approver';
 
   // "You are approving" charging phrase
   const chargePhrase = crossCharge
@@ -173,8 +178,13 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {exViews.length > 0
-            ? <><span className="pill-warn">{exViews.length} Policy Exception{exViews.length > 1 ? 's' : ''}</span><span className="pill-pass">All other checks passed</span></>
-            : <span className="pill-pass">All policy checks passed</span>}
+            ? <>
+                {exApproved
+                  ? <span className="pill-pass">✓ {exViews.length} Exception{exViews.length > 1 ? 's' : ''} Approved</span>
+                  : <span className="pill-warn">{exViews.length} Policy Exception{exViews.length > 1 ? 's' : ''}</span>}
+                <span className="pill-pass">✓ All Other Checks Passed</span>
+              </>
+            : <span className="pill-pass">✓ All policy checks passed</span>}
           <a href={detailsHref} className="btn-secondary text-xs">View Full Details →</a>
         </div>
       </div>
@@ -229,10 +239,10 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           </TileRow>
           {crossCharge && (
             <div className="text-[11px] -mt-1">
-              {/* Accounts highest-share first (allocs is sorted desc by %). The list is height-capped
-                  and scrolls when there are many accounts, so the tile stays balanced with its
-                  neighbours; rows never wrap. The DOA-basis line stays below, always visible. */}
-              <ul className="space-y-0.5 max-h-24 overflow-y-auto pr-1">
+              {/* Accounts highest-share first (allocs is sorted desc by %). With more than two accounts
+                  the list is height-capped and scrolls, so the tile stays balanced with its neighbours;
+                  with two it shows in full. Rows never wrap; the DOA-basis line stays below, always visible. */}
+              <ul className={`space-y-0.5 pr-1 ${allocs.length > 2 ? 'max-h-24 overflow-y-auto' : ''}`}>
                 {allocs.map((a) => <li key={a.id} className="flex justify-between gap-2"><span className="truncate">{a.chargingCode}{EcsCharging.code(a.chargingCode)?.isResearch ? ' (research)' : ''}</span><span className="font-medium whitespace-nowrap">{a.percent}% · {amountFor(a.percent)}</span></li>)}
               </ul>
               <div className="text-[var(--ecs-muted)] pt-0.5 mt-0.5 border-t border-[var(--ecs-border)]">DOA basis: highest-share account{primaryCode ? ` (${EcsIdentity.department(primaryCode.departmentId)?.name ?? ''})` : ''}</div>
@@ -245,7 +255,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           <TileRow label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</TileRow>
           <TileRow label="Authorisation validity">
             {fmtPretty(req.createdAt)} – {fmtPretty(validityEnd)}
-            <div className="mt-1"><span className="pill-pass">{days} days to book</span></div>
+            <div className="mt-1"><span className={daysPill(days)}>{days} days to book</span></div>
           </TileRow>
         </SumTile>
       </div>
@@ -255,19 +265,35 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
         {exViews.length > 0 ? (
           <div className="rounded-md border border-[#f97316] bg-[#fff3e8] p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-[#c2410c]"><span className="text-[#ea580c]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-[#c2410c]"><span className="text-[#ea580c]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length}){exApproved && <span className="font-normal"> – Previously Approved</span>}</div>
               <a href={`${detailsHref}#sec-exceptions`} className="text-[#ea580c] hover:text-[#c2410c] text-sm" title="Jump to full details">›</a>
             </div>
-            <ol className="space-y-2 text-sm">
+            <ol className="space-y-3 text-sm">
               {exViews.map((e, i) => (
                 <li key={i}>
-                  <div className="flex items-center gap-2"><span className="font-medium text-[#7c2d12]">{i + 1}. {e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span></div>
-                  <div className="text-xs text-[#9a3412]/80">{e.detail}</div>
-                  <div className="text-xs text-[#7c2d12] mt-0.5"><span className="font-medium">Justification:</span> {e.justification ? <span className="italic">&ldquo;{e.justification}&rdquo;</span> : <span className="text-[#9a3412]/70">— none provided</span>}</div>
-                  {e.impactSgd > 0 && <div className="text-xs text-[#7c2d12]">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
+                  <div className="flex items-center gap-2"><span className="font-medium text-[#7c2d12]">{exViews.length > 1 ? `${i + 1}. ` : ''}{e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span>{e.travellerName && <span className="text-xs text-[#9a3412]/80">· {e.travellerName}</span>}</div>
+                  {e.breakdown ? (
+                    <div className="grid grid-cols-3 gap-2 mt-1.5">
+                      <div><div className="text-[11px] text-[#9a3412]/80">{e.breakdown.leftLabel}</div><div className="text-[13px] font-medium text-[#7c2d12]">{e.breakdown.leftValue}</div></div>
+                      <div><div className="text-[11px] text-[#9a3412]/80">{e.breakdown.rightLabel}</div><div className="text-[13px] font-medium text-[#7c2d12]">{e.breakdown.rightValue}</div></div>
+                      <div><div className="text-[11px] text-[#9a3412]/80">Incremental impact</div><div className="text-[13px] font-semibold text-[#5a1e0a] tabular-nums">{fmtSgd(e.impactSgd)}</div></div>
+                    </div>
+                  ) : (
+                    <>
+                      {e.detail && <div className="text-xs text-[#9a3412]/80 mt-0.5">{e.detail}</div>}
+                      {e.impactSgd > 0 && <div className="text-xs text-[#7c2d12] mt-0.5">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
+                    </>
+                  )}
+                  <div className="text-xs text-[#7c2d12] mt-1.5"><span className="font-medium">Justification:</span> {e.justification ? <span className="italic">&ldquo;{e.justification}&rdquo;</span> : <span className="text-[#9a3412]/70">— none provided</span>}</div>
                 </li>
               ))}
             </ol>
+            {exApproved && (
+              <div className="mt-3 pt-2 border-t border-[#fbd7b8] flex items-center gap-2 text-sm">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2f9e5f] text-white text-xs leading-none shrink-0">✓</span>
+                <span className="text-[#7c2d12]">Approved by <strong>{exApproverName}</strong> ({exApproverRole})</span>
+              </div>
+            )}
           </div>
         ) : (
           <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
@@ -278,13 +304,16 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
 
         <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
           <div className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Approval Requested</div>
-          <div className="text-sm text-[var(--ecs-muted)]">You are approving:</div>
-          <ul className="list-disc pl-5 text-sm space-y-1 mt-1">
-            <li>This trip for <strong>{whoPhrase}</strong> to <strong>{destText}</strong> ({dateText}).</li>
+          <div className="text-xs text-[var(--ecs-muted)] mb-2">You are being asked to approve:</div>
+          <div className="rounded-md border border-[#cdddf0] bg-[#eef3fa] p-3 mb-2">
+            <div className="text-sm font-semibold text-[var(--ecs-navy)]">Official travel for {whoPhrase} to {destText}</div>
+            <div className="text-xs text-[var(--ecs-muted)] mt-0.5">{dateText}</div>
+          </div>
+          <ul className="list-disc pl-5 text-sm space-y-1">
             <li>An estimated commitment of <strong>{fmtSgd(summary.ntuFunded)}</strong>{summary.sponsorship > 0 ? ` (gross ${fmtSgd(summary.gross)})` : ''} charged {chargePhrase}.</li>
             {exViews.length > 0 && (
               upstreamExStep
-                ? <li>The {exViews.map((e) => e.label.toLowerCase()).join('; ')} exception{exViews.length > 1 ? 's have' : ' has'} been <strong>separately approved</strong> ({upstreamExStep.roleType === APPROVER_ROLE.Provost ? 'Provost' : 'Exception Approver'}).</li>
+                ? <li>The {exViews.map((e) => e.label.toLowerCase()).join('; ')} exception{exViews.length > 1 ? 's have' : ' has'} been <strong>separately approved</strong> ({exApproverRole}).</li>
                 : <li>The {exViews.map((e) => e.label.toLowerCase()).join('; ')} exception{exViews.length > 1 ? 's' : ''}{exImpact > 0 ? <> with an estimated incremental cost of <strong>{fmtSgd(exImpact)}</strong></> : ''}.</li>
             )}
             {isGuest && <li>Guest cost is <strong>host direct-billed</strong> (no traveller claim) — see the Guest Settlement section.</li>}
@@ -350,7 +379,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
           </Field>
           <Field label="Travel authorisation validity">
             {fmtDate(req.createdAt)} – {fmtDate(validityEnd)}
-            <div className="mt-1"><span className="pill-pass">{days} days to book</span></div>
+            <div className="mt-1"><span className={daysPill(days)}>{days} days to book</span></div>
           </Field>
         </div>
       </Card>
