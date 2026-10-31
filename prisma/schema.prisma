@@ -49,7 +49,8 @@ model ModuleSettings {
   visaLetterBatchLastRunAt DateTime?                                          // §4.13 last run of the daily visa-letter timer job (automatic; gates the once-per-day run)
   authorisationValidityDays Int  @default(30)     // §13.3
   bookingDeadlineDays    Int     @default(14)     // §13.3
-  emergencyLeadDays      Int     @default(14)     // §13.x/DD-23 emergency-lane standard lead-time window (days before departure); beyond it the out-of-window justification + confirmation are required
+  emergencyLeadDays      Int     @default(14)     // §13.x/DD-23 emergency-lane AUTO-trigger lead-time window (days before departure)
+  emergencyEvidenceRequired Boolean @default(true) // §DD-23 Mode A (true) = capture authorising officer + e-mail on auto-emergency; Mode B (false) = float through approval, no evidence
   ctaPostingTiming       String  @default("ON_RECEIPT") // DD-31 ON_RECEIPT | AT_CLAIM — when CTA charges post to SAP
   updatedAt              DateTime @updatedAt
 }

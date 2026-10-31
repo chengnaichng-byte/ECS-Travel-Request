@@ -60,17 +60,24 @@ export default async function SettingsPage() {
         <Card title="Emergency lane (DD-23)" className="mt-5">
           <div className="grid md:grid-cols-3 gap-4 items-start">
             <div>
-              <label className="label">Standard lead-time window (days before departure)</label>
+              <label className="label">Auto-trigger lead-time window (days before departure)</label>
               <input type="number" name="emergencyLeadDays" defaultValue={Number(s.emergencyLeadDays)} className="field" />
             </div>
-            <div className="md:col-span-2 text-xs text-[var(--ecs-muted)] leading-relaxed">
-              Within this window the emergency lane is freely available. Beyond it (plenty of runway to the
-              earliest departure) the lane is <strong>soft-gated</strong>: the traveller must give a fuller
-              justification and tick an explicit confirmation, and the request is flagged
-              <span className="pill-exc mx-1">Outside standard window</span> for the approver and in reporting.
-              The emergency lane is offered only for <strong>TMC agent-assisted or offline</strong> bookings
-              (a human agent holds/books ahead of approval), and it no longer compresses the route — the
-              <strong> full approval workflow still runs, retrospectively</strong>, after the book-first hand-off.
+            <div>
+              <label className="label">Evidence handling</label>
+              <select name="emergencyEvidenceRequired" defaultValue={s.emergencyEvidenceRequired ? 'on' : 'off'} className="field">
+                <option value="on">Mode A — capture authorising officer + e-mail</option>
+                <option value="off">Mode B — float through approval, no evidence</option>
+              </select>
+            </div>
+            <div className="text-xs text-[var(--ecs-muted)] leading-relaxed">
+              The emergency lane is <strong>auto-determined by the system</strong> — not a traveller opt-in. A trip is
+              placed on the lane when the earliest departure is within this window <strong>and</strong> the booking is a
+              <strong> TMC agent-assisted or offline</strong> channel (a human agent can book ahead). The
+              <strong> full approval workflow still runs, retrospectively</strong>; the only change is the TMC booking is
+              handed over <strong>concurrently on submit</strong>. Under <strong>Mode A</strong> the traveller captures the
+              authorising officer and the approval e-mail on Review &amp; Submit; under <strong>Mode B</strong> the request
+              simply floats through the normal approval with no extra evidence.
             </div>
           </div>
         </Card>

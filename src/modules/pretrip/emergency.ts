@@ -52,3 +52,12 @@ export function hasEmergencyApproval(req: { attachments: { docType: string }[] }
 export function isEmergencyBookFirst(req: Pick<FullRequest, 'isEmergency' | 'emergencyAuthoriserId'>): boolean {
   return !!req.isEmergency && !!req.emergencyAuthoriserId;
 }
+
+// §DD-23 AUTO-DETERMINATION: the emergency lane is not a traveller opt-in — the system places a trip
+// on it when BOTH hold: the earliest departure is within the configured lead-time window (a genuine
+// time-pressured booking) AND the booking method can book ahead (agent-assisted / offline TMC channel).
+// Unlike withinEmergencyWindow, an UNDATED request never auto-qualifies (no objective basis to rush it).
+export function qualifiesForEmergency(req: LeadReq & { bookingMethod?: string | null }, windowDays: number, from?: Date): boolean {
+  const lt = leadTimeDays(req, from);
+  return lt != null && lt <= windowDays && emergencyMethodAllowed(req);
+}

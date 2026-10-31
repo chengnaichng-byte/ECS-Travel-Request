@@ -11,7 +11,7 @@ import { travelClasses } from '@/data/travelClass';
 import { exceptionNeedsApproval } from '@/config/policyThresholds';
 import { REQUEST_STATUS } from '@/shared/enums';
 import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
-import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
+import { EMERGENCY_APPROVAL_DOC, qualifiesForEmergency, leadTimeDays } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
@@ -97,14 +97,15 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const doaStep = previewSteps.find((s) => isDoaRole(s.roleType));
   const doaRoleLabel = doaStep?.roleType === APPROVER_ROLE.ResearchDOA ? 'Research DOA' : 'DOA';
   const doaCandidates = doaCandidatesFor(req, { approvalAmount: summary.approvalAmount, sameRouteResearch: settings.sameRouteResearch });
-  // §13.x / DD-23 emergency authorising officers — senior, non-traveller staff.
+  // §DD-23 Emergency lane is AUTO-DETERMINED: the system places the trip on the lane when the earliest
+  // departure is within the lead-time window AND the booking can book ahead. The approval workflow is
+  // unchanged; the only effect is the TMC hand-off goes out concurrently on submit. Under Mode A
+  // (emergencyEvidenceRequired) the traveller captures the authorising officer + e-mail here.
+  const isEmergencyNow = qualifiesForEmergency(req, settings.emergencyLeadDays);
+  const emergencyEvidenceMode = settings.emergencyEvidenceRequired;
   const emergencyAuthorisers = employees.filter((e) => !e.isTraveller && e.travelPolicyGroup === 'SENIOR' && e.id !== req.travellerId);
   const emergencyApprovals = req.attachments.filter((a) => a.docType === EMERGENCY_APPROVAL_DOC);
-  // §13.x / DD-23 emergency-lane gates: the book-first lane needs an agent-assisted / offline TMC
-  // booking, and raising it outside the configured lead-time window is soft-gated.
-  const emergencyMethodOk = emergencyMethodAllowed(req);
   const emergencyLeadDays = leadTimeDays(req);
-  const emergencyOutsideWindow = !withinEmergencyWindow(req, settings.emergencyLeadDays);
   // §13.x Non-term research travel — available only when the trip is on a research WBS (offline
   // approval already exists for research-funded travel). Evidence is the attached approval e-mail.
   const nonTermAvailable = isResearchRequest(req);
@@ -303,13 +304,49 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           </Card>
         )}
 
-        {/* §13.x / DD-23 The Emergency lane and the Non-term research attestation are declared on the
-            Trip step and stored on the request. They are carried into submission here as hidden inputs
-            so submitRequest still validates and persists them (the capture UI lives on the Trip step). */}
-        <input type="hidden" name="emergency" value={req.isEmergency ? 'on' : ''} />
-        <input type="hidden" name="emergencyAuthoriserId" value={req.emergencyAuthoriserId ?? ''} />
-        <input type="hidden" name="emergencyJustification" value={req.emergencyJustification ?? ''} />
-        <input type="hidden" name="emergencyOutOfWindowAck" value={req.emergencyOutsideWindow ? 'on' : ''} />
+        {/* §DD-23 Emergency lane — AUTO-DETERMINED by the system (not a traveller opt-in). The card
+            appears only when this request qualifies (urgent lead time + a book-ahead TMC channel); it
+            informs the traveller and, under Mode A, captures the authorising officer + e-mail here. */}
+        {isEmergencyNow && (
+          <Card title="Emergency lane — auto-determined (DD-23)">
+            <div className="text-sm rounded border border-[#f59e0b] bg-[#fff8ec] p-3 space-y-1">
+              <p><span className="pill-exc mr-1">Emergency lane</span> This request departs in about <strong>{emergencyLeadDays ?? '—'} day(s)</strong> and uses a <strong>{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</strong> booking, so the system has placed it on the emergency lane.</p>
+              <p>The <strong>full approval workflow still runs</strong> — the only change is that the booking is handed to the TMC <strong>concurrently on submit</strong>, rather than waiting for approval to complete.</p>
+            </div>
+            {emergencyEvidenceMode ? (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-[var(--ecs-muted)]">This institution captures emergency evidence (Mode A): record the officer who authorised booking ahead of approval and attach their e-mail.</p>
+                <div>
+                  <label className="label">Authorising officer <span className="text-[var(--ecs-red)]">*</span></label>
+                  <select name="emergencyAuthoriserId" defaultValue={req.emergencyAuthoriserId ?? ''} className="field w-96 max-w-full">
+                    <option value="">— select an authorising officer —</option>
+                    {emergencyAuthorisers.map((e) => <option key={e.id} value={e.id}>{e.name} · {e.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Authorising e-mail <span className="text-[var(--ecs-red)]">*</span> — attach the officer&apos;s e-mail (PDF/PNG/JPEG)</label>
+                  {emergencyApprovals.length > 0 ? (
+                    <ul className="text-xs mb-1 space-y-0.5">
+                      {emergencyApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-[var(--ecs-red)] mb-1">Required on the emergency lane — attach the authorising e-mail before submitting.</p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
+                    <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
+                    <button formNoValidate formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach authorising e-mail</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-[var(--ecs-muted)]">This institution does not require emergency evidence to be captured (Mode B) — the request floats through the normal approval with no additional evidence.</p>
+            )}
+          </Card>
+        )}
+
+        {/* §13.x The Non-term research attestation is declared on the Trip step and stored on the request;
+            carried into submission here as a hidden input so submitRequest re-validates and persists it. */}
         <input type="hidden" name="nonTerm" value={req.nonTermDeclared ? 'on' : ''} />
 
         <Card title="Declaration">

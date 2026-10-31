@@ -104,8 +104,8 @@ export function RequestChrome({ req, id, persona, settings }: {
             {req.emergencyOutsideWindow && <span className="pill-warn">Outside standard window</span>}
           </div>
           <div className="mt-1">
-            Authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId ?? '')?.name ?? '—'}</strong>; the trip may be booked (or already booked) ahead of approval.{' '}
-            The <strong>full approval workflow still applies</strong> and is ratified <strong>retrospectively</strong> — the emergency changes the timing of approval, not who approves.{' '}
+            {req.emergencyAuthoriserId && <>Authorised by <strong>{EcsIdentity.employee(req.emergencyAuthoriserId)?.name ?? '—'}</strong>; </>}The trip is handed to the TMC <strong>concurrently on submit</strong> and may be booked ahead of approval.{' '}
+            The <strong>full approval workflow still applies</strong> and is ratified <strong>retrospectively</strong> — the emergency changes the timing of the booking hand-off, not who approves.{' '}
             {isApproved ? <span className="font-semibold">Ratified ✓</span> : <span className="font-semibold">Ratification {req.status.startsWith('Pending') ? 'in progress' : '—'}.</span>}
           </div>
           {req.emergencyJustification && <div className="mt-1 text-xs italic">&ldquo;{req.emergencyJustification}&rdquo;</div>}

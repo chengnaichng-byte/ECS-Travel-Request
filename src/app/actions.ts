@@ -71,6 +71,7 @@ export async function saveModuleSettings(fd: FormData) {
   patch.authorisationValidityDays = parseInt(String(fd.get('authorisationValidityDays') ?? '30'), 10) || 30;
   patch.bookingDeadlineDays = parseInt(String(fd.get('bookingDeadlineDays') ?? '14'), 10) || 14;
   patch.emergencyLeadDays = parseInt(String(fd.get('emergencyLeadDays') ?? '14'), 10) || 14;
+  patch.emergencyEvidenceRequired = fd.get('emergencyEvidenceRequired') !== 'off';
   // §43 settings breadth
   patch.selfApprovalLimitSgd = parseInt(String(fd.get('selfApprovalLimitSgd') ?? '0'), 10) || 0;
   patch.attachmentMaxMb = parseInt(String(fd.get('attachmentMaxMb') ?? '7'), 10) || 7;

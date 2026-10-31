@@ -22,7 +22,7 @@ import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClas
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember } from './traveller';
-import { hasEmergencyApproval, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from './emergency';
+import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
 import { m6GroupCodes } from './policyGroups';
@@ -327,12 +327,11 @@ export async function saveTrip(id: string, fd: FormData) {
   // Individual requests keep the traveller-chosen class + any higher-class justification.
   const chosenClass = isGroupReq ? derived.classId : (str(fd, 'travelClassId') || derived.classId);
   const bookingArr = str(fd, 'bookingArrangement') || BOOKING_ARRANGEMENT.Auto;
-  // §13.x / DD-23 Emergency lane and non-term research attestation are declared HERE on the Trip step
-  // (their conditions — booking method and research funding — are trip attributes). The fields are
-  // stored on the request and carried into submission; the Submit step no longer captures them. The
-  // emergency checkbox only renders when the booking method allows it and non-term only when the trip
-  // is research-eligible, so an absent field means "not declared" and the value clears correctly.
-  const emergencyOn = str(fd, 'emergency') === 'on';
+  // §13.x Non-term research attestation is declared HERE on the Trip step (its condition — research
+  // funding — is a trip attribute), stored on the request and carried into submission. The non-term
+  // dropdown only renders when the trip is research-eligible, so an absent field means "not declared"
+  // and the value clears correctly. The EMERGENCY lane is no longer a Trip-step opt-in: it is
+  // AUTO-DETERMINED by the system at submission (lead time + booking method), so nothing is stored here.
   const nonTermOn = str(fd, 'nonTerm') === 'on';
 
   await prisma.travelRequest.update({
@@ -360,11 +359,7 @@ export async function saveTrip(id: string, fd: FormData) {
       entitledClassId: derived.classId,
       classBasis: derived.basis,
       classJustification: isGroupReq ? null : (str(fd, 'classJustification') || null),
-      // §13.x / DD-23 emergency lane + non-term attestation (declared on the Trip step).
-      isEmergency: emergencyOn,
-      emergencyAuthoriserId: emergencyOn ? (str(fd, 'emergencyAuthoriserId') || null) : null,
-      emergencyJustification: emergencyOn ? (str(fd, 'emergencyJustification') || null) : null,
-      emergencyOutsideWindow: emergencyOn && str(fd, 'emergencyOutOfWindowAck') === 'on',
+      // §13.x non-term attestation (declared on the Trip step); emergency is auto-determined at submit.
       nonTermDeclared: nonTermOn,
     },
   });
@@ -1210,49 +1205,31 @@ export async function submitRequest(id: string, fd?: FormData) {
       revalidatePath(`/requests/${id}/review`);
       return;
     }
-    // §13.x / DD-23 Emergency lane (book first, raise later) — a bounded, audited lane that changes
-    // the TIMING of approval, not the SET of approvers: it needs a justification and a named
-    // authorising officer (never the traveller) plus the authorising e-mail, and it permits a
-    // book-first hand-off before approval. The FULL approval workflow still runs, retrospectively.
-    if (str(fd, 'emergency') === 'on') {
-      const ej = str(fd, 'emergencyJustification').trim();
+    // §DD-23 Emergency lane — AUTO-DETERMINED by the system (not a traveller opt-in): a trip is on the
+    // emergency lane when it is URGENT (earliest departure within the emergency window) AND the booking
+    // method can book ahead. The FULL approval workflow still runs, retrospectively; the only change is
+    // that the TMC hand-off goes out CONCURRENTLY on submit. Evidence (authorising officer + e-mail) is
+    // captured only when the institution has emergencyEvidenceRequired ON (Mode A — evidence-captured);
+    // with it OFF (Mode B) the request simply floats through the normal approval with no extra evidence.
+    const isEmergencyNow = qualifiesForEmergency(req, settings.emergencyLeadDays);
+    if (isEmergencyNow && settings.emergencyEvidenceRequired) {
       const ea = str(fd, 'emergencyAuthoriserId');
-      if (!ej || !ea || ea === req.travellerId) {
-        await audit(id, 'STATUS', 'Submission blocked — emergency lane requires a justification and an authorising officer (not the traveller)');
-        redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency lane needs a justification and an authorising officer (not the traveller).')}`);
+      if (!ea || ea === req.travellerId) {
+        await audit(id, 'STATUS', 'Submission blocked — emergency lane (evidence mode) needs an authorising officer (not the traveller)');
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('This request is on the emergency lane — select the authorising officer (not the traveller) before submitting.')}`);
       }
-      // §13.x / DD-23 the book-first lane is only for a TMC channel where an agent can hold/place a
-      // booking ahead of approval — agent-assisted or offline. Block with guidance otherwise.
-      if (!emergencyMethodAllowed(req)) {
-        await audit(id, 'STATUS', `Submission blocked — emergency lane requires an agent-assisted or offline TMC booking (is ${req.bookingMethod ?? 'none'})`);
-        redirect(`/requests/${id}/review?error=${encodeURIComponent('The emergency lane is only available for TMC agent-assisted or offline bookings — a human agent must be able to book ahead of approval. Change the booking method on the Trip step to agent-assisted or offline.')}`);
-      }
-      // §13.x / DD-23 a mandatory email approval (the authorising officer's e-mail) must be attached.
       if (!hasEmergencyApproval(req)) {
-        await audit(id, 'STATUS', 'Submission blocked — emergency lane requires the authorising email approval to be attached');
-        redirect(`/requests/${id}/review?error=${encodeURIComponent('Attach the mandatory email approval (the authorising officer’s e-mail) before submitting an emergency request.')}`);
+        await audit(id, 'STATUS', 'Submission blocked — emergency lane (evidence mode) needs the authorising e-mail');
+        redirect(`/requests/${id}/review?error=${encodeURIComponent('This request is on the emergency lane — attach the authorising officer’s e-mail before submitting.')}`);
       }
-      // §13.x / DD-23 soft lead-time gate — within the configured window the lane is freely
-      // available; outside it (ample runway to the earliest departure) a fuller justification and
-      // an explicit confirmation are mandatory, and the request is flagged outside-window.
-      const outsideWindow = !withinEmergencyWindow(req, settings.emergencyLeadDays);
-      if (outsideWindow) {
-        const ack = str(fd, 'emergencyOutOfWindowAck') === 'on';
-        if (!ack || ej.length < EMERGENCY_OOW_MIN_JUSTIFICATION) {
-          const lead = leadTimeDays(req);
-          await audit(id, 'STATUS', `Submission blocked — emergency outside the ${settings.emergencyLeadDays}-day window (departs in ${lead ?? '—'} days) needs a detailed justification and the out-of-window confirmation`);
-          redirect(`/requests/${id}/review?error=${encodeURIComponent(`This trip departs in about ${lead ?? '—'} day(s) — beyond the ${settings.emergencyLeadDays}-day standard window. Using the emergency lane here needs a detailed justification (at least ${EMERGENCY_OOW_MIN_JUSTIFICATION} characters) and the explicit out-of-window confirmation.`)}`);
-        }
-      }
-      // §13.x the full workflow runs — preserve the traveller's selected DOA / additional approver.
-      await prisma.travelRequest.update({ where: { id }, data: {
-        isEmergency: true, isRetrospective: false, emergencyOutsideWindow: outsideWindow,
-        emergencyJustification: ej, emergencyAuthoriserId: ea, emergencyRatified: false,
-        additionalApproverId: aaId, selectedDoaId: str(fd, 'selectedDoaId') || null, personalAck, highRiskAck, nonTermDeclared,
-      } });
-    } else if (piSelfApproves) {
+    }
+    const emergencyFields = {
+      isEmergency: isEmergencyNow, isRetrospective: false, emergencyOutsideWindow: false, emergencyRatified: false,
+      emergencyAuthoriserId: isEmergencyNow && settings.emergencyEvidenceRequired ? (str(fd, 'emergencyAuthoriserId') || null) : null,
+    };
+    if (piSelfApproves) {
       // decision 3 — the PI is the DOA; no external DOA selection is needed.
-      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, emergencyOutsideWindow: false, additionalApproverId: aaId, selectedDoaId: null, personalAck, highRiskAck, nonTermDeclared } });
+      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, additionalApproverId: aaId, selectedDoaId: null, personalAck, highRiskAck, nonTermDeclared } });
     } else {
       // §13.14 / decision 1 — the DOA is DEFAULTED when exactly one candidate is eligible; with several,
       // the traveller selects one (self is already excluded from the candidate list).
@@ -1264,7 +1241,7 @@ export async function submitRequest(id: string, fd?: FormData) {
         await audit(id, 'STATUS', 'Submission blocked — please select the approving DOA');
         redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
       }
-      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, emergencyOutsideWindow: false, additionalApproverId: aaId, selectedDoaId: effectiveDoa || null, personalAck, highRiskAck, nonTermDeclared } });
+      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, additionalApproverId: aaId, selectedDoaId: effectiveDoa || null, personalAck, highRiskAck, nonTermDeclared } });
     }
   }
 
