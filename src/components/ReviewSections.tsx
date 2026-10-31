@@ -14,7 +14,6 @@ import { bookingSummaryText, arrangementLabel, isTmcArrangement } from '@/module
 import { ENTITY_NAME } from '@/data/organisation';
 import { Card, CollapsibleCard } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type BreakField, type SummaryRow } from './CostItemsTable';
-import { DestinationList } from './DestinationList';
 import { mainDestination } from '@/modules/pretrip/destination';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -66,19 +65,6 @@ function destinationText(req: FullRequest): string {
   const text = [city, country].filter(Boolean).join(', ');
   return text || 'Not specified';
 }
-/** Distinct destination city NAMES for a multi-city trip — the places visited, in itinerary
- *  order, excluding the home origin and the return-home leg. */
-function multiCityDestinationNames(req: FullRequest): string[] {
-  const codes = routeCityCodes(req);
-  const home = codes[0];
-  const out: string[] = [];
-  for (const c of codes.slice(1)) {
-    if (c === home) continue; // the leg back to the home base is not a destination
-    const name = EcsReference.city(c)?.name ?? c;
-    if (!out.includes(name)) out.push(name);
-  }
-  return out;
-}
 /** Count of distinct foreign countries on the itinerary (excludes Singapore as the base). */
 function foreignCountryCount(req: FullRequest): number {
   return new Set(sharedLegs(req).map((l) => EcsReference.city(EcsReference.airport(l.destCode)?.cityCode ?? '')?.countryCode).filter((c) => c && c !== 'SG')).size;
@@ -126,7 +112,12 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const coordinator = EcsIdentity.employee(req.requestorId)?.name ?? '—';
   const purpose = EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—';
 
-  const destText = destinationText(req);
+  // Main city/country of stay (longest-stay country + its longest-stay city) — same helper as the Trip
+  // step, Review and Full Details, so all views record the same destination. Falls back to persisted.
+  const md = mainDestination(sharedLegs(req));
+  const mdCity = EcsReference.city(md.cityCode || (req.destCity ?? ''))?.name;
+  const mdCountry = EcsReference.country(md.countryCode || (req.destCountry ?? ''))?.name;
+  const destText = mdCity ? [mdCity, mdCountry].filter(Boolean).join(', ') : (mdCountry ?? destinationText(req));
   const tripType = tripTypeLabel(req);
   const foreignCountries = foreignCountryCount(req);
   const isMultiCity = req.tripType === 'MULTI_CITY';
@@ -205,10 +196,10 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
 
         <SumTile title="Trip Details" href={`${detailsHref}#sec-trip`}>
           <TileRow label="Trip type">{tripType}</TileRow>
-          <TileRow label={isMultiCity ? 'Destinations' : 'Destination'}>
+          <TileRow label="Destination">
             <div>
-              <div>{isMultiCity ? <DestinationList cities={multiCityDestinationNames(req)} max={2} /> : destText}</div>
-              {isMultiCity && foreignCountries > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">{foreignCountries} countr{foreignCountries === 1 ? 'y' : 'ies'}</div>}
+              <div>{destText}</div>
+              {isMultiCity && <div className="text-[11px] text-[var(--ecs-muted)]">{sharedLegs(req).length} legs · {foreignCountries} countr{foreignCountries === 1 ? 'y' : 'ies'}</div>}
             </div>
           </TileRow>
           {req.isGroup && <TileRow label="Travellers">{req.travellers.length}</TileRow>}
