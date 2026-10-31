@@ -117,7 +117,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           continueHref={`/requests/${id}/estimates`}
           disabled={!canEdit}
           conflicts={conflicts}
-        />
+          footer={<>
 
         {/* §13.x / DD-23 Emergency lane (book first, raise later) — declared here; availability follows
             the SAVED booking method (set an agent-assisted / offline method above, then save). */}
@@ -227,6 +227,8 @@ export default async function TripStep({ params, searchParams }: { params: Promi
             )}
           </div>
         </details>
+          </>}
+        />
       </form>
     </div>
   );

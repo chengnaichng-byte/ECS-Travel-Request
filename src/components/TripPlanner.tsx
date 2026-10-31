@@ -65,7 +65,7 @@ function computeLegNights(ls: LegIn[], i: number): number {
 export function TripPlanner({
   airports, airportMeta, initialTripType, initialLegs,
   initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
-  continueHref, disabled, conflicts,
+  continueHref, disabled, conflicts, footer,
 }: {
   airports: Opt[];
   airportMeta: Record<string, AirportMeta>;
@@ -77,6 +77,9 @@ export function TripPlanner({
   // Live requests sharing a traveller — the Trip step runs the duplicate/overlap check against the
   // itinerary being entered and shows it in the validation panel (not only at the Submit gate).
   conflicts?: TravellerConflict[];
+  // §13.x Rendered AFTER the itinerary card but BEFORE the Save actions — the Trip step passes the
+  // Emergency / Non-term lane sections here so the Save buttons stay the last thing on the step.
+  footer?: React.ReactNode;
 }) {
   const [start, setStartRaw] = useState(initialStart);
   const [end, setEndRaw] = useState(initialEnd);
@@ -320,14 +323,16 @@ export function TripPlanner({
             </div>
           )}
 
-          <div className="flex justify-end gap-2">
-            {!disabled && <button type="submit" name="saveMode" value="draft" className="btn-secondary" title="Save what you have entered and return to the dashboard — finish it later">Save as draft</button>}
-            {disabled
-              ? <Link href={continueHref} className="btn-primary">Continue →</Link>
-              : <button type="submit" disabled={blocking} className="btn-primary">Save trip &amp; continue →</button>}
-          </div>
         </div>
       </Card>
+      {/* Emergency / Non-term lanes (passed from the Trip step) sit here — above the Save actions. */}
+      {footer}
+      <div className="flex justify-end gap-2">
+        {!disabled && <button type="submit" name="saveMode" value="draft" className="btn-secondary" title="Save what you have entered and return to the dashboard — finish it later">Save as draft</button>}
+        {disabled
+          ? <Link href={continueHref} className="btn-primary">Continue →</Link>
+          : <button type="submit" disabled={blocking} className="btn-primary">Save trip &amp; continue →</button>}
+      </div>
     </>
   );
 }
