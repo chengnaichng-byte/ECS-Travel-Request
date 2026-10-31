@@ -193,7 +193,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             class) and the full itinerary; the Policy Exceptions card lists the hotel-cap / travel-class
             exceptions. The justification is captured on the Estimates airfare form and edited on the
             Policy Review step, so it is NOT repeated on this submit page. §13.14 / §13.19 / §4.4. */}
-        <div className="grid md:grid-cols-3 gap-5 items-start">
+        <div className="grid md:grid-cols-3 gap-5 items-stretch">
         <Card title="Trip" className="md:col-span-2">
           {/* Three fixed columns (per the agreed layout): who/what/where · when/class · booking/route. */}
           <div className="grid md:grid-cols-3 gap-x-8 gap-y-4">
