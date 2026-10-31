@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios, seedNonTermResearchDemo } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoDoaReview } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
@@ -72,6 +72,22 @@ export default async function Dashboard() {
             {canCreate && <Link href="/requests/new" className="btn-primary">＋ Create Travel Request</Link>}
           </>
         } />
+
+      {/* Demo-scenario launchers — each seeds a fully pre-filled DRAFT (not submitted) and switches the
+          acting persona in one click. The DOA review necessarily opens a submitted request to approve. */}
+      {requests.length > 0 && (
+        <div className="card p-4 mb-5">
+          <div className="text-sm font-semibold text-[var(--ecs-navy)] mb-1">Demo scenarios</div>
+          <div className="text-xs text-[var(--ecs-muted)] mb-3">One click seeds a pre-filled draft (ready to submit) and switches you to the right persona. The DOA review opens a submitted request to approve.</div>
+          <div className="flex flex-wrap gap-2">
+            <form action={demoIndividualDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled individual draft and act as the traveller.">▶ Individual TR · as Dr Alice Tan</button></form>
+            <form action={demoGroupDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled group draft and act as the PA.">▶ Group TR · as Priya Nair (PA)</button></form>
+            <form action={demoGuestDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled guest draft and act as the host PA.">▶ Guest TR · as Priya Nair (PA)</button></form>
+            <form action={demoEmergencyDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled, urgent agent-assisted draft (qualifies for the emergency lane on submit) and act as the traveller.">▶ Emergency TR · as Dr Alice Tan</button></form>
+            <form action={demoDoaReview}><button className="btn-secondary text-xs" title="Open a submitted request at Pending DOA, acting as the assigned DOA, ready to review and approve.">▶ DOA review &amp; approval · as DOA</button></form>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {buckets.map((b) => (

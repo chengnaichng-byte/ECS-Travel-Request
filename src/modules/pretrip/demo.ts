@@ -472,6 +472,107 @@ export async function seedNonTermResearchDemo() {
   redirect(`/requests/${id}/review`);
 }
 
+/* ------------------------------------------------------------------------------------------------
+ * Dashboard demo-scenario launchers. Each seeds a FULLY PRE-FILLED DRAFT (trip, estimates, charging)
+ * but does NOT submit it — so a presenter opens it at Review ready to submit — and switches the acting
+ * persona to the right identity. Every launcher is idempotent: it first clears its own prior demo
+ * draft (keyed by a unique tag in the description) so repeated clicks never pile up drafts.
+ * ------------------------------------------------------------------------------------------------ */
+const demoDay = (days: number) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
+
+async function clearDemoDrafts(tag: string) {
+  const stale = await prisma.travelRequest.findMany({ where: { status: REQUEST_STATUS.Draft, description: { contains: tag } }, select: { id: true } });
+  if (!stale.length) return;
+  const ids = stale.map((s) => s.id);
+  await prisma.auditEvent.deleteMany({ where: { requestId: { in: ids } } });
+  await prisma.travelRequest.deleteMany({ where: { id: { in: ids } } });
+}
+
+async function switchPersona(empId: string, roleKey: string) {
+  const store = await cookies();
+  store.set(PERSONA_COOKIE, empId, { path: '/' });
+  store.set(ROLE_COOKIE, roleKey, { path: '/' });
+  revalidatePath('/', 'layout');
+}
+
+/** Individual TR — pre-filled draft as Dr Alice Tan (Requestor). */
+export async function demoIndividualDraft() {
+  const TAG = '[demo:individual]';
+  await clearDemoDrafts(TAG);
+  const off = 60;
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: demoDay(off), end: demoDay(off + 4),
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1200, currency: 'SGD', classId: 'TC-ECO' }, hotel: { city: 'TYO', nights: 4, quotedNightly: 300 },
+    oda: { country: 'JP', city: 'TYO', arrive: demoDay(off), depart: demoDay(off + 4) }, conference: { amount: 800 },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { description: `Individual conference — Tokyo ${TAG}` } });
+  await backfillHotelDates(id); await rebuildOda(id);
+  await switchPersona('E-TRAV', 'REQUESTOR');
+  redirect(`/requests/${id}/review`);
+}
+
+/** Group TR — pre-filled draft (three travellers) as Priya Nair (PA). */
+export async function demoGroupDraft() {
+  const TAG = '[demo:group]';
+  await clearDemoDrafts(TAG);
+  const off = 62;
+  const id = await buildGroupDraft(`Group conference — Tokyo ${TAG}`, demoDay(off), demoDay(off + 4));
+  await backfillHotelDates(id); await rebuildOda(id);
+  await switchPersona('E-PA', 'PA');
+  redirect(`/requests/${id}/review`);
+}
+
+/** Guest TR — pre-filled draft (non-employee) as Priya Nair (PA, host). */
+export async function demoGuestDraft() {
+  const TAG = '[demo:guest]';
+  await clearDemoDrafts(TAG);
+  const off = 64;
+  const id = await seedGuestRequest({
+    guestName: 'Prof Maria Santos', guestEmail: 'maria.santos@mit.edu', guestOrg: 'MIT', purposeId: 'TP-TC-ACAD',
+    destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: demoDay(off), end: demoDay(off + 4),
+    nights: 4, durationHours: 6, airfare: 1450, nightly: 240, descr: `Guest keynote — Seoul ${TAG}`,
+  });
+  await backfillHotelDates(id); await rebuildOda(id);
+  await switchPersona('E-PA', 'PA');
+  redirect(`/requests/${id}/review`);
+}
+
+/** Emergency lane TR — pre-filled draft set up to QUALIFY (urgent lead time + agent-assisted TMC),
+ *  as Dr Alice Tan (Requestor). It is not submitted; the emergency lane auto-determines on submit. */
+export async function demoEmergencyDraft() {
+  const TAG = '[demo:emergency]';
+  await clearDemoDrafts(TAG);
+  const off = 5;
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-OB-ACAD', isResearch: false,
+    destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: demoDay(off), end: demoDay(off + 3),
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+    airfare: { amount: 1400, currency: 'SGD', classId: 'TC-ECO' }, hotel: { city: 'SEL', nights: 3, quotedNightly: 260 },
+    oda: { country: 'KR', city: 'SEL', arrive: demoDay(off), depart: demoDay(off + 3) },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { bookingArrangement: 'AUTO', description: `Urgent funder meeting — Seoul (emergency book-first) ${TAG}` } });
+  await backfillHotelDates(id); await rebuildOda(id);
+  await switchPersona('E-TRAV', 'REQUESTOR');
+  redirect(`/requests/${id}/review`);
+}
+
+/** DOA review & approval — opens an already-SUBMITTED request sitting at Pending DOA, acting as the
+ *  assigned DOA (a draft cannot be approved, so this scenario necessarily uses a submitted request). */
+export async function demoDoaReview() {
+  const req = await prisma.travelRequest.findFirst({
+    where: { status: { contains: 'Pending DOA' }, isGroup: false, travellerType: { not: 'GUEST' }, isEmergency: false },
+    select: { id: true }, orderBy: { requestNumber: 'asc' },
+  });
+  if (!req) { revalidatePath('/dashboard'); return; }
+  const step = await prisma.approvalStep.findFirst({ where: { requestId: req.id, status: 'Pending' }, orderBy: { seq: 'asc' }, select: { approverId: true } });
+  await switchPersona(step?.approverId ?? 'E-DOA', 'DOA');
+  redirect(`/requests/${req.id}`);
+}
+
 export async function seedDemoScenarios() {
   const existing = await prisma.travelRequest.count();
   if (existing > 0) { revalidatePath('/dashboard'); return; }
