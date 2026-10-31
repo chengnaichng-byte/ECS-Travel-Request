@@ -26,6 +26,16 @@ function durationDN(a: Date | null, b: Date | null) {
 }
 // Days-to-book pill colour — amber once there is no runway left (0 days or overdue), green otherwise.
 const daysPill = (days: number) => (days <= 0 ? 'pill-warn' : 'pill-pass');
+
+// §13.19 Entitled / Proposed travel class — the traveller's entitlement and the class they propose,
+// shown together so an approver sees any upgrade at a glance. An "above entitlement" pill flags a
+// proposed cabin ranked higher than the entitlement (a policy exception).
+function entitledProposedClass(req: FullRequest): React.ReactNode {
+  const ent = EcsReference.travelClass(req.entitledClassId ?? '');
+  const prop = EcsReference.travelClass(req.travelClassId ?? '');
+  const above = (prop?.rank ?? 0) > (ent?.rank ?? 0);
+  return <>{ent?.name ?? '—'} / {prop?.name ?? '—'}{above && <span className="pill-warn ml-1">above entitlement</span>}</>;
+}
 function primaryCharging(req: FullRequest) {
   const p = [...req.allocations].sort((a, b) => b.percent - a.percent)[0];
   if (!p) return null;
@@ -126,7 +136,6 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
     ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers`
     : (req.personalStart ? `${fmtPretty(req.personalStart)} – ${fmtPretty(req.personalEnd)}` : 'None');
 
-  const clsName = req.isGroup ? 'Per traveller (see roster)' : (EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—');
   const { days } = daysToBook(req, bookingDeadlineDays);
   const validityEnd = req.authorisationExpiry ?? (req.startDate ? new Date(req.startDate.getTime() - bookingDeadlineDays * 86400000) : null);
 
@@ -242,7 +251,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
         </SumTile>
 
         <SumTile title="Travel Arrangement" href={`${detailsHref}#sec-trip`}>
-          <TileRow label="Proposed travel class">{clsName}</TileRow>
+          <TileRow label="Entitled / Proposed travel class">{req.isGroup ? 'Per traveller (see roster)' : entitledProposedClass(req)}</TileRow>
           <TileRow label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</TileRow>
           <TileRow label="Authorisation validity">
             {fmtPretty(req.createdAt)} – {fmtPretty(validityEnd)}
@@ -319,7 +328,6 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
 export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bookingDeadlineDays: number }) {
   const isMulti = req.tripType === 'MULTI_CITY';
   const purpose = EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—';
-  const cls = EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—';
   const routeCodes = routeCityCodes(req);
   const countryCount = foreignCountryCount(req);
   const { days } = daysToBook(req, bookingDeadlineDays);
@@ -363,7 +371,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
 
       <Card title="Travel Arrangements" className="h-full">
         <div className="space-y-3">
-          <Field label={`Proposed travel class${req.isGroup ? ' (per traveller)' : ''}`}>{req.isGroup ? 'Each at own entitlement — see roster' : cls}</Field>
+          <Field label={`Entitled / Proposed travel class${req.isGroup ? ' (per traveller)' : ''}`}>{req.isGroup ? 'Each at own entitlement — see roster' : entitledProposedClass(req)}</Field>
           <Field label="Booking arrangement">
             {arrangementLabel(req.bookingArrangement)}
             {method && <div className="text-[var(--ecs-muted)]">{method}</div>}
