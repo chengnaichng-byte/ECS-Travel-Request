@@ -11,6 +11,7 @@ import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
 import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretrip/upgrade';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE, BOOKING_METHOD_LABEL } from '@/shared/enums';
 import { bookingSummaryText, arrangementLabel, isTmcArrangement } from '@/modules/pretrip/booking';
+import { bookingsForAuthorisation } from '@/modules/pretrip/tmcRetrieval';
 import { ENTITY_NAME } from '@/data/organisation';
 import { Card, CollapsibleCard } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type BreakField, type SummaryRow } from './CostItemsTable';
@@ -31,9 +32,12 @@ const daysPill = (days: number) => (days <= 0 ? 'pill-warn' : 'pill-pass');
 // shown together so an approver sees any upgrade at a glance. An "above entitlement" pill flags a
 // proposed cabin ranked higher than the entitlement (a policy exception).
 function entitledProposedClass(req: FullRequest): React.ReactNode {
-  const ent = EcsReference.travelClass(req.entitledClassId ?? '');
+  // Fall back entitled → proposed when the entitlement isn't recorded (e.g. a standard trip at
+  // entitlement), so we show "Economy / Economy" rather than "— / Economy". Only flag "above
+  // entitlement" when both classes resolve and the proposed cabin genuinely outranks the entitlement.
+  const ent = EcsReference.travelClass(req.entitledClassId || req.travelClassId || '');
   const prop = EcsReference.travelClass(req.travelClassId ?? '');
-  const above = (prop?.rank ?? 0) > (ent?.rank ?? 0);
+  const above = !!ent && !!prop && prop.rank > ent.rank;
   return <>{ent?.name ?? '—'} / {prop?.name ?? '—'}{above && <span className="pill-warn ml-1">above entitlement</span>}</>;
 }
 function primaryCharging(req: FullRequest) {
@@ -341,6 +345,9 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
   const mdText = mdCity ? [mdCity, mdCountry].filter(Boolean).join(', ') : (mdCountry ?? destinationText(req));
   const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential → M6
   const m6Accounts = m6Delta > 0 ? ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ') : '';
+  // DD-17 Booking provenance — once booked, the TA-keyed PNR(s) (one TA → N PNRs). Shown inline here so a
+  // booked trip's references are visible without opening the Booking page (which keeps the full breakdown).
+  const bookingSet = bookingsForAuthorisation(req);
   const method = isTmcArrangement(req.bookingArrangement) && req.bookingMethod ? (BOOKING_METHOD_LABEL[req.bookingMethod] ?? req.bookingMethod) : '';
 
   // Four themed cards (same Card header/colour as the lettered cards below) — Travel Purpose,
@@ -380,6 +387,15 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
             {fmtDate(req.createdAt)} – {fmtDate(validityEnd)}
             <div className="mt-1"><span className={daysPill(days)}>{days} days to book</span></div>
           </Field>
+          {bookingSet.pnrCount > 0 && (
+            <Field label="Booking reference(s)">
+              {req.authorisationNo && <span className="font-mono">{req.authorisationNo}</span>}
+              {req.authorisationNo && ' · '}
+              {bookingSet.pnrCount === 1
+                ? <span className="font-mono">{bookingSet.bookings[0]?.pnr ?? '—'}</span>
+                : <span>{bookingSet.pnrCount} PNRs <a href={`/requests/${req.id}/booking`} className="text-[var(--ecs-navy)] underline ml-1">View bookings →</a></span>}
+            </Field>
+          )}
         </div>
       </Card>
 
