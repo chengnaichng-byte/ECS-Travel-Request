@@ -206,7 +206,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             <dl className="space-y-3">
               <KV label="Traveller">{travellerName(req)}</KV>
               <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
-              <KV label="Main city/country of stay">{mainCityName ? `${mainCityName}, ${mainCountryName ?? ''}` : (mainCountryName ?? '—')}</KV>
+              <KV label="Destination">{mainCityName ? `${mainCityName}, ${mainCountryName ?? ''}` : (mainCountryName ?? '—')}</KV>
               {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
             </dl>
             {/* Col 2 — dates and class */}

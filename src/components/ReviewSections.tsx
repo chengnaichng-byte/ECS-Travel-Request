@@ -350,7 +350,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
       <Card title="Itinerary" className="h-full">
         <div className="space-y-3">
           <Field label="Trip type">{tripTypeLabel(req)}</Field>
-          <Field label="Main city/country of stay">
+          <Field label="Destination">
             {mdText}
             {isMulti && routeCodes.length > 1 && <div className="mt-1"><span className="pill-navy inline-block">{sharedLegs(req).length} legs · {countryCount} countr{countryCount === 1 ? 'y' : 'ies'}</span></div>}
           </Field>
