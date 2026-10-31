@@ -10,7 +10,7 @@ import { currentPersonaId } from '@/shared/session';
 import { loadRequest, overlappingTripsFor, type FullRequest } from './queries';
 import { mainDestination } from './destination';
 import { getSettings, updateSettings } from './settings';
-import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
+import { nextRequestNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travellerIsEligibleDoa } from './route';
@@ -112,7 +112,9 @@ async function finalizeApproval(id: string) {
   if (!req) return;
   const settings = await getSettings();
   const reapproval = !!req.authorisationNo;
-  const authNo = req.authorisationNo ?? (await nextAuthorisationNumber(yr()));
+  // §13.3 The Travel Authorisation shares the request's running number for easy cross-checking —
+  // TR-YYYY-NNNNNN → TA-YYYY-NNNNNN (one TR = one TA). Retained unchanged on amendment reapproval.
+  const authNo = req.authorisationNo ?? req.requestNumber.replace(/^TR-/, 'TA-');
   const bookingDeadline = req.startDate ? new Date(req.startDate.getTime() - settings.bookingDeadlineDays * 86400000) : null;
   const expiry = req.endDate ? new Date(req.endDate.getTime() + settings.authorisationValidityDays * 86400000) : null;
   await prisma.travelRequest.update({ where: { id }, data: { status: REQUEST_STATUS.Approved, authorisationNo: authNo, bookingDeadline, authorisationExpiry: expiry } });

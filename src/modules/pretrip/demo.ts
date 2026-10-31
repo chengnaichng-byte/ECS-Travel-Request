@@ -9,7 +9,7 @@ import { PERSONA_COOKIE, ROLE_COOKIE } from '@/shared/session';
 import { prisma } from '@/shared/db';
 import { loadRequest, type FullRequest } from './queries';
 import { getSettings } from './settings';
-import { nextRequestNumber, nextAuthorisationNumber, nextClaimNumber } from './numbering';
+import { nextRequestNumber, nextClaimNumber } from './numbering';
 import { computeAccommodation, computeOda, computeOdaTiered, computeSummary } from './pricing';
 import { evaluatePolicies, hasException, hasHardStop } from './policy';
 import { ensureUpgradeConfigSeed, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, defaultAccountForBA, upgradeCheckCtx } from './upgradeConfig';
@@ -253,7 +253,7 @@ async function finaliseApproval(id: string) {
   const req = await loadRequest(id);
   if (!req) return;
   const settings = await getSettings();
-  const authNo = await nextAuthorisationNumber(YEAR);
+  const authNo = req.authorisationNo ?? req.requestNumber.replace(/^TR-/, 'TA-'); // §13.3 TA shares the TR's number
   const bookingDeadline = req.startDate ? new Date(req.startDate.getTime() - settings.bookingDeadlineDays * 86400000) : null;
   const expiry = req.endDate ? new Date(req.endDate.getTime() + settings.authorisationValidityDays * 86400000) : null;
   await prisma.travelRequest.update({ where: { id }, data: { status: REQUEST_STATUS.Approved, authorisationNo: authNo, bookingDeadline, authorisationExpiry: expiry } });
