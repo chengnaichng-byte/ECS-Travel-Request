@@ -193,8 +193,8 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             class) and the full itinerary; the Policy Exceptions card lists the hotel-cap / travel-class
             exceptions. The justification is captured on the Estimates airfare form and edited on the
             Policy Review step, so it is NOT repeated on this submit page. §13.14 / §13.19 / §4.4. */}
-        <div className="space-y-5">
-        <Card title="Trip">
+        <div className="grid md:grid-cols-3 gap-5 items-start">
+        <Card title="Trip" className="md:col-span-2">
           {/* Three fixed columns (per the agreed layout): who/what/where · when/class · booking/route. */}
           <div className="grid md:grid-cols-3 gap-x-8 gap-y-4">
             {/* Col 1 — traveller, purpose, destination */}
@@ -288,7 +288,13 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-[var(--ecs-muted)]">Within policy — no exceptions.</p>
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-lg bg-[#e8f3ec] px-3 py-1.5">
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#2f9e5f] text-white text-xs leading-none">✓</span>
+                <span className="font-semibold text-[#2f7d4f]">Pass</span>
+              </span>
+              <p className="text-sm text-[var(--ecs-muted)] mt-3">Within policy — no exceptions.</p>
+            </div>
           )}
           {hardStops.length > 0 && <p className="text-xs text-[var(--ecs-red)] mt-3 pt-3 border-t border-[var(--ecs-border)]">{hardStops.length} hard stop(s) block submission — resolve them in the panel above.</p>}
         </Card>
