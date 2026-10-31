@@ -57,7 +57,7 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
               <option value="">— select the {doaRoleLabel} —</option>
               {doaCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.note ? ` · ${c.note}` : ''}</option>)}
             </select>
-            <p className="text-xs text-[var(--ecs-muted)] mt-1">Derived from the DOA system for the charging department &amp; amount band (§13.14), with self-approval prevention. <strong>Defaulted</strong> when that resolves to one eligible officer (a research PI within the self-approval limit is their own DOA); you <strong>select</strong> only when more than one officer can approve this amount. On the emergency lane this DOA is also the authoriser.</p>
+            <p className="text-xs text-[var(--ecs-muted)] mt-1">DOA defaults to the eligible PI (research WBS) or RO (cost centre), subject to approval limits and self-approval rules. You may change the default or select another eligible DOA. For emergency travel, the DOA also serves as authoriser.</p>
           </div>
           <div>
             <label className="label" htmlFor="additionalApproverId">Additional Approver (optional)</label>
