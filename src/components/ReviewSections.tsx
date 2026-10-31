@@ -15,6 +15,7 @@ import { ENTITY_NAME } from '@/data/organisation';
 import { Card, CollapsibleCard } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type BreakField, type SummaryRow } from './CostItemsTable';
 import { DestinationList } from './DestinationList';
+import { mainDestination } from '@/modules/pretrip/destination';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '—');
@@ -304,6 +305,12 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
   const { days } = daysToBook(req, bookingDeadlineDays);
   const validityEnd = req.authorisationExpiry ?? (req.startDate ? new Date(req.startDate.getTime() - bookingDeadlineDays * 86400000) : null);
   const pc = primaryCharging(req);
+  // Main city/country of STAY — the longest-stay country and its longest-stay city (same rule as the
+  // Trip step and Review page, via mainDestination). Falls back to the persisted destination.
+  const md = mainDestination(sharedLegs(req));
+  const mdCity = EcsReference.city(md.cityCode || (req.destCity ?? ''))?.name;
+  const mdCountry = EcsReference.country(md.countryCode || (req.destCountry ?? ''))?.name;
+  const mdText = mdCity ? [mdCity, mdCountry].filter(Boolean).join(', ') : (mdCountry ?? destinationText(req));
   const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential → M6
   const m6Accounts = m6Delta > 0 ? ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ') : '';
   const method = isTmcArrangement(req.bookingArrangement) && req.bookingMethod ? (BOOKING_METHOD_LABEL[req.bookingMethod] ?? req.bookingMethod) : '';
@@ -323,15 +330,9 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
       <Card title="Itinerary" className="h-full">
         <div className="space-y-3">
           <Field label="Trip type">{tripTypeLabel(req)}</Field>
-          <Field label={isMulti ? 'Destinations' : 'Destination'}>
-            {isMulti && routeCodes.length > 1 ? (
-              <div>
-                <DestinationList cities={multiCityDestinationNames(req)} max={4} />
-                <span className="pill-navy mt-1 inline-block">{sharedLegs(req).length} legs · {countryCount} countr{countryCount === 1 ? 'y' : 'ies'}</span>
-              </div>
-            ) : (
-              destinationText(req)
-            )}
+          <Field label="Main city/country of stay">
+            {mdText}
+            {isMulti && routeCodes.length > 1 && <div className="mt-1"><span className="pill-navy inline-block">{sharedLegs(req).length} legs · {countryCount} countr{countryCount === 1 ? 'y' : 'ies'}</span></div>}
           </Field>
           <Field label="Official travel dates">{fmtDate(req.startDate)} – {fmtDate(req.endDate)} {durationDN(req.startDate, req.endDate) && <span className="text-[var(--ecs-muted)]">({durationDN(req.startDate, req.endDate)})</span>}</Field>
           <Field label="Personal extension">
