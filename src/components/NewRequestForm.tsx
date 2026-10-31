@@ -7,7 +7,7 @@
 import { useState, useRef } from 'react';
 import { createDraft, createGroupDraft, createGuestDraft } from '@/modules/pretrip/actions';
 
-interface Charging { code: string; name: string }
+interface Charging { code: string; name: string; overridden?: boolean; workday?: string | null }
 interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean; roName?: string | null; charging?: Charging | null }
 interface GuestRow { name: string; email: string; org: string }
 interface StudentRow { name: string; email: string; studentId: string; programme: string }
@@ -16,6 +16,14 @@ type Mode = keyof typeof MODE_LABEL;
 type GroupKind = 'staff' | 'student';
 
 const chargingText = (c?: Charging | null): string => (c ? `${c.code} — ${c.name}` : '— none on file —');
+
+// Charging defaults come from the ECS Staff Profile, which falls back to the Workday cost object unless
+// the staff overrode it. `subject` is whose profile it is ("the traveller's" / "your (host)" / …).
+const chargingHint = (c: Charging | null | undefined, subject: string): string =>
+  !c ? `No charging account on ${subject} ECS profile — add one on the Charging step.`
+    : c.overridden
+      ? `${subject} preferred account from the ECS profile — overrides the Workday default (${c.workday}). Editable on the Charging step.`
+      : `${subject} ECS profile default — the Workday cost object. Editable on the Charging step.`;
 
 /** A read-only, ECS/HR-derived field shown on the create form (RO, default charging) — styled like the
  *  "Requestor (you)" box, so it's clearly derived, not an input. */
@@ -258,7 +266,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                 <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a guest has no reporting officer" />
                 <DerivedField label="Default charging account" muted={!requestorCharging}
                   value={chargingText(requestorCharging)}
-                  hint="Your (host) Workday / profile cost object — the guest's trip is charged here; editable on the Charging step." />
+                  hint={`The guest's trip is charged to you. ${chargingHint(requestorCharging, 'Your (host)')}`} />
               </div>
               <div>
                 <label className="label" htmlFor="guestName">Guest name</label>
@@ -296,7 +304,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                   hint="Derived from the traveller's ECS/HR reporting line." />
                 <DerivedField label="Default charging account" muted={!selectedTraveller?.charging}
                   value={chargingText(selectedTraveller?.charging)}
-                  hint="The traveller's Workday / profile cost object — editable on the Charging step." />
+                  hint={chargingHint(selectedTraveller?.charging, "The traveller's")} />
               </div>
             </div>
           </div>
@@ -329,7 +337,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                 <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a group has no single reporting officer" />
                 <DerivedField label="Default charging account" muted={!requestorCharging}
                   value={chargingText(requestorCharging)}
-                  hint="Your (requestor) Workday / profile cost object — the group default; editable on the Charging step." />
+                  hint={`The group default. ${chargingHint(requestorCharging, 'Your (requestor)')}`} />
               </div>
 
               <div className="rounded border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 mb-4">
@@ -404,7 +412,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                 <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a group has no single reporting officer" />
                 <DerivedField label="Default charging account" muted={!requestorCharging}
                   value={chargingText(requestorCharging)}
-                  hint="Your (requestor) Workday / profile cost object — the group default; per-member department allocation is applied on the Charging step." />
+                  hint={`The group default; per-member department allocation is applied on the Charging step. ${chargingHint(requestorCharging, 'Your (requestor)')}`} />
               </div>
 
               {/* Bulk import */}

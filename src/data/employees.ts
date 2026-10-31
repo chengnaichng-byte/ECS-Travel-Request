@@ -16,7 +16,12 @@ export interface Employee {
   workerType?: 'ACADEMIC' | 'RESEARCH' | 'ADMIN' | 'EXECUTIVE';
   email?: string;
   businessArea?: string;             // SAP business area (cost context)
-  defaultChargingCode?: string;      // default CC/WBS pre-filled on new requests
+  // §7 Charging default is held in the staff member's ECS Staff Profile, which DEFAULTS to their Workday
+  // cost object unless the staff overrode it with a preferred account. The effective profile value
+  // (preferred ?? Workday) is `defaultChargingCode`, pre-filled on new requests.
+  workdayChargingCode?: string;      // Workday / HR-derived cost object (the profile's fallback)
+  preferredChargingCode?: string;    // profile override — the staff's preferred charging account, if set
+  defaultChargingCode?: string;      // EFFECTIVE profile default = preferredChargingCode ?? workdayChargingCode
   travelEligible?: boolean;          // HR travel eligibility flag
   isPi?: boolean;                    // #1 Principal Investigator flag (from the ECS staff master) — drives research PI self-approval
 }
@@ -31,7 +36,7 @@ const baseEmployees: Employee[] = [
   { id: 'E-TRAV2', name: 'Dr Grace Ho',        title: 'Lecturer',                   departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
   { id: 'E-TRAV3', name: 'Dr Henry Ong',       title: 'Research Fellow',            departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH', isPi: true },
   { id: 'E-TRAV4', name: 'Dr Jason Lee',       title: 'Assistant Professor',        departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
-  { id: 'E-TRAV5', name: 'Dr Karen Yeo',       title: 'Senior Research Fellow',     departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH', isPi: true },
+  { id: 'E-TRAV5', name: 'Dr Karen Yeo',       title: 'Senior Research Fellow',     departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH', isPi: true, preferredChargingCode: 'WBS-R200' }, // §7 profile override — charges her grant by default, not the RI-AI Workday cost centre
   { id: 'E-TRAV6', name: 'Dr Leon Tan',        title: 'Lecturer',                   departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
   { id: 'E-TRAV7', name: 'Dr Mabel Ng',        title: 'Research Fellow',            departmentId: 'RI-AI',  reportingOfficerId: 'E-RO2',  roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'RESEARCH' },
   { id: 'E-TRAV8', name: 'Dr Nadia Rahman',    title: 'Senior Lecturer',            departmentId: 'SCH-CS', reportingOfficerId: 'E-RO',   roles: [ROLE.Traveller], isTraveller: true,  travelPolicyGroup: 'FACULTY' },
@@ -55,14 +60,20 @@ const DEPT_BA: Record<string, string> = { 'SCH-CS': 'BA-CS', 'RI-AI': 'BA-AI' };
 const DEPT_DEFAULT_CC: Record<string, string> = { 'SCH-CS': 'CC-1000', 'RI-AI': 'CC-2000' };
 const WORKER_BY_GROUP: Record<string, Employee['workerType']> = { FACULTY: 'ACADEMIC', RESEARCH: 'RESEARCH', SENIOR: 'EXECUTIVE', ADMIN: 'ADMIN' };
 
-export const employees: Employee[] = baseEmployees.map((e) => ({
-  ...e,
-  workerType: e.workerType ?? WORKER_BY_GROUP[e.travelPolicyGroup] ?? 'ADMIN',
-  email: e.email ?? ntuEmail(e.name),
-  businessArea: e.businessArea ?? DEPT_BA[e.departmentId] ?? undefined,
-  defaultChargingCode: e.defaultChargingCode ?? DEPT_DEFAULT_CC[e.departmentId],
-  travelEligible: e.travelEligible ?? e.isTraveller,
-}));
+export const employees: Employee[] = baseEmployees.map((e) => {
+  // §7 the profile charging defaults to the Workday cost object; a staff member may override it with a
+  // preferred account in their ECS Staff Profile. The effective value flows onto new requests.
+  const workday = e.workdayChargingCode ?? e.defaultChargingCode ?? DEPT_DEFAULT_CC[e.departmentId];
+  return {
+    ...e,
+    workerType: e.workerType ?? WORKER_BY_GROUP[e.travelPolicyGroup] ?? 'ADMIN',
+    email: e.email ?? ntuEmail(e.name),
+    businessArea: e.businessArea ?? DEPT_BA[e.departmentId] ?? undefined,
+    workdayChargingCode: workday,
+    defaultChargingCode: e.preferredChargingCode ?? workday,
+    travelEligible: e.travelEligible ?? e.isTraveller,
+  };
+});
 
 /** The persona switcher offers these identities (§4.1 role/context). */
 export const PERSONA_IDS = ['E-TRAV', 'E-TRAV2', 'E-TRAV3', 'E-PA', 'E-RO', 'E-RO2', 'E-DOA', 'E-DEAN', 'E-PROVOST', 'E-RDOA', 'E-RDIR', 'E-EXC', 'E-ADMIN', 'E-SYS', 'E-FIN'];

@@ -45,11 +45,19 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
     const ro = e.reportingOfficerId ? EcsIdentity.employee(e.reportingOfficerId) : null;
     return ro ? `${ro.name} — ${ro.title}` : null;
   };
-  const chargingFor = (code: string | null | undefined): { code: string; name: string } | null =>
-    code ? { code, name: EcsCharging.code(code)?.name ?? '' } : null;
-  const toOpt = (e: (typeof employees)[number]) => ({ id: e.id, name: e.name, title: e.title, dept: EcsIdentity.department(e.departmentId)?.name ?? '', email: e.email ?? '', delegated: delegators.includes(e.id), roName: roLabelFor(e), charging: chargingFor(e.defaultChargingCode) });
-  // Group / guest bookings have no single RO; their default charging is the requestor's (host) cost object.
-  const requestorCharging = chargingFor(EcsIdentity.employee(persona.id)?.defaultChargingCode);
+  // The effective profile charging (preferred ?? Workday). When the staff overrode their Workday
+  // default, surface that provenance so the requestor sees where the account came from.
+  const labelFor = (code: string | null | undefined): string | null => code ? `${code} — ${EcsCharging.code(code)?.name ?? code}` : null;
+  const chargingFor = (e: (typeof employees)[number] | null | undefined) => {
+    const code = e?.defaultChargingCode;
+    if (!e || !code) return null;
+    const workday = e.workdayChargingCode;
+    const overridden = !!e.preferredChargingCode && e.preferredChargingCode !== workday;
+    return { code, name: EcsCharging.code(code)?.name ?? '', overridden, workday: overridden ? labelFor(workday) : null };
+  };
+  const toOpt = (e: (typeof employees)[number]) => ({ id: e.id, name: e.name, title: e.title, dept: EcsIdentity.department(e.departmentId)?.name ?? '', email: e.email ?? '', delegated: delegators.includes(e.id), roName: roLabelFor(e), charging: chargingFor(e) });
+  // Group / guest bookings have no single RO; their default charging is the requestor's (host) profile account.
+  const requestorCharging = chargingFor(EcsIdentity.employee(persona.id));
   // Individual creation respects the requestor's remit; a group booking may name any employee
   // traveller (routing handles cross-department), so the group pool is the full traveller list.
   const options = (isRequestor ? employees.filter((e) => e.isTraveller) : employees.filter((e) => selectable.has(e.id))).map(toOpt);
