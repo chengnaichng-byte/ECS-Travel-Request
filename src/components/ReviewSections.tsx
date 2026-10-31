@@ -9,8 +9,8 @@ import { guestSettlements } from '@/modules/pretrip/settlement';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember, isStudentMember, isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
 import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretrip/upgrade';
-import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
-import { bookingSummaryText } from '@/modules/pretrip/booking';
+import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE, BOOKING_METHOD_LABEL } from '@/shared/enums';
+import { bookingSummaryText, arrangementLabel, isTmcArrangement } from '@/modules/pretrip/booking';
 import { ENTITY_NAME } from '@/data/organisation';
 import { Card, CollapsibleCard } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type BreakField, type SummaryRow } from './CostItemsTable';
@@ -305,42 +305,72 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
   const validityEnd = req.authorisationExpiry ?? (req.startDate ? new Date(req.startDate.getTime() - bookingDeadlineDays * 86400000) : null);
   const pc = primaryCharging(req);
   const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential → M6
+  const m6Accounts = m6Delta > 0 ? ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ') : '';
+  const method = isTmcArrangement(req.bookingArrangement) && req.bookingMethod ? (BOOKING_METHOD_LABEL[req.bookingMethod] ?? req.bookingMethod) : '';
 
+  // Four themed cards (same Card header/colour as the lettered cards below) — Travel Purpose,
+  // Itinerary, Travel Arrangements, Charging. All fields are already-wired request data.
   return (
-    <Card>
-      <div className="grid md:grid-cols-3 xl:grid-cols-5 gap-4">
-        <Field label="Travel Purpose" accent>{purpose}</Field>
-        <Field label="Trip Type" accent>{tripTypeLabel(req)}</Field>
-        <Field label={isMulti ? 'Destinations' : 'Destination'} accent>
-          {isMulti && routeCodes.length > 1 ? (
-            <div>
-              <div><DestinationList cities={multiCityDestinationNames(req)} max={4} /></div>
-              <span className="pill-navy mt-1">{sharedLegs(req).length} legs · {countryCount} countr{countryCount === 1 ? 'y' : 'ies'}</span>
-            </div>
-          ) : (
-            destinationText(req)
-          )}
-        </Field>
-        <Field label="Official Travel Dates" accent>{fmtDate(req.startDate)} – {fmtDate(req.endDate)} {durationDN(req.startDate, req.endDate) && <span className="text-[var(--ecs-muted)]">({durationDN(req.startDate, req.endDate)})</span>}</Field>
-        <Field label={`Proposed Travel Class${req.isGroup ? ' (per traveller)' : ''}`} accent>{req.isGroup ? 'Each at own entitlement — see roster' : cls}</Field>
-        <Field label="Travel Authorisation Validity" accent>
-          {fmtDate(req.createdAt)} – {fmtDate(validityEnd)}
-          <div className="mt-1"><span className="pill-pass">{days} days to book</span></div>
-        </Field>
+    <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-5 items-stretch">
+      <Card title="Travel Purpose" className="h-full">
+        <div className="space-y-3">
+          <Field label="Travel purpose">{purpose}</Field>
+          <Field label="Event / Conference">{req.description?.split('—')[0]?.trim() || '—'}</Field>
+          <Field label="Business justification">{req.description ?? '—'}</Field>
+        </div>
+      </Card>
 
-        <Field label="Event / Conference">{req.description?.split('—')[0] ?? '—'}</Field>
-        <Field label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</Field>
-        <Field label="Primary Charging Account">
-          {pc ? <span>{pc.code} · {pc.name} <span className="text-[var(--ecs-muted)]">({pc.pct}%{pc.research ? ' · research' : ''})</span></span> : '—'}
-          {m6Delta > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">+ M6 entitlement differential {fmtSgd(m6Delta)} → {ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} (funded from M6)</div>}
-        </Field>
-        <Field label="Personal Extension">
-          {req.isGroup ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers` : (req.personalStart ? `${fmtDate(req.personalStart)} – ${fmtDate(req.personalEnd)}` : 'None')}
-        </Field>
-        {req.isGroup && <Field label="Group Coordinator">{EcsIdentity.employee(req.requestorId)?.name}</Field>}
-        <Field label="Trip Description / Business Justification">{req.description ?? '—'}</Field>
-      </div>
-    </Card>
+      <Card title="Itinerary" className="h-full">
+        <div className="space-y-3">
+          <Field label="Trip type">{tripTypeLabel(req)}</Field>
+          <Field label={isMulti ? 'Destinations' : 'Destination'}>
+            {isMulti && routeCodes.length > 1 ? (
+              <div>
+                <DestinationList cities={multiCityDestinationNames(req)} max={4} />
+                <span className="pill-navy mt-1 inline-block">{sharedLegs(req).length} legs · {countryCount} countr{countryCount === 1 ? 'y' : 'ies'}</span>
+              </div>
+            ) : (
+              destinationText(req)
+            )}
+          </Field>
+          <Field label="Official travel dates">{fmtDate(req.startDate)} – {fmtDate(req.endDate)} {durationDN(req.startDate, req.endDate) && <span className="text-[var(--ecs-muted)]">({durationDN(req.startDate, req.endDate)})</span>}</Field>
+          <Field label="Personal extension">
+            {req.isGroup ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers` : (req.personalStart ? `${fmtDate(req.personalStart)} – ${fmtDate(req.personalEnd)}` : 'None')}
+          </Field>
+        </div>
+      </Card>
+
+      <Card title="Travel Arrangements" className="h-full">
+        <div className="space-y-3">
+          <Field label={`Proposed travel class${req.isGroup ? ' (per traveller)' : ''}`}>{req.isGroup ? 'Each at own entitlement — see roster' : cls}</Field>
+          <Field label="Booking arrangement">
+            {arrangementLabel(req.bookingArrangement)}
+            {method && <div className="text-[var(--ecs-muted)]">{method}</div>}
+          </Field>
+          <Field label="Travel authorisation validity">
+            {fmtDate(req.createdAt)} – {fmtDate(validityEnd)}
+            <div className="mt-1"><span className="pill-pass">{days} days to book</span></div>
+          </Field>
+        </div>
+      </Card>
+
+      <Card title="Charging" className="h-full">
+        <div className="space-y-3">
+          <Field label="Primary charging account">
+            {pc ? <span>{pc.code} · {pc.name} <span className="text-[var(--ecs-muted)]">({pc.pct}%{pc.research ? ' · research' : ''})</span></span> : '—'}
+          </Field>
+          <Field label="Additional funding">
+            {m6Delta > 0 ? (
+              <>
+                M6 entitlement differential {fmtSgd(m6Delta)}
+                <div className="text-[var(--ecs-muted)]">Funded from M6{m6Accounts ? ` · ${m6Accounts}` : ''}</div>
+              </>
+            ) : 'None'}
+          </Field>
+          {req.isGroup && <Field label="Group coordinator">{EcsIdentity.employee(req.requestorId)?.name}</Field>}
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -538,7 +568,15 @@ export function ItineraryLegsCard({ req, letter, className }: { req: FullRequest
 export function PolicyExceptionsCard({ req, letter, className }: { req: FullRequest; letter?: string; className?: string }) {
   const views = exceptionViews(req);
   if (views.length === 0) return (
-    <Card title={heading(letter, 'Policy Exceptions')} className={className}><div className="flex items-center gap-2 text-sm"><span className="pill-pass">Pass</span> No policy exceptions.</div></Card>
+    <Card title={heading(letter, 'Policy Exceptions')} className={className}>
+      <div className="flex items-center gap-3 text-sm">
+        <span className="inline-flex items-center gap-2 rounded-lg bg-[#e8f3ec] px-3 py-1.5">
+          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#2f9e5f] text-white text-xs leading-none">✓</span>
+          <span className="font-semibold text-[#2f7d4f]">Pass</span>
+        </span>
+        <span className="text-[var(--ecs-muted)]">No policy exceptions.</span>
+      </div>
+    </Card>
   );
   // Soft emphasis: a warm tinted panel with a left severity rail and a bold impact figure — clearer
   // than a plain callout, without a stark solid fill. Severity sets the hue (orange Medium, red High,
