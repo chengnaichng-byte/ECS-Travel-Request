@@ -4,14 +4,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { submitRequest, addAttachment, attachNamedFile, runPolicy, resolveJustifications } from '@/modules/pretrip/actions';
+import { submitRequest, addAttachment, attachNamedFile, runPolicy, resolveJustifications, updateBookingMethod } from '@/modules/pretrip/actions';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { currentPersonaId } from '@/shared/session';
 import { travelClasses } from '@/data/travelClass';
 import { exceptionNeedsApproval } from '@/config/policyThresholds';
-import { REQUEST_STATUS } from '@/shared/enums';
+import { REQUEST_STATUS, BOOKING_METHOD, BOOKING_METHOD_LABEL } from '@/shared/enums';
 import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
-import { EMERGENCY_APPROVAL_DOC, qualifiesForEmergency, leadTimeDays } from '@/modules/pretrip/emergency';
+import { EMERGENCY_APPROVAL_DOC, qualifiesForEmergency, urgentButNotBookAhead, leadTimeDays } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
@@ -102,6 +102,9 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // unchanged; the only effect is the TMC hand-off goes out concurrently on submit. Under Mode A
   // (emergencyEvidenceRequired) the traveller captures the authorising officer + e-mail here.
   const isEmergencyNow = qualifiesForEmergency(req, settings.emergencyLeadDays);
+  // §DD-23 Re-evaluation: urgent, but on a TMC-online (not book-ahead) channel → prompt the requestor to
+  // switch to agent-assisted / offline inline (advisory, not a hard block). Mutually exclusive with above.
+  const needsBookAheadSwitch = urgentButNotBookAhead(req, settings.emergencyLeadDays, isTmcArrangement(req.bookingArrangement));
   const emergencyEvidenceMode = settings.emergencyEvidenceRequired;
   const emergencyAuthorisers = employees.filter((e) => !e.isTraveller && e.travelPolicyGroup === 'SENIOR' && e.id !== req.travellerId);
   const emergencyApprovals = req.attachments.filter((a) => a.docType === EMERGENCY_APPROVAL_DOC);
@@ -342,6 +345,29 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             ) : (
               <p className="mt-3 text-xs text-[var(--ecs-muted)]">This institution does not require emergency evidence to be captured (Mode B) — the request floats through the normal approval with no additional evidence.</p>
             )}
+          </Card>
+        )}
+
+        {/* §DD-23 Re-evaluation (advisory) — the request is now urgent but the TMC channel is online and
+            cannot book ahead of approval. Offer an INLINE switch to a book-ahead method; the requestor can
+            still submit on the online channel if they choose (this does not block submission). */}
+        {needsBookAheadSwitch && (
+          <Card title="Booking method — re-evaluation (DD-23)">
+            <div className="text-sm rounded border border-[#f97316] bg-[#fff3e8] p-3 space-y-1">
+              <p><span className="pill-warn mr-1">Now urgent</span> This request departs in about <strong>{leadTimeDays(req) ?? '—'} day(s)</strong>, but the booking is set to <strong>{BOOKING_METHOD_LABEL[req.bookingMethod ?? ''] ?? 'no method selected'}</strong> — an online channel <strong>cannot be held ahead of approval</strong>, so it can&apos;t use the emergency lane.</p>
+              <p>Switch to <strong>agent-assisted</strong> or <strong>offline</strong> to have the booking sent to the TMC <strong>concurrently on submit</strong>. You can still submit on the online channel, but it will go through the normal approval first.</p>
+            </div>
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <div>
+                <label className="label">Book-ahead method</label>
+                <select name="bookingMethod" defaultValue="" className="field w-72 max-w-full">
+                  <option value="">— select a method —</option>
+                  <option value={BOOKING_METHOD.AgentAssisted}>{BOOKING_METHOD_LABEL[BOOKING_METHOD.AgentAssisted]}</option>
+                  <option value={BOOKING_METHOD.Offline}>{BOOKING_METHOD_LABEL[BOOKING_METHOD.Offline]}</option>
+                </select>
+              </div>
+              <button formNoValidate formAction={updateBookingMethod.bind(null, id)} className="btn-secondary text-sm">Update booking method</button>
+            </div>
           </Card>
         )}
 

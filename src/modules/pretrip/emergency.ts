@@ -61,3 +61,13 @@ export function qualifiesForEmergency(req: LeadReq & { bookingMethod?: string | 
   const lt = leadTimeDays(req, from);
   return lt != null && lt <= windowDays && emergencyMethodAllowed(req);
 }
+
+// §DD-23 RE-EVALUATION: a trip is urgent (within the window) but its TMC channel CANNOT book ahead of
+// approval (TMC online, or no method yet) — so it cannot use the emergency lane until the method is
+// changed. The caller supplies whether the arrangement is a TMC one (a non-TMC arrangement — self-booked,
+// host-arranged, no booking — has no TMC hand-off, so nothing to re-evaluate). Mutually exclusive with
+// qualifiesForEmergency: if the method already books ahead this is false (that request is on the lane).
+export function urgentButNotBookAhead(req: LeadReq & { bookingMethod?: string | null }, windowDays: number, isTmc: boolean, from?: Date): boolean {
+  const lt = leadTimeDays(req, from);
+  return isTmc && lt != null && lt <= windowDays && !emergencyMethodAllowed(req);
+}

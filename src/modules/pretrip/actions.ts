@@ -19,7 +19,7 @@ import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttribu
 import { findBlockingDuplicates } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
+import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember } from './traveller';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
@@ -1881,6 +1881,24 @@ export async function attachNamedFile(id: string, fieldName: string, docType: st
     await audit(id, 'AMEND', `Attachment uploaded: ${f.name} (${Math.max(1, Math.round(f.size / 1024))} KB) · ${docType}`);
   }
   revalidatePath(`/requests/${id}`);
+}
+
+// §DD-23 Inline booking-method switch on Review & Submit — when the system re-evaluates an urgent
+// request and finds a TMC-online (not book-ahead) channel, the requestor can switch to an agent-assisted
+// or offline method here without going back to the Trip step. Scoped: TMC arrangement only, and only the
+// two book-ahead methods are accepted; the itinerary / provider are untouched.
+export async function updateBookingMethod(id: string, fd: FormData) {
+  const req = await loadRequest(id);
+  if (!req || req.status !== REQUEST_STATUS.Draft) return;
+  const method = str(fd, 'bookingMethod');
+  const allowed: string[] = [BOOKING_METHOD.AgentAssisted, BOOKING_METHOD.Offline];
+  if (!isTmcArrangement(req.bookingArrangement) || !allowed.includes(method)) {
+    revalidatePath(`/requests/${id}/review`);
+    return;
+  }
+  await prisma.travelRequest.update({ where: { id }, data: { bookingMethod: method } });
+  await audit(id, 'AMEND', `Booking method updated to ${BOOKING_METHOD_LABEL[method] ?? method} on re-evaluation (urgent request — enables the emergency lane, DD-23)`);
+  revalidatePath(`/requests/${id}/review`);
 }
 
 /** §13.21 Copy to new request — clone the header, itinerary, estimates and charging
