@@ -57,7 +57,7 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
               <option value="">— select the {doaRoleLabel} —</option>
               {doaCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.note ? ` · ${c.note}` : ''}</option>)}
             </select>
-            <p className="text-xs text-[var(--ecs-muted)] mt-1">Pulled from the DOA system for the charging department &amp; amount band (§13.14); choose who approves — it is not pre-selected. On the emergency lane this DOA is also the authoriser.</p>
+            <p className="text-xs text-[var(--ecs-muted)] mt-1">Pulled from the DOA system for the charging department &amp; amount band (§13.14). It is <strong>pre-selected when a single DOA qualifies</strong>; choose who approves only when <strong>more than one is eligible</strong>. On the emergency lane this DOA is also the authoriser.</p>
           </div>
           <div>
             <label className="label" htmlFor="additionalApproverId">Additional Approver (optional)</label>
