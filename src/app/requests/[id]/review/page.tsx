@@ -187,28 +187,54 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             class) and the full itinerary; the Policy Exceptions card lists the hotel-cap / travel-class
             exceptions. The justification is captured on the Estimates airfare form and edited on the
             Policy Review step, so it is NOT repeated on this submit page. §13.14 / §13.19 / §4.4. */}
-        <div className="grid md:grid-cols-2 gap-5 items-start">
-        <Card title="Trip">
-          <dl className="grid md:grid-cols-2 gap-3">
-            <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
-            <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
-            <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
-            {req.isGroup ? (
-              <KV label="Travel class">Each traveller flies at their own class entitlement (§13.14) — per-traveller classes are shown in the cost items below.</KV>
-            ) : (
-              <>
-                <KV label="Travel class">{proposedClassName}{classException && <span className="pill-warn ml-1">above entitlement</span>}</KV>
-                <KV label="Entitled class">{entitledClassName ?? '—'}{policyGroupCode ? <span className="text-[var(--ecs-muted)]"> · {policyGroupCode}</span> : ''}</KV>
-              </>
-            )}
-            <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
-            <KV label="TMC">{tmcText}</KV>
-            {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
-            {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
-            {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
-            <KV label="Traveller">{travellerName(req)}</KV>
-          </dl>
-          {/* DD-17 Booking reference(s) — TR-level provenance (one TR → N PNRs). */}
+        <div className="grid md:grid-cols-2 gap-5 items-stretch">
+        <Card title="Trip" className="h-full">
+          {/* Three columns: cols 1–2 carry the trip data (logically paired — class with entitled class,
+              booking with TMC); col 3 is the itinerary, beside the destination. */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <dl className="md:col-span-2 grid sm:grid-cols-2 gap-x-4 gap-y-3 content-start">
+              <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
+              <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
+              <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
+              <KV label="Traveller">{travellerName(req)}</KV>
+              {req.isGroup ? (
+                <KV label="Travel class">Each traveller flies at their own class entitlement (§13.14) — per-traveller classes are shown in the cost items below.</KV>
+              ) : (
+                <>
+                  <KV label="Travel class">{proposedClassName}{classException && <span className="pill-warn ml-1">above entitlement</span>}</KV>
+                  <KV label="Entitled class">{entitledClassName ?? '—'}{policyGroupCode ? <span className="text-[var(--ecs-muted)]"> · {policyGroupCode}</span> : ''}</KV>
+                </>
+              )}
+              <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
+              <KV label="TMC">{tmcText}</KV>
+              {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
+              {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
+              {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
+            </dl>
+            {/* Col 3 — Itinerary, beside the destination. */}
+            <div className="md:border-l md:border-[var(--ecs-border)] md:pl-4">
+              <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Itinerary</div>
+              {sharedLegs.length > 0 ? (
+                <>
+                  <div className="text-sm font-medium mb-2">{routeText}</div>
+                  <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
+                    {sharedLegs.map((l, i) => (
+                      <li key={l.id}>
+                        Leg {i + 1}: {l.originCode} → {l.destCode}
+                        {l.departDate ? ` · ${fmtDate(l.departDate)}` : ''}
+                        {l.nights ? ` · ${l.nights} night${l.nights > 1 ? 's' : ''}` : ''}
+                        {l.isPersonal ? <span className="ml-1 pill-navy">Personal</span> : ''}
+                        {legPnr[l.id] ? <span className="ml-1 pill-info" title="Ticketed on this PNR">{legPnr[l.id]}</span> : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="text-sm text-[var(--ecs-muted)]">No itinerary legs captured for this request.</p>
+              )}
+            </div>
+          </div>
+          {/* DD-17 Booking reference(s) — TR-level provenance (one TR → N PNRs). Full width below. */}
           {bookingSet.pnrCount > 0 && (
             <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
               <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Booking reference{bookingSet.pnrCount > 1 ? `s · ${bookingSet.pnrCount} PNRs` : ''}</div>
@@ -225,32 +251,10 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               </ul>
             </div>
           )}
-          {/* Itinerary — nested within the Trip card (the full route). */}
-          <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
-            <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Itinerary</div>
-            {sharedLegs.length > 0 ? (
-              <>
-                <div className="text-sm font-medium mb-2">{routeText}</div>
-                <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
-                  {sharedLegs.map((l, i) => (
-                    <li key={l.id}>
-                      Leg {i + 1}: {l.originCode} → {l.destCode}
-                      {l.departDate ? ` · ${fmtDate(l.departDate)}` : ''}
-                      {l.nights ? ` · ${l.nights} night${l.nights > 1 ? 's' : ''}` : ''}
-                      {l.isPersonal ? <span className="ml-1 pill-navy">Personal</span> : ''}
-                      {legPnr[l.id] ? <span className="ml-1 pill-info" title="Ticketed on this PNR">{legPnr[l.id]}</span> : ''}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="text-sm text-[var(--ecs-muted)]">No itinerary legs captured for this request.</p>
-            )}
-          </div>
         </Card>
         {/* §13.19 Policy Exceptions — hotel-cap and travel-class exceptions only (the justification is
             not repeated here; it lives on the airfare form and the Policy Review step). */}
-        <Card title="Policy Exceptions">
+        <Card title="Policy Exceptions" className="h-full">
           {exceptions.length > 0 ? (
             <ul className="space-y-2">
               {exceptions.map((c) => (
@@ -266,7 +270,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           ) : (
             <p className="text-sm text-[var(--ecs-muted)]">Within policy — no exceptions.</p>
           )}
-          {hardStops.length > 0 && <p className="text-xs text-[var(--ecs-red)] mt-3 pt-3 border-t border-[var(--ecs-border)]">{hardStops.length} hard stop(s) block submission — resolve on the Policy Review step.</p>}
+          {hardStops.length > 0 && <p className="text-xs text-[var(--ecs-red)] mt-3 pt-3 border-t border-[var(--ecs-border)]">{hardStops.length} hard stop(s) block submission — resolve them in the panel above.</p>}
         </Card>
         </div>
 
