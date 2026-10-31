@@ -10,6 +10,7 @@ export interface DashRow {
   id: string; requestNumber: string; type: 'S' | 'E'; kind: 'IND' | 'GRP' | 'GST'; groupType?: 'STAFF' | 'STUDENT' | null;
   ba: string; traveller: string; requestor: string; purpose: string; dest: string; dates: string; ntu: string;
   exceptions: number; status: string; bookingStatus: string;
+  ta?: string | null; pnrs?: string;   // booking provenance — TA number + PNR(s), for search + inline display
 }
 
 export function DashboardRequests({ rows }: { rows: DashRow[] }) {
@@ -27,7 +28,7 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
     return rows.filter((r) => {
       if (type !== 'ALL' && r.type !== type) return false;
       if (status !== 'ALL' && r.status !== status) return false;
-      if (needle && !`${r.requestNumber} ${r.traveller} ${r.dest} ${r.purpose}`.toLowerCase().includes(needle)) return false;
+      if (needle && !`${r.requestNumber} ${r.ta ?? ''} ${r.pnrs ?? ''} ${r.traveller} ${r.dest} ${r.purpose}`.toLowerCase().includes(needle)) return false;
       return true;
     });
   }, [rows, q, type, status]);
@@ -47,7 +48,7 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
       <div className={`flex flex-wrap items-end gap-3 mb-3 ${ready ? '' : 'opacity-60'}`}>
         <div className="flex-1 min-w-[12rem]">
           <label className="label">Search</label>
-          <input value={q} onChange={(e) => setQ(e.target.value)} disabled={!ready} placeholder={ready ? 'Request no., traveller, destination, purpose…' : 'Loading filters…'} className="field disabled:cursor-not-allowed" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} disabled={!ready} placeholder={ready ? 'Request no., TA / PNR, traveller, destination, purpose…' : 'Loading filters…'} className="field disabled:cursor-not-allowed" />
         </div>
         <div>
           <label className="label">Type</label>
@@ -92,6 +93,7 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
                     <TypePill t={r.type} /><KindPill k={r.kind} gt={r.groupType} />
                     {(r.status === 'Draft' || r.status === 'Sent Back') && <span className="pill-warn">Edit</span>}
                   </div>
+                  {r.ta && <div className="text-[11px] text-[var(--ecs-muted)] font-mono mt-0.5">{r.ta}{r.pnrs ? ` · ${r.pnrs.trim().split(/\s+/).length > 1 ? `${r.pnrs.trim().split(/\s+/).length} PNRs` : r.pnrs.trim()}` : ''}</div>}
                 </td>
                 <td className="td">{r.ba}</td>
                 <td className="td">{r.traveller}</td>

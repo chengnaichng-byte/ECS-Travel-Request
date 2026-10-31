@@ -44,6 +44,9 @@ export default async function Dashboard() {
       ntu: fmtSgd(summary.ntuFunded),
       exceptions: r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length,
       status: r.status, bookingStatus: r.bookingStatus,
+      // Booking provenance — the TA number and PNR(s) once booked, so the request is findable by either.
+      ta: r.authorisationNo,
+      pnrs: (r.bookings ?? []).map((b) => b.pnr).filter(Boolean).join(' '),
     };
   });
 
