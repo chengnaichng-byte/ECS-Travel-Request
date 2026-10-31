@@ -57,7 +57,10 @@ export async function Shell({ children }: { children: React.ReactNode }) {
             </span>
           </Link>
           <div className="flex items-center gap-3">
-            <PersonaSwitcher role={roleId} person={persona.id} roles={roles} peopleByRole={peopleByRole()} />
+            {/* Key on the committed persona so the switcher remounts (fresh dropdown state) whenever the
+                persona changes server-side — e.g. a demo-scenario button sets the cookie and redirects.
+                Without this, the client component keeps its stale useState until a full reload. */}
+            <PersonaSwitcher key={`${roleId}:${persona.id}`} role={roleId} person={persona.id} roles={roles} peopleByRole={peopleByRole()} />
             <div className="hidden md:flex items-center gap-2 pl-3 border-l border-[var(--ecs-border)]">
               <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[var(--ecs-panel)] text-[var(--ecs-navy)] text-xs font-semibold">{initials}</span>
               <div className="flex flex-col leading-tight">
