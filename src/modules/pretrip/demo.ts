@@ -467,7 +467,7 @@ export async function seedNonTermResearchDemo() {
   const id = await seedNonTermResearchDraft();
   const store = await cookies();
   store.set(PERSONA_COOKIE, 'E-TRAV3', { path: '/' });
-  store.set(ROLE_COOKIE, 'TRAVELLER', { path: '/' });
+  store.set(ROLE_COOKIE, 'REQUESTOR', { path: '/' });   // PERSONA_ROLES key (not the ROLE enum 'TRAVELLER')
   revalidatePath('/', 'layout');
   redirect(`/requests/${id}/review`);
 }
