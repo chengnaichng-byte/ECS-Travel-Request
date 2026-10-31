@@ -23,7 +23,7 @@ export const moduleSettingsDefaults = {
   researchPiSelfApproval: true,     // #1 research WBS raised for a PI traveller ≤ limit → self-approved (PI is the DOA)
   nonTermAutoApprove: false,        // §13.x research-WBS non-term travel (attested + approval e-mail) → auto-approved (off by default)
   upgradeDeltaRoutingEnabled: true,    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account
-  upgradeDeltaSelectionRequired: true, // #14 when the governing BA has >1 M6 account the traveller must pick one
+  upgradeDeltaSelectionRequired: false, // #14 default to the BA's default (or first) M6 account and let the traveller re-select; set true to force a pick when the BA has >1
   attachmentMaxMb: 7,               // §2 max upload size per file
   chargingSplitMode: 'PERCENT' as 'PERCENT' | 'AMOUNT', // §17 charging entry mode
   declarationText: 'I confirm that the trip is for official purposes, the estimated costs are reasonable, and the itinerary and personal travel days are accurate.',
@@ -56,7 +56,7 @@ export const decisionCatalogue = [
   { key: 'upgradeDeltaRoutingEnabled', label: 'Travel-class upgrade differential → M6 routing', kind: 'boolean',
     effect: 'When on, the NTU-funded differential of a travel-class upgrade is charged to a separate M6 (upgrade-differential) account for the governing business area — selected on the Charging step — while the entitlement stays on the original WBS/CC. When off, the whole NTU-funded fare charges the normal allocation (#14).' },
   { key: 'upgradeDeltaSelectionRequired', label: 'Require M6 account selection when the BA has several', kind: 'boolean',
-    effect: 'When on, if the governing business area offers more than one M6 account the traveller must pick which the upgrade differential charges (a hard stop until set); a BA with a single account auto-selects. When off, the BA default account is applied automatically (#14).' },
+    effect: 'When on, if the governing business area offers more than one M6 account the traveller must pick which the upgrade differential charges (a hard stop until set); a BA with a single account auto-selects. When off (default), the BA\'s default (or first) M6 account is applied automatically and the traveller may still re-select (#14).' },
   { key: 'expenseScope', label: 'Expense scope', kind: 'enum', options: ['MAJOR_ONLY', 'ALL'],
     effect: 'Controls which expense types are available (major only vs all travel expenses).' },
   { key: 'hotelEstimateBasis', label: 'Hotel estimate basis', kind: 'enum', options: ['QUOTED', 'CAP', 'LOWER'],
