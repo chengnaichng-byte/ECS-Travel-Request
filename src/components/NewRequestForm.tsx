@@ -7,19 +7,38 @@
 import { useState, useRef } from 'react';
 import { createDraft, createGroupDraft, createGuestDraft } from '@/modules/pretrip/actions';
 
-interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean }
+interface Charging { code: string; name: string }
+interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean; roName?: string | null; charging?: Charging | null }
 interface GuestRow { name: string; email: string; org: string }
 interface StudentRow { name: string; email: string; studentId: string; programme: string }
 const MODE_LABEL = { individual: 'Individual request', group: 'Group request', guest: 'Guest / non-employee' } as const;
 type Mode = keyof typeof MODE_LABEL;
 type GroupKind = 'staff' | 'student';
 
-export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, guestMixAllowed, studentGroupEnabled }: {
+const chargingText = (c?: Charging | null): string => (c ? `${c.code} — ${c.name}` : '— none on file —');
+
+/** A read-only, ECS/HR-derived field shown on the create form (RO, default charging) — styled like the
+ *  "Requestor (you)" box, so it's clearly derived, not an input. */
+function DerivedField({ label, value, hint, muted }: { label: string; value: React.ReactNode; hint?: string; muted?: boolean }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <div className={`text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] ${muted ? 'text-[var(--ecs-muted)]' : ''}`}>{value}</div>
+      {hint && <p className="text-xs text-[var(--ecs-muted)] mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, guestMixAllowed, studentGroupEnabled, requestorCharging }: {
   persona: { name: string; title: string }; isRequestor: boolean;
   options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; guestMixAllowed: boolean; studentGroupEnabled: boolean;
+  requestorCharging?: Charging | null;
 }) {
   const [mode, setMode] = useState<Mode>('individual');
   const defaultTraveller = options[0]?.id;
+  // Individual mode: track the selected traveller so the derived RO + default charging update live.
+  const [travellerId, setTravellerId] = useState<string>(defaultTraveller ?? '');
+  const selectedTraveller = options.find((o) => o.id === travellerId) ?? options[0];
   const modes: Mode[] = groupEnabled ? ['individual', 'group', 'guest'] : ['individual', 'guest'];
 
   // Group sub-type: STAFF (employees + optional guests) vs STUDENT (uploaded students).
@@ -234,6 +253,13 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                 <label className="label">Host / Requestor (you)</label>
                 <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}</div>
               </div>
+              {/* A guest has no ECS reporting line → RO blank; charging defaults to the host's cost object. */}
+              <div className="grid grid-cols-2 gap-4">
+                <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a guest has no reporting officer" />
+                <DerivedField label="Default charging account" muted={!requestorCharging}
+                  value={chargingText(requestorCharging)}
+                  hint="Your (host) Workday / profile cost object — the guest's trip is charged here; editable on the Charging step." />
+              </div>
               <div>
                 <label className="label" htmlFor="guestName">Guest name</label>
                 <input id="guestName" name="guestName" required className="field" placeholder="e.g. Prof Maria Santos" />
@@ -258,10 +284,19 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
               </div>
               <div>
                 <label className="label" htmlFor="travellerId">Traveller</label>
-                <select id="travellerId" name="travellerId" className="field" defaultValue={defaultTraveller}>
+                <select id="travellerId" name="travellerId" className="field" value={travellerId} onChange={(e) => setTravellerId(e.target.value)}>
                   {options.map((e) => <option key={e.id} value={e.id}>{e.name} — {e.title} ({e.dept}){e.delegated ? ' · delegated' : ''}</option>)}
                 </select>
                 {isRequestor && <p className="text-xs text-[var(--ecs-muted)] mt-1">Creating on behalf of a traveller; approval, entitlements and declarations derive from the traveller (§13.13).</p>}
+              </div>
+              {/* §13.13 / §7 RO and default charging are derived from the selected traveller (read-only here). */}
+              <div className="grid grid-cols-2 gap-4">
+                <DerivedField label="Reporting Officer (RO)" muted={!selectedTraveller?.roName}
+                  value={selectedTraveller?.roName ?? '— none on file —'}
+                  hint="Derived from the traveller's ECS/HR reporting line." />
+                <DerivedField label="Default charging account" muted={!selectedTraveller?.charging}
+                  value={chargingText(selectedTraveller?.charging)}
+                  hint="The traveller's Workday / profile cost object — editable on the Charging step." />
               </div>
             </div>
           </div>
@@ -288,6 +323,14 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
             <div className="p-4">
               <label className="label">Requestor / Coordinator (you)</label>
               <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] mb-4">{persona.name} — {persona.title}{isRequestor && <span className="pill-navy ml-1">Travel Requestor</span>}</div>
+
+              {/* A student group has no single RO → blank; charging defaults to the requestor's cost object. */}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a group has no single reporting officer" />
+                <DerivedField label="Default charging account" muted={!requestorCharging}
+                  value={chargingText(requestorCharging)}
+                  hint="Your (requestor) Workday / profile cost object — the group default; editable on the Charging step." />
+              </div>
 
               <div className="rounded border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 mb-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -355,6 +398,14 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
             <div className="p-4">
               <label className="label">Requestor (you)</label>
               <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] mb-4">{persona.name} — {persona.title}{isRequestor && <span className="pill-navy ml-1">Travel Requestor</span>}</div>
+
+              {/* A group has no single RO → blank; charging defaults to the requestor's cost object. */}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a group has no single reporting officer" />
+                <DerivedField label="Default charging account" muted={!requestorCharging}
+                  value={chargingText(requestorCharging)}
+                  hint="Your (requestor) Workday / profile cost object — the group default; per-member department allocation is applied on the Charging step." />
+              </div>
 
               {/* Bulk import */}
               <div className="rounded border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 mb-4">

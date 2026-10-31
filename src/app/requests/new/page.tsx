@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { currentPersona } from '@/shared/session';
 import { getSettings } from '@/modules/pretrip/settings';
-import { EcsIdentity, EcsDelegation } from '@/shared/ecs/services';
+import { EcsIdentity, EcsDelegation, EcsCharging } from '@/shared/ecs/services';
 import { employees } from '@/data/employees';
 import { creatableTravellerIds } from '@/modules/pretrip/guards';
 import { ROLE } from '@/shared/enums';
@@ -38,7 +38,18 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
     );
   }
 
-  const toOpt = (e: (typeof employees)[number]) => ({ id: e.id, name: e.name, title: e.title, dept: EcsIdentity.department(e.departmentId)?.name ?? '', email: e.email ?? '', delegated: delegators.includes(e.id) });
+  // §13.13 / §7 RO is derived from the traveller's reporting line; the default charging account is the
+  // traveller's Workday / profile cost object (defaultChargingCode). Both are resolved here and shown
+  // read-only on the create form so the requestor sees what will be derived before raising the draft.
+  const roLabelFor = (e: (typeof employees)[number]): string | null => {
+    const ro = e.reportingOfficerId ? EcsIdentity.employee(e.reportingOfficerId) : null;
+    return ro ? `${ro.name} — ${ro.title}` : null;
+  };
+  const chargingFor = (code: string | null | undefined): { code: string; name: string } | null =>
+    code ? { code, name: EcsCharging.code(code)?.name ?? '' } : null;
+  const toOpt = (e: (typeof employees)[number]) => ({ id: e.id, name: e.name, title: e.title, dept: EcsIdentity.department(e.departmentId)?.name ?? '', email: e.email ?? '', delegated: delegators.includes(e.id), roName: roLabelFor(e), charging: chargingFor(e.defaultChargingCode) });
+  // Group / guest bookings have no single RO; their default charging is the requestor's (host) cost object.
+  const requestorCharging = chargingFor(EcsIdentity.employee(persona.id)?.defaultChargingCode);
   // Individual creation respects the requestor's remit; a group booking may name any employee
   // traveller (routing handles cross-department), so the group pool is the full traveller list.
   const options = (isRequestor ? employees.filter((e) => e.isTraveller) : employees.filter((e) => selectable.has(e.id))).map(toOpt);
@@ -58,6 +69,7 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
         groupEnabled={settings.groupTravelEnabled}
         guestMixAllowed={settings.groupGuestMixAllowed}
         studentGroupEnabled={settings.studentGroupEnabled}
+        requestorCharging={requestorCharging}
       />
     </div>
   );
