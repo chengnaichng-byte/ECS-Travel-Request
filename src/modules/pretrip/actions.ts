@@ -1208,28 +1208,22 @@ export async function submitRequest(id: string, fd?: FormData) {
     // §DD-23 Emergency lane — AUTO-DETERMINED by the system (not a traveller opt-in): a trip is on the
     // emergency lane when it is URGENT (earliest departure within the emergency window) AND the booking
     // method can book ahead. The FULL approval workflow still runs, retrospectively; the only change is
-    // that the TMC hand-off goes out CONCURRENTLY on submit. Evidence (authorising officer + e-mail) is
-    // captured only when the institution has emergencyEvidenceRequired ON (Mode A — evidence-captured);
-    // with it OFF (Mode B) the request simply floats through the normal approval with no extra evidence.
+    // that the TMC hand-off goes out CONCURRENTLY on submit. The lane is AUTHORISED BY THE APPROVING DOA
+    // (no separate authorising officer): emergencyAuthoriserId is set to the effective DOA below. Under
+    // Mode A (emergencyEvidenceRequired) the requestor must attach the DOA's go-ahead e-mail as evidence;
+    // under Mode B the request simply floats through the normal approval with no attachment.
     const isEmergencyNow = qualifiesForEmergency(req, settings.emergencyLeadDays);
-    if (isEmergencyNow && settings.emergencyEvidenceRequired) {
-      const ea = str(fd, 'emergencyAuthoriserId');
-      if (!ea || ea === req.travellerId) {
-        await audit(id, 'STATUS', 'Submission blocked — emergency lane (evidence mode) needs an authorising officer (not the traveller)');
-        redirect(`/requests/${id}/review?error=${encodeURIComponent('This request is on the emergency lane — select the authorising officer (not the traveller) before submitting.')}`);
-      }
-      if (!hasEmergencyApproval(req)) {
-        await audit(id, 'STATUS', 'Submission blocked — emergency lane (evidence mode) needs the authorising e-mail');
-        redirect(`/requests/${id}/review?error=${encodeURIComponent('This request is on the emergency lane — attach the authorising officer’s e-mail before submitting.')}`);
-      }
+    if (isEmergencyNow && settings.emergencyEvidenceRequired && !hasEmergencyApproval(req)) {
+      await audit(id, 'STATUS', 'Submission blocked — emergency lane (evidence mode) needs the approving DOA’s authorising e-mail');
+      redirect(`/requests/${id}/review?error=${encodeURIComponent('This request is on the emergency lane — attach the approving DOA’s authorising e-mail before submitting.')}`);
     }
     const emergencyFields = {
       isEmergency: isEmergencyNow, isRetrospective: false, emergencyOutsideWindow: false, emergencyRatified: false,
-      emergencyAuthoriserId: isEmergencyNow && settings.emergencyEvidenceRequired ? (str(fd, 'emergencyAuthoriserId') || null) : null,
     };
     if (piSelfApproves) {
-      // decision 3 — the PI is the DOA; no external DOA selection is needed.
-      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, additionalApproverId: aaId, selectedDoaId: null, personalAck, highRiskAck, nonTermDeclared } });
+      // decision 3 — the PI is the DOA; no external DOA selection is needed. On the emergency lane the
+      // PI (the self-approving DOA) is the authorising authority.
+      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, emergencyAuthoriserId: isEmergencyNow ? req.travellerId : null, additionalApproverId: aaId, selectedDoaId: null, personalAck, highRiskAck, nonTermDeclared } });
     } else {
       // §13.14 / decision 1 — the DOA is DEFAULTED when exactly one candidate is eligible; with several,
       // the traveller selects one (self is already excluded from the candidate list).
@@ -1241,7 +1235,8 @@ export async function submitRequest(id: string, fd?: FormData) {
         await audit(id, 'STATUS', 'Submission blocked — please select the approving DOA');
         redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
       }
-      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, additionalApproverId: aaId, selectedDoaId: effectiveDoa || null, personalAck, highRiskAck, nonTermDeclared } });
+      // §DD-23 on the emergency lane the selected approving DOA is also the authorising authority.
+      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, emergencyAuthoriserId: isEmergencyNow ? (effectiveDoa || null) : null, additionalApproverId: aaId, selectedDoaId: effectiveDoa || null, personalAck, highRiskAck, nonTermDeclared } });
     }
   }
 

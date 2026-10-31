@@ -34,7 +34,7 @@ export const moduleSettingsDefaults = {
   authorisationValidityDays: 30,    // §13.3
   bookingDeadlineDays: 14,          // §13.3
   emergencyLeadDays: 14,            // §13.x/DD-23 emergency-lane standard lead-time window (days before departure)
-  emergencyEvidenceRequired: true,  // §DD-23 Mode A (ON) = capture authorising officer + e-mail when a trip auto-qualifies for the emergency lane; Mode B (OFF) = float through the normal approval, no extra evidence
+  emergencyEvidenceRequired: true,  // §DD-23 Mode A (ON) = attach the approving DOA's authorising e-mail when a trip auto-qualifies for the emergency lane (the DOA is the authoriser); Mode B (OFF) = float through the normal approval, no extra evidence
 };
 
 /** §3.4 decision catalogue — drives the Module Settings screen (TR-19). */

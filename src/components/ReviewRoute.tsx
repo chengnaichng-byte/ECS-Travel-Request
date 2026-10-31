@@ -1,13 +1,14 @@
 'use client';
-// §21/§13.14 Approval route — a visual (chevron) preview at the top of the Review page,
-// in the same language as the approver's Workflow bar. The traveller SELECTS the approving
-// DOA from the eligible candidates (the DOA system may return several; it is never
-// pre-selected) and may optionally add one Additional Approver; the chevrons update live.
+// §21/§13.14 Approval route. The chevron PREVIEW stays at the TOP of the Review page (orientation, in
+// the approver's Workflow-bar language); the DOA / Additional Approver SELECTION sits at the BOTTOM,
+// just above Submit — chosen after the traveller has reviewed and accepted the declaration. Both share
+// state, so the top preview updates live as the selection changes. The server-rendered review body is
+// passed as `children` and rendered between the preview and the selectors.
 import { useState } from 'react';
 
 export interface Opt { id: string; name: string; note?: string; title?: string }
 
-export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates, additionalCandidates, initialDoa, initialAdditional }: {
+export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates, additionalCandidates, initialDoa, initialAdditional, children }: {
   research: boolean;
   fixedSteps: { label: string; name: string }[];   // RO / Funding Owner / Exception etc. (resolved server-side)
   doaRoleLabel: string;
@@ -15,6 +16,7 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
   additionalCandidates: Opt[];
   initialDoa: string;
   initialAdditional: string;
+  children: React.ReactNode;
 }) {
   const [doa, setDoa] = useState(initialDoa);
   const [additional, setAdditional] = useState(initialAdditional);
@@ -29,35 +31,44 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
   );
 
   return (
-    <div className="card p-4">
-      <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-2">Approval Route{research && <span className="ml-1 pill-navy">Research</span>}</div>
-      <div className="chev-row overflow-x-auto">
-        <div className="flex items-center"><div className="chev chev-done"><div className="font-semibold">Traveller</div><div className="opacity-80">submits</div></div></div>
-        {addName && chev('Additional Approver', addName, 'todo')}
-        {fixedSteps.map((s, i) => <div key={i} className="contents">{chev(s.label, s.name, 'todo')}</div>)}
-        {chev(doaRoleLabel, doaName ?? 'Select the DOA', doa ? 'todo' : 'current')}
+    <>
+      {/* Preview — top of the page */}
+      <div className="card p-4">
+        <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-2">Approval Route{research && <span className="ml-1 pill-navy">Research</span>}</div>
+        <div className="chev-row overflow-x-auto">
+          <div className="flex items-center"><div className="chev chev-done"><div className="font-semibold">Traveller</div><div className="opacity-80">submits</div></div></div>
+          {addName && chev('Additional Approver', addName, 'todo')}
+          {fixedSteps.map((s, i) => <div key={i} className="contents">{chev(s.label, s.name, 'todo')}</div>)}
+          {chev(doaRoleLabel, doaName ?? 'Select the DOA', doa ? 'todo' : 'current')}
+        </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4 mt-4 border-t border-[var(--ecs-border)] pt-4">
-        <div>
-          <label className="label" htmlFor="selectedDoaId">Approving {doaRoleLabel} <span className="text-[var(--ecs-red)]">*</span></label>
-          {/* Not a native `required` — the emergency / retrospective lane routes to the named
-              authorising officer instead; the server enforces DOA selection on the normal path. */}
-          <select id="selectedDoaId" name="selectedDoaId" value={doa} onChange={(e) => setDoa(e.target.value)} className="field">
-            <option value="">— select the {doaRoleLabel} —</option>
-            {doaCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.note ? ` · ${c.note}` : ''}</option>)}
-          </select>
-          <p className="text-xs text-[var(--ecs-muted)] mt-1">Pulled from the DOA system for the charging department &amp; amount band (§13.14); choose who approves — it is not pre-selected.</p>
-        </div>
-        <div>
-          <label className="label" htmlFor="additionalApproverId">Additional Approver (optional)</label>
-          <select id="additionalApproverId" name="additionalApproverId" value={additional} onChange={(e) => setAdditional(e.target.value)} className="field">
-            <option value="">— none —</option>
-            {additionalCandidates.map((e) => <option key={e.id} value={e.id}>{e.name}{e.title ? ` — ${e.title}` : ''}</option>)}
-          </select>
-          <p className="text-xs text-[var(--ecs-muted)] mt-1">Optionally route through one additional approver before the DOA (§23). You cannot select yourself.</p>
+      {children}
+
+      {/* Selection — just above Submit */}
+      <div className="card p-4">
+        <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-3">Approver selection</div>
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="label" htmlFor="selectedDoaId">Approving {doaRoleLabel} <span className="text-[var(--ecs-red)]">*</span></label>
+            {/* Not a native `required` — a research-PI self-approval needs no external DOA; the server
+                enforces DOA selection otherwise. On the emergency lane this same DOA is the authoriser. */}
+            <select id="selectedDoaId" name="selectedDoaId" value={doa} onChange={(e) => setDoa(e.target.value)} className="field">
+              <option value="">— select the {doaRoleLabel} —</option>
+              {doaCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.note ? ` · ${c.note}` : ''}</option>)}
+            </select>
+            <p className="text-xs text-[var(--ecs-muted)] mt-1">Pulled from the DOA system for the charging department &amp; amount band (§13.14); choose who approves — it is not pre-selected. On the emergency lane this DOA is also the authoriser.</p>
+          </div>
+          <div>
+            <label className="label" htmlFor="additionalApproverId">Additional Approver (optional)</label>
+            <select id="additionalApproverId" name="additionalApproverId" value={additional} onChange={(e) => setAdditional(e.target.value)} className="field">
+              <option value="">— none —</option>
+              {additionalCandidates.map((e) => <option key={e.id} value={e.id}>{e.name}{e.title ? ` — ${e.title}` : ''}</option>)}
+            </select>
+            <p className="text-xs text-[var(--ecs-muted)] mt-1">Optionally route through one additional approver before the DOA (§23). You cannot select yourself.</p>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

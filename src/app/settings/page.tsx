@@ -66,7 +66,7 @@ export default async function SettingsPage() {
             <div>
               <label className="label">Evidence handling</label>
               <select name="emergencyEvidenceRequired" defaultValue={s.emergencyEvidenceRequired ? 'on' : 'off'} className="field">
-                <option value="on">Mode A — capture authorising officer + e-mail</option>
+                <option value="on">Mode A — attach the DOA&apos;s authorising e-mail</option>
                 <option value="off">Mode B — float through approval, no evidence</option>
               </select>
             </div>
@@ -75,9 +75,10 @@ export default async function SettingsPage() {
               placed on the lane when the earliest departure is within this window <strong>and</strong> the booking is a
               <strong> TMC agent-assisted or offline</strong> channel (a human agent can book ahead). The
               <strong> full approval workflow still runs, retrospectively</strong>; the only change is the TMC booking is
-              handed over <strong>concurrently on submit</strong>. Under <strong>Mode A</strong> the traveller captures the
-              authorising officer and the approval e-mail on Review &amp; Submit; under <strong>Mode B</strong> the request
-              simply floats through the normal approval with no extra evidence.
+              handed over <strong>concurrently on submit</strong>. The lane is <strong>authorised by the approving DOA</strong>
+              (no separate authorising officer). Under <strong>Mode A</strong> the requestor attaches the DOA&apos;s go-ahead
+              e-mail on Review &amp; Submit; under <strong>Mode B</strong> the request floats through the normal approval
+              with no extra evidence.
             </div>
           </div>
         </Card>

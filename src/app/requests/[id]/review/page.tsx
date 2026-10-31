@@ -99,14 +99,14 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const doaCandidates = doaCandidatesFor(req, { approvalAmount: summary.approvalAmount, sameRouteResearch: settings.sameRouteResearch });
   // §DD-23 Emergency lane is AUTO-DETERMINED: the system places the trip on the lane when the earliest
   // departure is within the lead-time window AND the booking can book ahead. The approval workflow is
-  // unchanged; the only effect is the TMC hand-off goes out concurrently on submit. Under Mode A
-  // (emergencyEvidenceRequired) the traveller captures the authorising officer + e-mail here.
+  // unchanged; the only effect is the TMC hand-off goes out concurrently on submit. The emergency lane
+  // is AUTHORISED BY THE APPROVING DOA (selected below) — no separate authorising officer. Under Mode A
+  // (emergencyEvidenceRequired) the requestor attaches the DOA's go-ahead e-mail as evidence.
   const isEmergencyNow = qualifiesForEmergency(req, settings.emergencyLeadDays);
   // §DD-23 Re-evaluation: urgent, but on a TMC-online (not book-ahead) channel → prompt the requestor to
   // switch to agent-assisted / offline inline (advisory, not a hard block). Mutually exclusive with above.
   const needsBookAheadSwitch = urgentButNotBookAhead(req, settings.emergencyLeadDays, isTmcArrangement(req.bookingArrangement));
   const emergencyEvidenceMode = settings.emergencyEvidenceRequired;
-  const emergencyAuthorisers = employees.filter((e) => !e.isTraveller && e.travelPolicyGroup === 'SENIOR' && e.id !== req.travellerId);
   const emergencyApprovals = req.attachments.filter((a) => a.docType === EMERGENCY_APPROVAL_DOC);
   const emergencyLeadDays = leadTimeDays(req);
   // §13.x Non-term research travel — available only when the trip is on a research WBS (offline
@@ -177,7 +177,9 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
       )}
 
       <form action={submitRequest.bind(null, id)} className="space-y-5">
-        {/* §21 Approval route (visual) — above the Trip section, with the DOA selector. */}
+        {/* §21/§13.14 Approval route — the chevron preview renders at the TOP; the DOA / Additional
+            Approver SELECTION renders at the BOTTOM (just above Submit). The review body below is passed
+            as children and rendered between them. On the emergency lane the selected DOA is the authoriser. */}
         <ReviewRoute
           research={research}
           fixedSteps={fixedSteps}
@@ -186,8 +188,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           additionalCandidates={additionalCandidates}
           initialDoa={req.selectedDoaId || (doaCandidates.length === 1 ? doaCandidates[0].id : '')}
           initialAdditional={req.additionalApproverId ?? ''}
-        />
-
+        >
         {/* Trip and Policy Exceptions side by side. The Trip card carries the details (incl. entitled
             class) and the full itinerary; the Policy Exceptions card lists the hotel-cap / travel-class
             exceptions. The justification is captured on the Estimates airfare form and edited on the
@@ -308,42 +309,33 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
         )}
 
         {/* §DD-23 Emergency lane — AUTO-DETERMINED by the system (not a traveller opt-in). The card
-            appears only when this request qualifies (urgent lead time + a book-ahead TMC channel); it
-            informs the traveller and, under Mode A, captures the authorising officer + e-mail here. */}
+            appears only when this request qualifies (urgent lead time + a book-ahead TMC channel). The
+            lane is AUTHORISED BY THE APPROVING DOA selected below (no separate authorising officer);
+            under Mode A the requestor attaches the DOA's go-ahead e-mail as evidence. */}
         {isEmergencyNow && (
           <Card title="Emergency lane — auto-determined (DD-23)">
             <div className="text-sm rounded border border-[#f59e0b] bg-[#fff8ec] p-3 space-y-1">
               <p><span className="pill-exc mr-1">Emergency lane</span> This request departs in about <strong>{emergencyLeadDays ?? '—'} day(s)</strong> and uses a <strong>{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</strong> booking, so the system has placed it on the emergency lane.</p>
-              <p>The <strong>full approval workflow still runs</strong> — the only change is that the booking is handed to the TMC <strong>concurrently on submit</strong>, rather than waiting for approval to complete.</p>
+              <p>The <strong>full approval workflow still runs</strong> — the only change is that the booking is handed to the TMC <strong>concurrently on submit</strong>. The <strong>approving DOA (selected below)</strong> authorises the book-ahead and ratifies the request.</p>
             </div>
             {emergencyEvidenceMode ? (
-              <div className="mt-3 space-y-3">
-                <p className="text-xs text-[var(--ecs-muted)]">This institution captures emergency evidence (Mode A): record the officer who authorised booking ahead of approval and attach their e-mail.</p>
-                <div>
-                  <label className="label">Authorising officer <span className="text-[var(--ecs-red)]">*</span></label>
-                  <select name="emergencyAuthoriserId" defaultValue={req.emergencyAuthoriserId ?? ''} className="field w-96 max-w-full">
-                    <option value="">— select an authorising officer —</option>
-                    {emergencyAuthorisers.map((e) => <option key={e.id} value={e.id}>{e.name} · {e.title}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Authorising e-mail <span className="text-[var(--ecs-red)]">*</span> — attach the officer&apos;s e-mail (PDF/PNG/JPEG)</label>
-                  {emergencyApprovals.length > 0 ? (
-                    <ul className="text-xs mb-1 space-y-0.5">
-                      {emergencyApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-[var(--ecs-red)] mb-1">Required on the emergency lane — attach the authorising e-mail before submitting.</p>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
-                    <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
-                    <button formNoValidate formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach authorising e-mail</button>
-                  </div>
+              <div className="mt-3">
+                <label className="label">DOA&apos;s authorising e-mail <span className="text-[var(--ecs-red)]">*</span> — attach the DOA&apos;s go-ahead to book ahead of approval (PDF/PNG/JPEG)</label>
+                {emergencyApprovals.length > 0 ? (
+                  <ul className="text-xs mb-1 space-y-0.5">
+                    {emergencyApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-[var(--ecs-red)] mb-1">Required on the emergency lane (Mode A) — attach the approving DOA&apos;s authorising e-mail before submitting.</p>
+                )}
+                <div className="flex items-center gap-2">
+                  <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
+                  <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
+                  <button formNoValidate formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach DOA&apos;s e-mail</button>
                 </div>
               </div>
             ) : (
-              <p className="mt-3 text-xs text-[var(--ecs-muted)]">This institution does not require emergency evidence to be captured (Mode B) — the request floats through the normal approval with no additional evidence.</p>
+              <p className="mt-3 text-xs text-[var(--ecs-muted)]">Mode B — the request floats through the normal approval with no attachment; the approving DOA authorises and ratifies on the lane.</p>
             )}
           </Card>
         )}
@@ -394,15 +386,17 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
                 <span>I acknowledge the personal portion of this trip is at my own cost and does not form part of the NTU-funded estimate (§12).</span>
               </label>
             )}
-            <div className="flex items-center justify-between gap-4">
-              <Link href={`/requests/${id}/charging`} className="btn-secondary">← Back</Link>
-              <div className="flex items-center gap-3">
-                {!canSubmit && <span className="text-sm text-red-700">Resolve {hardStops.length} hard stop(s) before submitting.</span>}
-                <button type="submit" disabled={!canSubmit} className="btn-primary">Submit for Approval</button>
-              </div>
-            </div>
           </div>
         </Card>
+        </ReviewRoute>
+
+        <div className="flex items-center justify-between gap-4">
+          <Link href={`/requests/${id}/charging`} className="btn-secondary">← Back</Link>
+          <div className="flex items-center gap-3">
+            {!canSubmit && <span className="text-sm text-red-700">Resolve {hardStops.length} hard stop(s) before submitting.</span>}
+            <button type="submit" disabled={!canSubmit} className="btn-primary">Submit for Approval</button>
+          </div>
+        </div>
       </form>
     </div>
   );
