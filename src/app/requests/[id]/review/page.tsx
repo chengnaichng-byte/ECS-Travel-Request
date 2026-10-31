@@ -7,7 +7,7 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { submitRequest, addAttachment, attachNamedFile } from '@/modules/pretrip/actions';
 import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
 import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
 import { getActiveWorkflowScenario } from '@/modules/pretrip/workflowConfig';
@@ -43,6 +43,12 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
   const hardStops = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.HardStop);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
+  // §13.19 the travel-class exception drives the "above entitlement" marker on the Trip card; the full
+  // exception list (hotel cap + travel class) shows in the side-by-side Policy Exceptions card.
+  const classException = exceptions.find((c) => c.code === 'CLASS');
+  const proposedClassName = EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—';
+  const entitledClassName = EcsReference.travelClass(req.entitledClassId ?? '')?.name ?? null;
+  const policyGroupCode = !req.isGroup ? EcsTravelClassRegister.policyGroup(req.travellerId, req.startDate ?? new Date()) : null;
   // §13.x duplicate / overlap warning — a true duplicate (same destination) hard-blocks submit;
   // a date clash with a different destination is surfaced as a softer notice.
   const duplicates = await findDuplicateRequests(req);
@@ -137,45 +143,51 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           initialAdditional={req.additionalApproverId ?? ''}
         />
 
-        <div className="grid md:grid-cols-2 gap-5">
-          <Card title="Trip">
-            <dl className="grid grid-cols-2 gap-3">
-              <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
-              <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
-              <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
-              {req.isGroup ? (
-                <KV label="Travel class">Each traveller flies at their own class entitlement (§13.14) — per-traveller classes are shown in the cost items below.</KV>
-              ) : (
-                <KV label="Travel class">{EcsReference.travelClass(req.travelClassId ?? '')?.name}</KV>
-              )}
-              <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
-              <KV label="TMC">{tmcText}</KV>
-              {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
-              {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
-              {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
-              <KV label="Traveller">{travellerName(req)}</KV>
-            </dl>
-            {/* DD-17 Booking reference(s) — TR-level provenance (one TR → N PNRs). */}
-            {bookingSet.pnrCount > 0 && (
-              <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
-                <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Booking reference{bookingSet.pnrCount > 1 ? `s · ${bookingSet.pnrCount} PNRs` : ''}</div>
-                <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
-                  {bookingSet.bookings.map((b, i) => (
-                    <li key={i}>
-                      <span className="font-mono text-[var(--ecs-navy)]">{b.pnr ?? '—'}</span>
-                      {b.ticketNo ? ` · ${b.ticketNo}` : ''}
-                      {req.isGroup && b.travellerId ? ` · ${EcsIdentity.employee(b.travellerId)?.name ?? b.travellerId}` : ''}
-                      {` · ${b.status}`}
-                      {b.totalSgd ? ` · ${fmtSgd(b.totalSgd)}` : ''}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+        {/* Trip and Policy Exceptions side by side. The Trip card carries the details (incl. entitled
+            class) and the full itinerary; the Policy Exceptions card lists the hotel-cap / travel-class
+            exceptions. The justification is captured on the Estimates airfare form and edited on the
+            Policy Review step, so it is NOT repeated on this submit page. §13.14 / §13.19 / §4.4. */}
+        <div className="grid md:grid-cols-2 gap-5 items-start">
+        <Card title="Trip">
+          <dl className="grid md:grid-cols-2 gap-3">
+            <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
+            <KV label="Destination">{EcsReference.city(req.destCity ?? '')?.name}, {EcsReference.country(req.destCountry ?? '')?.name}</KV>
+            <KV label="Dates">{fmtDate(req.startDate)} → {fmtDate(req.endDate)}</KV>
+            {req.isGroup ? (
+              <KV label="Travel class">Each traveller flies at their own class entitlement (§13.14) — per-traveller classes are shown in the cost items below.</KV>
+            ) : (
+              <>
+                <KV label="Travel class">{proposedClassName}{classException && <span className="pill-warn ml-1">above entitlement</span>}</KV>
+                <KV label="Entitled class">{entitledClassName ?? '—'}{policyGroupCode ? <span className="text-[var(--ecs-muted)]"> · {policyGroupCode}</span> : ''}</KV>
+              </>
             )}
-          </Card>
-          {/* Itinerary — the full route sits beside the Trip card; charging moves below the cost
-              items (ECS "Cost Allocation" format). Shown whenever the request has shared legs. */}
-          <Card title="Itinerary">
+            <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
+            <KV label="TMC">{tmcText}</KV>
+            {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} → {fmtDate(req.eventEndDate)}</KV>}
+            {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
+            {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
+            <KV label="Traveller">{travellerName(req)}</KV>
+          </dl>
+          {/* DD-17 Booking reference(s) — TR-level provenance (one TR → N PNRs). */}
+          {bookingSet.pnrCount > 0 && (
+            <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
+              <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Booking reference{bookingSet.pnrCount > 1 ? `s · ${bookingSet.pnrCount} PNRs` : ''}</div>
+              <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
+                {bookingSet.bookings.map((b, i) => (
+                  <li key={i}>
+                    <span className="font-mono text-[var(--ecs-navy)]">{b.pnr ?? '—'}</span>
+                    {b.ticketNo ? ` · ${b.ticketNo}` : ''}
+                    {req.isGroup && b.travellerId ? ` · ${EcsIdentity.employee(b.travellerId)?.name ?? b.travellerId}` : ''}
+                    {` · ${b.status}`}
+                    {b.totalSgd ? ` · ${fmtSgd(b.totalSgd)}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {/* Itinerary — nested within the Trip card (the full route). */}
+          <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
+            <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Itinerary</div>
             {sharedLegs.length > 0 ? (
               <>
                 <div className="text-sm font-medium mb-2">{routeText}</div>
@@ -194,7 +206,28 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             ) : (
               <p className="text-sm text-[var(--ecs-muted)]">No itinerary legs captured for this request.</p>
             )}
-          </Card>
+          </div>
+        </Card>
+        {/* §13.19 Policy Exceptions — hotel-cap and travel-class exceptions only (the justification is
+            not repeated here; it lives on the airfare form and the Policy Review step). */}
+        <Card title="Policy Exceptions">
+          {exceptions.length > 0 ? (
+            <ul className="space-y-2">
+              {exceptions.map((c) => (
+                <li key={c.id} className="flex items-start gap-3 text-sm">
+                  <OutcomePill outcome={c.outcome} />
+                  <div>
+                    <div className="font-medium">{c.label}{c.travellerId && <span className="text-[var(--ecs-muted)]"> · {EcsIdentity.employee(c.travellerId)?.name}</span>}</div>
+                    <div className="text-xs text-[var(--ecs-muted)]">{c.detail}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-[var(--ecs-muted)]">Within policy — no exceptions.</p>
+          )}
+          {hardStops.length > 0 && <p className="text-xs text-[var(--ecs-red)] mt-3 pt-3 border-t border-[var(--ecs-border)]">{hardStops.length} hard stop(s) block submission — resolve on the Policy Review step.</p>}
+        </Card>
         </div>
 
         <CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} />
@@ -202,15 +235,6 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
         {/* Charging — beneath the cost items, in the full ECS Cost Allocation format. */}
         <CostAllocationCard req={req} amount={summary.ntuFunded} />
 
-        {(hardStops.length > 0 || exceptions.length > 0) && (
-          <Card title="Outstanding policy items">
-            <ul className="space-y-2">
-              {[...hardStops, ...exceptions].map((c) => (
-                <li key={c.id} className="flex items-center gap-2 text-sm"><OutcomePill outcome={c.outcome} /> {c.label} — <span className="text-[var(--ecs-muted)]">{c.detail}</span></li>
-              ))}
-            </ul>
-          </Card>
-        )}
 
         {hasPersonal && (
           <Card title="Personal Travel (§12)">
@@ -220,115 +244,14 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           </Card>
         )}
 
-        {/* §13.x / DD-23 Emergency lane (book first, raise later) — bounded, audited. */}
-        <details className="group card p-0 overflow-hidden" open={req.isEmergency}>
-          <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
-            <span className="transition-transform group-open:rotate-90">▸</span> Emergency lane — book first, raise later (DD-23)
-            {req.isEmergency
-              ? <span className="pill-exc ml-1">In use</span>
-              : emergencyMethodOk
-                ? <span className="ml-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f3ec] text-[#2f7d4f]">Available</span>
-                : <span className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] text-[var(--ecs-muted)] border border-[var(--ecs-border)]">Not available · needs agent-assisted / offline booking</span>}
-            {req.isEmergency && req.emergencyOutsideWindow && <span className="pill-warn ml-1">Outside standard window</span>}
-          </summary>
-          <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
-            <p className="text-xs text-[var(--ecs-muted)]">A bounded, audited lane for urgent travel — <strong>book first, raise/approve later</strong>. It lets the trip be <strong>booked (or already booked) before approval</strong> on a named officer&apos;s authority, but the <strong>full approval workflow still runs, retrospectively</strong> — it changes the timing of approval, not who approves. Requires a justification, a named authorising officer and the authorising e-mail; available only for TMC agent-assisted / offline bookings.</p>
-
-            {!emergencyMethodOk ? (
-              <div className="text-sm rounded border border-[#f59e0b] bg-[#fff8ec] p-3">
-                <strong>Emergency lane unavailable for this booking method.</strong> The current booking is <em>{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</em>. The book-first lane needs a human agent to hold or place the booking ahead of approval, so it is offered only for <strong>TMC agent-assisted</strong> or <strong>offline</strong> bookings. Change the booking method on the <Link href={`/requests/${id}/trip`} className="underline">Trip step</Link> to use it.
-              </div>
-            ) : (
-              <>
-                {emergencyOutsideWindow && (
-                  <div className="text-sm rounded border border-[#f97316] bg-[#fff3e8] p-3">
-                    <strong>Outside the standard {settings.emergencyLeadDays}-day window.</strong> The earliest departure is about <strong>{emergencyLeadDays ?? '—'} day(s)</strong> away — there is normally time for the standard lane. You may still use the emergency lane, but a <strong>detailed justification</strong> (at least {EMERGENCY_OOW_MIN_JUSTIFICATION} characters) and the confirmation below are required, and the request will be flagged <span className="pill-warn">Outside standard window</span> to the approver.
-                  </div>
-                )}
-                <label className="flex items-start gap-2 text-sm">
-                  <input type="checkbox" name="emergency" value="on" defaultChecked={req.isEmergency} className="mt-0.5 w-4 h-4" />
-                  <span>Use the <strong>emergency lane</strong> (book first, raise later) for this request.</span>
-                </label>
-                <div className="pl-6">
-                  <label className="label">Authorising officer (records who authorised the emergency)</label>
-                  <select name="emergencyAuthoriserId" defaultValue={req.emergencyAuthoriserId ?? ''} className="field w-96 max-w-full">
-                    <option value="">— select an authorising officer —</option>
-                    {emergencyAuthorisers.map((e) => <option key={e.id} value={e.id}>{e.name} · {e.title}</option>)}
-                  </select>
-                </div>
-                <div className="pl-6">
-                  <label className="label">Emergency justification{emergencyOutsideWindow && <span className="text-[var(--ecs-red)]"> * (detailed — at least {EMERGENCY_OOW_MIN_JUSTIFICATION} characters)</span>}</label>
-                  <textarea name="emergencyJustification" defaultValue={req.emergencyJustification ?? ''} rows={emergencyOutsideWindow ? 3 : 2} className="field w-full" placeholder="e.g. same-day flight to an urgent funder meeting; TMC held space pending authorisation." />
-                </div>
-                {emergencyOutsideWindow && (
-                  <label className="pl-6 flex items-start gap-2 text-sm">
-                    <input type="checkbox" name="emergencyOutOfWindowAck" value="on" defaultChecked={req.emergencyOutsideWindow} className="mt-0.5 w-4 h-4" />
-                    <span>I confirm this is a genuine emergency despite the {emergencyLeadDays ?? '—'}-day lead time, and the standard lane is not feasible.</span>
-                  </label>
-                )}
-                {/* Mandatory email-approval attachment for the emergency lane. This uses the request's
-                    attachment store via a button formAction, so it does not nest a form inside submit. */}
-                <div className="pl-6">
-                  <label className="label">Email approval <span className="text-[var(--ecs-red)]">*</span> — attach the authorising officer&apos;s e-mail (PDF/PNG/JPEG)</label>
-                  {emergencyApprovals.length > 0 ? (
-                    <ul className="text-xs mb-1 space-y-0.5">
-                      {emergencyApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-[var(--ecs-red)] mb-1">Required for the emergency lane — attach the authorising e-mail before submitting.</p>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
-                    <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
-                    <button formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach email approval</button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </details>
-
-        {/* §13.x Non-term research travel — offline-approval attestation (research WBS only). Same
-            available / not-available signalling as the emergency lane, with an inline email attach. */}
-        <details className="group card p-0 overflow-hidden" open={req.nonTermDeclared || nonTermAvailable}>
-          <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
-            <span className="transition-transform group-open:rotate-90">▸</span> Non-term research travel — offline approval
-            {req.nonTermDeclared
-              ? <span className="pill-exc ml-1">Attested</span>
-              : nonTermAvailable
-                ? <span className="ml-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f3ec] text-[#2f7d4f]">Available</span>
-                : <span className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] text-[var(--ecs-muted)] border border-[var(--ecs-border)]">Not available · research-funded travel only</span>}
-          </summary>
-          <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
-            <p className="text-xs text-[var(--ecs-muted)]">When a <strong>research-funded</strong> trip takes place in <strong>non-term time</strong>, the required approval has already been obtained offline. Attest below and attach the approval e-mail; where enabled in the workflow configuration, this fast-tracks the pre-trip approval. Available only for trips charged to a <strong>research WBS</strong>.</p>
-            {!nonTermAvailable ? (
-              <div className="text-sm rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 text-[var(--ecs-muted)]">
-                <strong className="text-[var(--ecs-text)]">Available for research-funded travel only.</strong> This trip is not charged to a research WBS. Charge it to a research cost object on the <Link href={`/requests/${id}/charging`} className="underline">Charging step</Link> to use this.
-              </div>
-            ) : (
-              <>
-                <label className="flex items-start gap-2 text-sm">
-                  <input type="checkbox" name="nonTerm" value="on" defaultChecked={req.nonTermDeclared} className="mt-0.5 w-4 h-4" />
-                  <span>This trip is in <strong>non-term time</strong> and the required <strong>offline approval has already been obtained</strong>.</span>
-                </label>
-                <div className="pl-6">
-                  <label className="label">Offline approval e-mail <span className="text-[var(--ecs-red)]">*</span> — attach the approving e-mail (PDF/PNG/JPEG)</label>
-                  {nonTermApprovals.length > 0 ? (
-                    <ul className="text-xs mb-1 space-y-0.5">
-                      {nonTermApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-[var(--ecs-muted)] mb-1">Attach the approval e-mail that supports this attestation.</p>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <input type="file" name="nonTermEmail" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
-                    <button formAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} className="btn-secondary text-xs">Attach approval e-mail</button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </details>
+        {/* §13.x / DD-23 The Emergency lane and the Non-term research attestation are declared on the
+            Trip step and stored on the request. They are carried into submission here as hidden inputs
+            so submitRequest still validates and persists them (the capture UI lives on the Trip step). */}
+        <input type="hidden" name="emergency" value={req.isEmergency ? 'on' : ''} />
+        <input type="hidden" name="emergencyAuthoriserId" value={req.emergencyAuthoriserId ?? ''} />
+        <input type="hidden" name="emergencyJustification" value={req.emergencyJustification ?? ''} />
+        <input type="hidden" name="emergencyOutOfWindowAck" value={req.emergencyOutsideWindow ? 'on' : ''} />
+        <input type="hidden" name="nonTerm" value={req.nonTermDeclared ? 'on' : ''} />
 
         <Card title="Declaration">
           <p className="text-sm text-[var(--ecs-muted)] mb-3">{settings.declarationText} Approval, entitlements and declarations derive from the traveller (§13.13).</p>

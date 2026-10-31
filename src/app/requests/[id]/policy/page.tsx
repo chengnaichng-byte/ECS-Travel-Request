@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
-import { runPolicy, resolveJustifications } from '@/modules/pretrip/actions';
+import { runPolicy, resolveJustifications, updateClassJustification } from '@/modules/pretrip/actions';
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 const GROUPS = [
   { outcome: POLICY_OUTCOME.HardStop, title: 'Hard stops — submission blocked', note: 'Must be resolved before the request can be submitted (AC06).' },
-  { outcome: POLICY_OUTCOME.Exception, title: 'Exceptions — routed for approval', note: 'Submission is allowed; an exception approver is inserted before the DOA (§6.2).' },
+  { outcome: POLICY_OUTCOME.Exception, title: 'Policy Exceptions', note: 'Submission is allowed; an exception approver is inserted before the DOA (§6.2).' },
   { outcome: POLICY_OUTCOME.Warning, title: 'Warnings — informational', note: 'Submission is allowed with information.' },
   { outcome: POLICY_OUTCOME.Pass, title: 'Passed checks', note: '' },
 ];
@@ -75,6 +75,11 @@ export default async function PolicyStep({ params }: { params: Promise<{ id: str
         {GROUPS.map((g) => {
           const items = checks.filter((c) => c.outcome === g.outcome);
           if (items.length === 0) return null;
+          // §13.19 when a travel-class exception is present AND its justification has already been
+          // provided (so it is no longer in the "Resolve to submit" card above), show the justification
+          // right here in the Policy Exceptions card, editable in place (writes the shared field).
+          const classExc = g.outcome === POLICY_OUTCOME.Exception ? items.find((c) => c.code === 'CLASS') : null;
+          const showJustification = !!classExc && !req.isGroup && !needClassJustification;
           return (
             <Card key={g.outcome} title={g.title}>
               {g.note && <p className="text-xs text-[var(--ecs-muted)] mb-2">{g.note}</p>}
@@ -89,6 +94,19 @@ export default async function PolicyStep({ params }: { params: Promise<{ id: str
                   </li>
                 ))}
               </ul>
+              {showJustification && (
+                <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
+                  <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Travel-class upgrade justification</div>
+                  {canEdit ? (
+                    <form action={updateClassJustification.bind(null, id)} className="space-y-2">
+                      <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} className="field" placeholder="e.g. overnight red-eye ahead of a same-day event; medical reason…" />
+                      <button className="btn-secondary text-xs">Save justification</button>
+                    </form>
+                  ) : (
+                    <p className="text-sm">{req.classJustification}</p>
+                  )}
+                </div>
+              )}
             </Card>
           );
         })}

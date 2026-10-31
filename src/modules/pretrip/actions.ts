@@ -13,7 +13,7 @@ import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travellerIsEligibleDoa } from './route';
-import { hasNonTermApproval } from './nonTerm';
+import { hasNonTermApproval, NON_TERM_APPROVAL_DOC } from './nonTerm';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { findBlockingDuplicates } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
@@ -326,6 +326,13 @@ export async function saveTrip(id: string, fd: FormData) {
   // Individual requests keep the traveller-chosen class + any higher-class justification.
   const chosenClass = isGroupReq ? derived.classId : (str(fd, 'travelClassId') || derived.classId);
   const bookingArr = str(fd, 'bookingArrangement') || BOOKING_ARRANGEMENT.Auto;
+  // §13.x / DD-23 Emergency lane and non-term research attestation are declared HERE on the Trip step
+  // (their conditions — booking method and research funding — are trip attributes). The fields are
+  // stored on the request and carried into submission; the Submit step no longer captures them. The
+  // emergency checkbox only renders when the booking method allows it and non-term only when the trip
+  // is research-eligible, so an absent field means "not declared" and the value clears correctly.
+  const emergencyOn = str(fd, 'emergency') === 'on';
+  const nonTermOn = str(fd, 'nonTerm') === 'on';
 
   await prisma.travelRequest.update({
     where: { id },
@@ -352,6 +359,12 @@ export async function saveTrip(id: string, fd: FormData) {
       entitledClassId: derived.classId,
       classBasis: derived.basis,
       classJustification: isGroupReq ? null : (str(fd, 'classJustification') || null),
+      // §13.x / DD-23 emergency lane + non-term attestation (declared on the Trip step).
+      isEmergency: emergencyOn,
+      emergencyAuthoriserId: emergencyOn ? (str(fd, 'emergencyAuthoriserId') || null) : null,
+      emergencyJustification: emergencyOn ? (str(fd, 'emergencyJustification') || null) : null,
+      emergencyOutsideWindow: emergencyOn && str(fd, 'emergencyOutOfWindowAck') === 'on',
+      nonTermDeclared: nonTermOn,
     },
   });
   // §13.14 Group: set each traveller's booked class to their OWN entitlement for this itinerary
@@ -1103,6 +1116,15 @@ export async function saveCharging(id: string, fd: FormData) {
     });
   }
   await audit(id, 'AMEND', raw.mode === 'ITEM' ? 'Charging allocated per expense item (cross-charge)' : raw.mode === 'CLAIM' ? 'Charging allocated at claim level' : 'Charging allocation saved');
+  // §13.x The non-term lane follows the research funding. If the new charging is NOT research-funded,
+  // the lane is no longer available — clear the attestation and its evidence so it cannot ride through
+  // on a non-research trip (the Trip step will then show it unavailable).
+  const nowResearch = raw.rows.some((r) => !!EcsCharging.code(r.chargingCode)?.isResearch);
+  if (req.nonTermDeclared && !nowResearch) {
+    await prisma.travelRequest.update({ where: { id }, data: { nonTermDeclared: false } });
+    await prisma.attachment.deleteMany({ where: { requestId: id, docType: NON_TERM_APPROVAL_DOC } });
+    await audit(id, 'AMEND', 'Non-term research attestation cleared — the trip is no longer research-funded');
+  }
   // #14 resolve the M6 account on NTU-funded upgrade lines (auto when the governing BA has one;
   // left unset — hard stop — when a choice is required) before re-running policy.
   await applyDefaultDeltaCodes(id);

@@ -7,7 +7,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateClassJustification, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
+import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
@@ -88,15 +88,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   ) : null;
   const costTitle = `Estimated ${isGroup ? 'Group ' : ''}Travel Cost Items`;
   const emptyNote = 'No estimate lines yet — ODA and a hotel line per stop are added automatically once the trip has a destination and dates (set them on the Trip step). Add airfare from your quote below.';
-  // §13.19 entitled class for this itinerary (individual) — the baseline above which the traveller
-  // must justify an upgrade on the airfare line.
-  const entitledClassName = travelClasses.find((c) => c.id === (req.entitledClassId ?? req.travelClassId))?.name ?? 'Economy';
-  // §13.19 an individual airfare above the derived entitlement needs a justification — detected here so
-  // the standalone field below lets it be resolved on this step (not deferred to a policy-review hard stop).
-  const classRank = (cid?: string | null) => travelClasses.find((c) => c.id === cid)?.rank ?? 1;
-  const hasAirfare = req.expenses.some((e) => e.category === EXPENSE_CATEGORY.Airfare);
-  const isClassUpgrade = !isGroup && !!req.travelClassId && !!req.entitledClassId && classRank(req.travelClassId) > classRank(req.entitledClassId) && hasAirfare;
-  const chosenClassName = travelClasses.find((c) => c.id === req.travelClassId)?.name ?? req.travelClassId ?? '';
   // §13.19 the individual traveller's derived entitlement — the baseline the airfare form gates the
   // upgrade justification against (the stored entitledClassId is often null, so derive it live).
   const indivEntitledId = isGroup ? 'TC-ECO' : makeEntitledClassFor(req)(req.travellerId);
@@ -164,19 +155,8 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
       <DuplicateWarning req={req} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request's estimates.</div>}
 
-      {/* §13.19 class-upgrade justification — resolved here, not at the policy-review hard stop */}
-      {isClassUpgrade && canEdit && (
-        <Card title="Class upgrade — justification required" className="mb-5">
-          <form action={updateClassJustification.bind(null, id)} className="space-y-2">
-            <p className="text-sm text-[var(--ecs-muted)]">You selected <strong>{chosenClassName}</strong>, above your entitlement of <strong>{entitledClassName}</strong> for this itinerary. A justification is required before the request can be submitted — enter it here (no need to remove and re-add the airfare).</p>
-            <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} required className="field" placeholder="e.g. overnight red-eye ahead of a same-day event; medical reason…" />
-            <div className="flex items-center gap-3">
-              <button className="btn-primary">Save justification</button>
-              {!(req.classJustification ?? '').trim() && <span className="pill-stop">Required to submit</span>}
-            </div>
-          </form>
-        </Card>
-      )}
+      {/* §13.19 the class-upgrade justification is entered on the airfare form itself (gated there) and
+          can be edited on the Policy Review step; no standalone card is shown here. */}
 
       {/* Existing lines + inline add — one card. The expandable cost-items table (Basis,
           Sponsorship/Personal, NTU-funded and a live Policy Outcome; each row expands to the
