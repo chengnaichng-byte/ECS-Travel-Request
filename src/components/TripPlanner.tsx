@@ -101,7 +101,22 @@ export function TripPlanner({
     return m ? { code: main.l.destCode, city: m.city, country: m.country, cityCode: m.cityCode, countryCode: m.countryCode, nights: computeLegNights(legs, main.i) } : null;
   }, [legs, airportMeta]);
 
-  const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => ls.map((l, j) => j === i ? { ...l, ...p } : l));
+  const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => {
+    const oldDest = ls[i]?.destCode ?? '';
+    let next = ls.map((l, j) => (j === i ? { ...l, ...p } : l));
+    // §13.14 contiguous itinerary — from leg 2 onwards a leg's "Departure from" defaults to the
+    // immediately prior leg's arrival airport. When this leg's destination changes, the NEXT leg's
+    // origin follows it, but only while that origin is still the chained default (empty, equal to
+    // this leg's PREVIOUS destination, or the untouched home default) — a deliberately diverged
+    // (open-jaw) origin the traveller set is never overwritten.
+    if (p.destCode !== undefined && p.destCode !== oldDest && i + 1 < next.length) {
+      const nx = next[i + 1];
+      if (!nx.originCode || nx.originCode === oldDest || (oldDest === '' && nx.originCode === 'SIN')) {
+        next = next.map((l, j) => (j === i + 1 ? { ...l, originCode: p.destCode as string } : l));
+      }
+    }
+    return next;
+  });
   const addLeg = () => setLegs((ls) => [...ls, blank(ls[ls.length - 1]?.destCode || 'SIN')]);
   const delLeg = (i: number) => setLegs((ls) => ls.filter((_, j) => j !== i));
   const move = (i: number, dir: -1 | 1) => setLegs((ls) => { const j = i + dir; if (j < 0 || j >= ls.length) return ls; const c = [...ls]; [c[i], c[j]] = [c[j], c[i]]; return c; });

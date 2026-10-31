@@ -31,6 +31,25 @@ export function Card({ title, children, actions, className = '', id }: { title?:
   );
 }
 
+/** A Card that collapses by default behind a header, expanded on the downward-arrow click. The
+ *  collapsed header still shows an at-a-glance `stub` (e.g. the main charging account). Pure CSS
+ *  (`<details>`), so it works in a server component. Use for the Cost Allocation view on the working
+ *  screens; the approver one-page summary keeps its charging always-visible and does not use this. */
+export function CollapsibleCard({ title, stub, defaultOpen = false, children, id, className = '' }: { title: React.ReactNode; stub?: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode; id?: string; className?: string }) {
+  return (
+    <details id={id} className={`card group ${className}`} {...(defaultOpen ? { open: true } : {})}>
+      <summary className="px-4 py-3 font-semibold text-[var(--ecs-navy)] flex items-center justify-between gap-3 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+        <span className="flex items-baseline gap-2 min-w-0">
+          <span className="shrink-0">{title}</span>
+          {stub != null && <span className="text-xs font-normal text-[var(--ecs-muted)] truncate">{stub}</span>}
+        </span>
+        <span className="shrink-0 text-[var(--ecs-muted)] transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+      </summary>
+      <div className="p-4 border-t border-[var(--ecs-border)]">{children}</div>
+    </details>
+  );
+}
+
 export function KV({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>

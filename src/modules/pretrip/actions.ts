@@ -710,6 +710,14 @@ export async function addAccommodation(id: string, fd: FormData) {
   const quotedNightly = num(fd, 'quotedNightly');
   if (!city || nights <= 0 || quotedNightly <= 0) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
   const calc = computeAccommodation({ cityCode: city, nights, personalNights, quotedNightly, basis: settings.hotelEstimateBasis });
+  const conferenceHotel = str(fd, 'conferenceHotel') === 'on';
+  // §4.5 enforce the above-cap justification at the point of adding the line (mirrors the airfare
+  // class-upgrade gate, §13.19) — a rate above the city cap needs EITHER a written justification OR
+  // the Conference-hotel declaration (self-justifying), not deferred to the submit-time hard stop.
+  if (calc.outcome === POLICY_OUTCOME.Exception && !conferenceHotel && !str(fd, 'notes').trim()) {
+    const where = EcsReference.city(city)?.name ?? city;
+    redirect(`/requests/${id}/estimates?error=${encodeURIComponent(`The nightly rate for ${where} is above the city cap — enter a justification, or tick “Conference hotel”, before adding this accommodation.`)}`);
+  }
   // §13.14 accommodation is per-traveller — each books, pays and claims their own room, so a
   // line is created per selected traveller (or all). No shared/apportioned hotel line.
   const tids = await travellerFanout(id, fd);
@@ -727,7 +735,7 @@ export async function addAccommodation(id: string, fd: FormData) {
       data: {
         expenseId: exp.id, city, checkIn: dateOrNull(fd, 'checkIn'), checkOut: dateOrNull(fd, 'checkOut'),
         nights, personalNights, quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly,
-        capVariance: calc.capVariance, conferenceHotel: str(fd, 'conferenceHotel') === 'on',
+        capVariance: calc.capVariance, conferenceHotel,
         exceptionOutcome: calc.outcome,
       },
     });
@@ -887,12 +895,18 @@ export async function updateAccommodationRate(id: string, expenseId: string, fd:
   if (!acc) return;
   const calc = computeAccommodation({ cityCode: acc.city, nights: acc.nights, personalNights: acc.personalNights, quotedNightly: rate, basis: settings.hotelEstimateBasis });
   // §4.5 an above-cap rate carries a mandatory justification (also hard-stopped at submit by the
-  // HOTEL_JUSTIFY policy check). Captured here on the line's note; cleared when at/under cap.
+  // HOTEL_JUSTIFY policy check). Captured here on the line's note; cleared when at/under cap. A
+  // CONFERENCE HOTEL is self-justifying, so ticking it waives the written justification.
   const justification = str(fd, 'justification').trim();
+  const conferenceHotel = str(fd, 'conferenceHotel') === 'on';
   const overCap = calc.capNightly > 0 && rate > calc.capNightly;
+  // Enforce at this step (not deferred to submit): an above-cap rate needs a justification or Conference hotel.
+  if (overCap && !conferenceHotel && !justification) {
+    redirect(`/requests/${id}/estimates?error=${encodeURIComponent(`The nightly rate for ${EcsReference.city(acc.city)?.name ?? acc.city} is above the city cap — enter a justification, or tick “Conference hotel”.`)}`);
+  }
   await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, notes: justification || null } });
-  await prisma.accommodationEstimate.update({ where: { expenseId }, data: { quotedNightly: rate, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome } });
-  await audit(id, 'AMEND', `Hotel nightly rate updated for ${EcsReference.city(acc.city)?.name ?? acc.city} → SGD ${rate.toFixed(0)}/night${overCap ? (justification ? ' (above cap — justification provided)' : ' (above cap — justification required)') : ''}`);
+  await prisma.accommodationEstimate.update({ where: { expenseId }, data: { quotedNightly: rate, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, conferenceHotel, exceptionOutcome: calc.outcome } });
+  await audit(id, 'AMEND', `Hotel nightly rate updated for ${EcsReference.city(acc.city)?.name ?? acc.city} → SGD ${rate.toFixed(0)}/night${overCap ? (conferenceHotel ? ' (above cap — conference hotel)' : justification ? ' (above cap — justification provided)' : ' (above cap — justification required)') : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
 }
 
@@ -1008,13 +1022,19 @@ export async function updateAccommodation(id: string, expenseId: string, fd: For
   const quotedNightly = num(fd, 'quotedNightly');
   if (!city || nights <= 0 || quotedNightly <= 0) redirect(`${returnTo}?edit=${expenseId}&error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
   const calc = computeAccommodation({ cityCode: city, nights, personalNights, quotedNightly, basis: settings.hotelEstimateBasis });
+  const conferenceHotel = str(fd, 'conferenceHotel') === 'on';
+  // §4.5 same above-cap gate as the add path — a rate above cap needs a justification or Conference hotel.
+  if (calc.outcome === POLICY_OUTCOME.Exception && !conferenceHotel && !str(fd, 'notes').trim()) {
+    const where = EcsReference.city(city)?.name ?? city;
+    redirect(`${returnTo}?edit=${expenseId}&error=${encodeURIComponent(`The nightly rate for ${where} is above the city cap — enter a justification, or tick “Conference hotel”, before saving this accommodation.`)}`);
+  }
   await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, expectedDate: dateOrNull(fd, 'checkIn'), notes: str(fd, 'notes') } });
   await prisma.accommodationEstimate.update({
     where: { expenseId },
     data: {
       city, checkIn: dateOrNull(fd, 'checkIn'), checkOut: dateOrNull(fd, 'checkOut'),
       nights, personalNights, quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly,
-      capVariance: calc.capVariance, conferenceHotel: str(fd, 'conferenceHotel') === 'on', exceptionOutcome: calc.outcome,
+      capVariance: calc.capVariance, conferenceHotel, exceptionOutcome: calc.outcome,
     },
   });
   await audit(id, 'AMEND', `Accommodation estimate updated (${city}, ${nights} nights)`);

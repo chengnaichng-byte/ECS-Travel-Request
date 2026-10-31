@@ -106,12 +106,14 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string, 
       if (e.accommodation.exceptionOutcome === POLICY_OUTCOME.Exception) {
         checks.push({
           code: 'HOTEL_CAP', label: 'Accommodation above cap', outcome: POLICY_OUTCOME.Exception,
-          detail: `${e.accommodation.city}: quoted SGD ${e.accommodation.quotedNightly}/night exceeds cap SGD ${e.accommodation.capNightly}/night.`,
+          detail: `${e.accommodation.city}: quoted SGD ${e.accommodation.quotedNightly}/night exceeds cap SGD ${e.accommodation.capNightly}/night.${e.accommodation.conferenceHotel ? ' Conference hotel — the conference-venue designation is the justification.' : ''}`,
           travellerId: e.travellerId,
         });
         // §4.5 an above-cap rate cannot be submitted without a justification (mirrors the class
         // upgrade hard-stop, CLASS_JUSTIFY) — the note travels to the approver with the exception.
-        if (!e.notes || e.notes.trim() === '') {
+        // A CONFERENCE HOTEL is self-justifying (the venue is the reason), so it needs no written
+        // justification; the above-cap line still routes as an exception for audit/approval.
+        if (!e.accommodation.conferenceHotel && (!e.notes || e.notes.trim() === '')) {
           const where = EcsReference.city(e.accommodation.city)?.name ?? e.accommodation.city;
           checks.push({
             code: 'HOTEL_JUSTIFY', label: 'Above-cap accommodation justification required', outcome: POLICY_OUTCOME.HardStop,

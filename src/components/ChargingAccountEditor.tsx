@@ -229,9 +229,11 @@ export function ChargingAccountEditor({
         </div>
 
         {mode === 'CLAIM' && (
-          <div className="mt-3 overflow-x-auto">
+          // §17 Account rows are height-capped and scroll when a request cross-charges across many
+          // accounts, so the editor stays compact; the column header stays pinned while scrolling.
+          <div className="mt-3 overflow-auto max-h-[300px]">
             <table className="w-full text-sm">
-              <thead><tr>
+              <thead className="sticky top-0 z-10"><tr>
                 <th className="th">Business Area</th><th className="th">CC/WBS Charging Account</th><th className="th">Internal Order</th>
                 <th className="th text-right">Amount (SGD)</th><th className="th text-right">Percentage (%)</th><th className="th"></th>
               </tr></thead>

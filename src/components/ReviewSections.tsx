@@ -12,7 +12,7 @@ import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretri
 import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import { bookingSummaryText } from '@/modules/pretrip/booking';
 import { ENTITY_NAME } from '@/data/organisation';
-import { Card } from './ui';
+import { Card, CollapsibleCard } from './ui';
 import { CostItemsTable, type CostRow, type BreakLine, type BreakField, type SummaryRow } from './CostItemsTable';
 import { DestinationList } from './DestinationList';
 import type { FullRequest } from '@/modules/pretrip/queries';
@@ -583,17 +583,23 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
   const primaryMaster = EcsCharging.code(primary?.chargingCode ?? '');
   const m6Company = primaryMaster?.companyCode ?? primary?.companyCode ?? '1000';
   const m6BA = primaryMaster?.businessArea ?? primary?.businessArea ?? '—';
+  // Collapsed-header stub — the main account at a glance, plus the cross-charge count when split.
+  const stub = !primary ? '—'
+    : crossCharge ? `${primary.chargingCode} ${primary.percent}% · +${others.length} account${others.length > 1 ? 's' : ''}`
+    : `${primary.chargingCode} · 100%`;
   return (
-    <Card title={heading(letter, 'Cost Allocation')}>
+    <CollapsibleCard title={heading(letter, 'Cost Allocation')} stub={stub}>
       <div className="grid md:grid-cols-4 gap-3 mb-3">
         <Field label="Cost allocation required?">{crossCharge ? <span className="pill-pass">Yes</span> : <span className="pill-info">No</span>}</Field>
         <Field label="Research funding">{research ? <span className="pill-warn">Research WBS</span> : 'No'}</Field>
         <Field label="Main charging account">{primary ? `${primary.chargingCode} · ${EcsCharging.code(primary.chargingCode)?.name ?? ''}` : '—'}<div className="text-xs text-[var(--ecs-muted)]">{primaryDept ?? ''}</div></Field>
         <Field label="Approval Basis">Highest-share charging line{crossCharge ? ' + cost allocation' : ''} (Gross Estimate).</Field>
       </div>
-      <div className="overflow-x-auto">
+      {/* §17 Accounts list is height-capped (~4 rows) and scrolls when a request cross-charges across
+          many accounts, so the card stays compact; the header and the total row stay pinned in view. */}
+      <div className="overflow-auto max-h-[240px]">
         <table className="w-full text-sm">
-          <thead><tr>
+          <thead className="sticky top-0 z-10"><tr>
             <th className="th">Company Code</th><th className="th">Business Area</th><th className="th">CC/WBS</th><th className="th">CC/WBS Charging Account</th>
             <th className="th">Internal Order</th><th className="th">Main acct</th><th className="th text-right">% of allocation</th><th className="th text-right">Amount (SGD)</th>
           </tr></thead>
@@ -626,7 +632,7 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
               </tr>
             ))}
           </tbody>
-          <tfoot><tr className="font-semibold text-[var(--ecs-navy)]"><td className="td" colSpan={6}>Total estimated NTU-funded cost</td><td className="td text-right">{req.allocations.reduce((s, a) => s + a.percent, 0)}%</td><td className="td text-right">{fmtSgd(amount)}</td></tr></tfoot>
+          <tfoot className="sticky bottom-0"><tr className="font-semibold text-[var(--ecs-navy)] bg-white"><td className="td" colSpan={6}>Total estimated NTU-funded cost</td><td className="td text-right">{req.allocations.reduce((s, a) => s + a.percent, 0)}%</td><td className="td text-right">{fmtSgd(amount)}</td></tr></tfoot>
         </table>
       </div>
       {crossCharge && (
@@ -634,7 +640,7 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
           Cross-charge: {others.map((a) => EcsIdentity.department(EcsCharging.code(a.chargingCode)?.departmentId ?? '')?.name).join(', ')} receive an informational notification; the approving DOA is derived from the highest-share department (§13.14).
         </p>
       )}
-    </Card>
+    </CollapsibleCard>
   );
 }
 

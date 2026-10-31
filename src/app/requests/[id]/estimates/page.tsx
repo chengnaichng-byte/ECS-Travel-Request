@@ -344,20 +344,22 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
 
 // Rate cell for an estimate line. An AUTO hotel line exposes an inline nightly-rate edit (the stay is
 // locked); every other line shows a static per-night / per-day rate, or "—" where rate doesn't apply.
-function RateCell({ id, e, canEdit }: { id: string; e: { id: string; autoDerived: boolean; notes: string | null; accommodation: { quotedNightly: number; capNightly: number } | null; oda: { dailyRate: number } | null }; canEdit: boolean }) {
+function RateCell({ id, e, canEdit }: { id: string; e: { id: string; autoDerived: boolean; notes: string | null; accommodation: { quotedNightly: number; capNightly: number; conferenceHotel: boolean } | null; oda: { dailyRate: number } | null }; canEdit: boolean }) {
   if (e.accommodation) {
     const over = e.accommodation.capNightly > 0 && e.accommodation.quotedNightly > e.accommodation.capNightly;
     if (e.autoDerived && canEdit) {
       // Rate edit + above-cap justification on a SINGLE line — justification takes the wider space
       // (left), the nightly-rate stepper and Set sit next to the line total on the right.
       return (
-        <form action={updateAccommodationRate.bind(null, id, e.id)} className="flex items-center gap-2">
+        <form action={updateAccommodationRate.bind(null, id, e.id)} className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-[var(--ecs-muted)]">$</span>
           <input name="quotedNightly" type="number" step="any" defaultValue={e.accommodation.quotedNightly} aria-label="Nightly rate" className="field !w-16 !py-1 !px-1.5 text-xs text-right" />
           <button className="btn-ghost text-xs" title="Update nightly rate">Set</button>
+          {/* §4.5 above-cap justification OR conference-hotel declaration (self-justifying) — enforced on Set. */}
+          <label className="flex items-center gap-1 text-[11px] text-[var(--ecs-muted)] whitespace-nowrap" title="A conference-venue hotel is self-justifying — no written justification needed"><input type="checkbox" name="conferenceHotel" defaultChecked={e.accommodation.conferenceHotel} /> Conf. hotel</label>
           <input name="justification" defaultValue={e.notes ?? ''} aria-label="Above-cap justification"
             placeholder={`Justification if > ${fmtSgd(e.accommodation.capNightly)} cap`}
-            className={`field !py-1 !px-2 text-[11px] !w-[28rem] max-w-[60vw] ${over && !(e.notes ?? '').trim() ? '!border-[var(--ecs-red)]' : ''}`} />
+            className={`field !py-1 !px-2 text-[11px] !w-[22rem] max-w-[55vw] ${over && !(e.notes ?? '').trim() && !e.accommodation.conferenceHotel ? '!border-[var(--ecs-red)]' : ''}`} />
         </form>
       );
     }
