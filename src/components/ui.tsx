@@ -64,8 +64,7 @@ const STEPS = [
   { key: 'trip', label: 'Trip' },
   { key: 'estimates', label: 'Estimates' },
   { key: 'charging', label: 'Charging' },
-  { key: 'policy', label: 'Policy Review' },
-  { key: 'review', label: 'Submit' },
+  { key: 'review', label: 'Review & Submit' },
 ];
 
 export function Stepper({ id, active, requestNumber, status }: { id: string; active: string; requestNumber?: string; status?: string }) {

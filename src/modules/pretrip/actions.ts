@@ -710,7 +710,7 @@ export async function resolveJustifications(id: string, fd: FormData) {
   }
   await persistPolicy(id);
   await audit(id, 'AMEND', 'Policy justifications resolved from the Policy Review step');
-  revalidatePath(`/requests/${id}/policy`);
+  revalidatePath(`/requests/${id}/review`);
   revalidatePath(`/requests/${id}/review`);
 }
 
@@ -1131,7 +1131,7 @@ export async function saveCharging(id: string, fd: FormData) {
   await persistPolicy(id);
   if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   revalidatePath(`/requests/${id}/charging`);
-  redirect(`/requests/${id}/policy`);
+  redirect(`/requests/${id}/review`);
 }
 
 /** #14 Set (or clear) the traveller-selected M6 account for an NTU-funded upgrade airfare line, from
@@ -1149,13 +1149,13 @@ export async function setUpgradeDeltaAccount(id: string, expenseId: string, code
   await audit(id, 'AMEND', next ? `Upgrade differential routed to ${next}` : 'Upgrade differential account cleared');
   await persistPolicy(id);
   revalidatePath(`/requests/${id}/charging`);
-  revalidatePath(`/requests/${id}/policy`);
+  revalidatePath(`/requests/${id}/review`);
 }
 
 /* ----------------------------------------------------- policy review (TR-10) */
 export async function runPolicy(id: string) {
   await persistPolicy(id);
-  revalidatePath(`/requests/${id}/policy`);
+  revalidatePath(`/requests/${id}/review`);
   revalidatePath(`/requests/${id}/review`);
 }
 

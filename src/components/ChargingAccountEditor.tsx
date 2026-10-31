@@ -308,9 +308,12 @@ export function ChargingAccountEditor({
           </div>
         )}
 
-        {/* Accounting Entries */}
-        <div className="mt-5 border-t border-[var(--ecs-border)] pt-4">
-          <h4 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">{entriesTitle}</h4>
+        {/* Accounting Entries — collapsed by default (the GL-posting detail most travellers don't need). */}
+        <details className="mt-5 border-t border-[var(--ecs-border)] pt-4 group">
+          <summary className="text-sm font-semibold text-[var(--ecs-navy)] mb-2 cursor-pointer select-none list-none flex items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+            <span>{entriesTitle}<span className="text-xs font-normal text-[var(--ecs-muted)]"> · {entries.length} line{entries.length === 1 ? '' : 's'} · {fmt(entriesTotal)}</span></span>
+            <span className="text-[var(--ecs-muted)] transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
+          </summary>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead><tr>
@@ -348,7 +351,7 @@ export function ChargingAccountEditor({
             </table>
           </div>
           {allocReq && !balanced && <p className="text-xs text-amber-700 mt-2">Allocation must total 100% before the request can be submitted (AC06).</p>}
-        </div>
+        </details>
       </div>
 
       {(canEdit || backHref) && (

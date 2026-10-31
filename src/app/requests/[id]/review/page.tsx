@@ -4,7 +4,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { submitRequest, addAttachment, attachNamedFile } from '@/modules/pretrip/actions';
+import { submitRequest, addAttachment, attachNamedFile, runPolicy, resolveJustifications } from '@/modules/pretrip/actions';
+import { canEditRequest } from '@/modules/pretrip/guards';
+import { currentPersonaId } from '@/shared/session';
+import { travelClasses } from '@/data/travelClass';
+import { REQUEST_STATUS } from '@/shared/enums';
 import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
 import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
@@ -47,6 +51,14 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // exception list (hotel cap + travel class) shows in the side-by-side Policy Exceptions card.
   const classException = exceptions.find((c) => c.code === 'CLASS');
   const proposedClassName = EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—';
+  // §6.3 Policy Review is merged into this step — the checks, the inline "resolve justifications" and
+  // "re-run checks" live here, alongside the final declaration and submit.
+  const canEdit = canEditRequest(await currentPersonaId(), req) && (req.status === REQUEST_STATUS.Draft || req.status === REQUEST_STATUS.SentBack);
+  const className = (cid?: string | null) => travelClasses.find((c) => c.id === cid)?.name ?? cid ?? '';
+  const cityName = (code: string) => EcsReference.city(code)?.name ?? code;
+  const needClassJustification = req.policyChecks.some((c) => c.code === 'CLASS_JUSTIFY');
+  const aboveCapHotels = req.expenses.filter((e) => e.accommodation && e.accommodation.exceptionOutcome === POLICY_OUTCOME.Exception && !(e.notes ?? '').trim());
+  const canResolve = canEdit && (needClassJustification || aboveCapHotels.length > 0);
   const entitledClassName = EcsReference.travelClass(req.entitledClassId ?? '')?.name ?? null;
   const policyGroupCode = !req.isGroup ? EcsTravelClassRegister.policyGroup(req.travellerId, req.startDate ?? new Date()) : null;
   // §13.x duplicate / overlap warning — a true duplicate (same destination) hard-blocks submit;
@@ -130,6 +142,34 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
         </div>
       )}
       <HighRiskAdvisory req={req} />
+
+      {/* §6.3 Policy checks — re-run + resolve justifications inline (merged from the Policy Review step).
+          These sit OUTSIDE the Submit form so they are not nested forms. */}
+      <div className="flex justify-end mb-3">
+        <form action={runPolicy.bind(null, id)}><button className="btn-secondary">Re-run checks</button></form>
+      </div>
+      {canResolve && (
+        <Card title="Resolve to submit — justification required" className="mb-4">
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">Enter the justification for each item below and save. The checks re-run and these hard stops clear without leaving this page. Exceptions still route to an approver.</p>
+          <form action={resolveJustifications.bind(null, id)} className="space-y-4">
+            {needClassJustification && (
+              <div>
+                <label className="label">Travel-class upgrade — <strong>{className(req.travelClassId)}</strong> is above your <strong>{className(req.entitledClassId) || 'entitlement'}</strong></label>
+                <p className="text-xs text-[var(--ecs-muted)] mb-1">A cabin above your entitlement requires a justification; the upgrade then routes to an approver.</p>
+                <textarea name="classJustification" defaultValue={req.classJustification ?? ''} rows={2} required className="field" placeholder="e.g. overnight red-eye ahead of a same-day event; medical reason…" />
+              </div>
+            )}
+            {aboveCapHotels.map((e) => (
+              <div key={e.id}>
+                <label className="label">Accommodation above cap — <strong>{cityName(e.accommodation!.city)}</strong>: SGD {e.accommodation!.quotedNightly}/night exceeds the cap SGD {e.accommodation!.capNightly}/night{e.travellerId ? ` (${EcsIdentity.employee(e.travellerId)?.name})` : ''}</label>
+                <p className="text-xs text-[var(--ecs-muted)] mb-1">A rate above the cap requires a justification; it then routes to an approver.</p>
+                <textarea name={`hotelNote_${e.id}`} defaultValue={e.notes ?? ''} rows={2} required className="field" placeholder="e.g. conference venue hotel — cheaper options are 45+ min away…" />
+              </div>
+            ))}
+            <button className="btn-primary">Save justifications &amp; re-run checks</button>
+          </form>
+        </Card>
+      )}
 
       <form action={submitRequest.bind(null, id)} className="space-y-5">
         {/* §21 Approval route (visual) — above the Trip section, with the DOA selector. */}
@@ -273,7 +313,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               </label>
             )}
             <div className="flex items-center justify-between gap-4">
-              <Link href={`/requests/${id}/policy`} className="btn-secondary">← Back</Link>
+              <Link href={`/requests/${id}/charging`} className="btn-secondary">← Back</Link>
               <div className="flex items-center gap-3">
                 {!canSubmit && <span className="text-sm text-red-700">Resolve {hardStops.length} hard stop(s) before submitting.</span>}
                 <button type="submit" disabled={!canSubmit} className="btn-primary">Submit for Approval</button>
