@@ -14,6 +14,7 @@ import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } fr
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travellerIsEligibleDoa } from './route';
 import { hasNonTermApproval, NON_TERM_APPROVAL_DOC } from './nonTerm';
+import { exceptionNeedsApproval } from '@/config/policyThresholds';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { findBlockingDuplicates } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
@@ -1297,7 +1298,9 @@ export async function submitRequest(id: string, fd?: FormData) {
   const travellerIds = fresh.isGroup ? fresh.travellers.map((t) => t.employeeId) : [fresh.travellerId];
   const guestUpgrade = isGuestRequest(fresh) && !fresh.isGroup && exceptionsOnReq.some((c) => c.code === 'CLASS');
   const guestUpgradeProvostId = guestUpgrade && fresh.provostId && !travellerIds.includes(fresh.provostId) ? fresh.provostId : null;
-  const routeHasException = (guestUpgrade ? exceptionsOnReq.filter((c) => c.code !== 'CLASS') : exceptionsOnReq).length > 0;
+  // §6.2 only exceptions configured to need an exception approver drive the Exception step (others are
+  // justification-only and route to the normal DOA with the justification on file).
+  const routeHasException = (guestUpgrade ? exceptionsOnReq.filter((c) => c.code !== 'CLASS') : exceptionsOnReq).some((c) => exceptionNeedsApproval(c.code));
   const steps = buildRoute(fresh, {
     exceptionApproverRequired: settings.exceptionApproverRequired,
     sameRouteResearch: settings.sameRouteResearch,

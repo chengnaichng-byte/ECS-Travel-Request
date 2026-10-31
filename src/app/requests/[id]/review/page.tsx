@@ -8,6 +8,7 @@ import { submitRequest, addAttachment, attachNamedFile, runPolicy, resolveJustif
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { currentPersonaId } from '@/shared/session';
 import { travelClasses } from '@/data/travelClass';
+import { exceptionNeedsApproval } from '@/config/policyThresholds';
 import { REQUEST_STATUS } from '@/shared/enums';
 import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
 import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
@@ -80,7 +81,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
     exceptionApproverRequired: settings.exceptionApproverRequired,
     sameRouteResearch: settings.sameRouteResearch,
     approvalAmount: summary.approvalAmount,
-    hasException: exceptions.length > 0,
+    hasException: exceptions.some((c) => exceptionNeedsApproval(c.code)),
     roRequirement: settings.roRequirement,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
@@ -263,6 +264,13 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
                   <div>
                     <div className="font-medium">{c.label}{c.travellerId && <span className="text-[var(--ecs-muted)]"> · {EcsIdentity.employee(c.travellerId)?.name}</span>}</div>
                     <div className="text-xs text-[var(--ecs-muted)]">{c.detail}</div>
+                    {/* §6.2 what this exception requires — pulled from the Policy Configuration. */}
+                    <div className="text-xs mt-0.5">
+                      <span className="text-[var(--ecs-muted)]">Requires: </span>
+                      {exceptionNeedsApproval(c.code)
+                        ? <span className="pill-warn">justification + exception approval</span>
+                        : <span className="pill-info">justification only</span>}
+                    </div>
                   </div>
                 </li>
               ))}
