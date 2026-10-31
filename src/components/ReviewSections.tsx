@@ -311,12 +311,12 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           </div>
           <ul className="list-disc pl-5 text-sm space-y-1">
             <li>An estimated commitment of <strong>{fmtSgd(summary.ntuFunded)}</strong>{summary.sponsorship > 0 ? ` (gross ${fmtSgd(summary.gross)})` : ''} charged {chargePhrase}.</li>
+            {m6Delta > 0 && <li>Includes an <strong>M6 entitlement differential</strong> of <strong>{fmtSgd(m6Delta)}</strong> (the Economy→entitled-class uplift), charged to {ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} — funded from M6.</li>}
             {exViews.length > 0 && (
               upstreamExStep
                 ? <li>The {exViews.map((e) => e.label.toLowerCase()).join('; ')} exception{exViews.length > 1 ? 's have' : ' has'} been <strong>separately approved</strong> ({exApproverRole}).</li>
                 : <li>The {exViews.map((e) => e.label.toLowerCase()).join('; ')} exception{exViews.length > 1 ? 's' : ''}{exImpact > 0 ? <> with an estimated incremental cost of <strong>{fmtSgd(exImpact)}</strong></> : ''}.</li>
             )}
-            {isGuest && <li>Guest cost is <strong>host direct-billed</strong> (no traveller claim) — see the Guest Settlement section.</li>}
           </ul>
         </div>
       </div>
