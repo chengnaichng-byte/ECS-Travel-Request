@@ -49,7 +49,7 @@ export function RequestActivity({ req }: { req: FullRequest }) {
             <div>
               <label className="label">Document type</label>
               <select name="docType" className="field">
-                <option>Quotation</option><option>Conference Invitation</option><option>Approval Evidence</option><option>Other</option>
+                <option>Quotation</option><option>Conference Invitation</option><option>Approval Evidence</option><option>Non-term Offline Approval Email</option><option>Other</option>
               </select>
             </div>
             <div>

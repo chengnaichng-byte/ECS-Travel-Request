@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, seedNonTermResearchDemo } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
@@ -68,6 +68,7 @@ export default async function Dashboard() {
         actions={
           <>
             {requests.length === 0 && <form action={seedDemoScenarios}><button className="btn-secondary">Load demonstration scenarios</button></form>}
+            {requests.length > 0 && <form action={seedNonTermResearchDemo}><button className="btn-secondary" title="Seed a non-term research draft (Dr Henry Ong) and open it at Submit, ready to demonstrate the auto-approve branch.">▶ Non-term research demo</button></form>}
             {canCreate && <Link href="/requests/new" className="btn-primary">＋ Create Travel Request</Link>}
           </>
         } />

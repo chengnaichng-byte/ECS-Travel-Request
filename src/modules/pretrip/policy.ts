@@ -91,11 +91,11 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string, 
       const u = airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding, upgradeDeltaCode: e.upgradeDeltaCode });
       if (!u.isUpgrade || u.funding !== 'NTU') continue;
       if (pool.length === 0) {
-        checks.push({ code: 'UPGRADE_M6', label: 'No upgrade-differential (M6) account configured', outcome: POLICY_OUTCOME.HardStop, detail: `No active M6 account is configured for business area ${govBA ?? '—'} — add one in Setup → Upgrade Differential Accounts.`, travellerId: e.travellerId });
+        checks.push({ code: 'UPGRADE_M6', label: 'No M6 differential account configured', outcome: POLICY_OUTCOME.HardStop, detail: `No active M6 account is configured for business area ${govBA ?? '—'} — add one in Setup → M6 Accounts.`, travellerId: e.travellerId });
       } else if (e.upgradeDeltaCode && !pool.some((a) => a.code === e.upgradeDeltaCode)) {
-        checks.push({ code: 'UPGRADE_M6', label: 'Upgrade-differential account not valid for this BA', outcome: POLICY_OUTCOME.HardStop, detail: `${e.upgradeDeltaCode} is not an active M6 account for business area ${govBA ?? '—'} — reselect one on the Charging step.`, travellerId: e.travellerId });
+        checks.push({ code: 'UPGRADE_M6', label: 'M6 account not valid for this BA', outcome: POLICY_OUTCOME.HardStop, detail: `${e.upgradeDeltaCode} is not an active M6 account for business area ${govBA ?? '—'} — reselect one on the Charging step.`, travellerId: e.travellerId });
       } else if (!e.upgradeDeltaCode && pool.length > 1 && upgradeCtx.selectionRequired) {
-        checks.push({ code: 'UPGRADE_M6', label: 'Select the upgrade-differential (M6) account', outcome: POLICY_OUTCOME.HardStop, detail: `The NTU-funded upgrade differential must be charged to an M6 account — select one for business area ${govBA ?? '—'} on the Charging step.`, travellerId: e.travellerId });
+        checks.push({ code: 'UPGRADE_M6', label: 'Select the M6 differential account', outcome: POLICY_OUTCOME.HardStop, detail: `The M6 entitlement differential must be charged to an M6 account — select one for business area ${govBA ?? '—'} on the Charging step.`, travellerId: e.travellerId });
       }
     }
   }

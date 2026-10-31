@@ -23,8 +23,8 @@ export default async function UpgradeRatesPage() {
 
   return (
     <div className="w-full space-y-5">
-      <PageTitle id="TR-27" title="Upgrade uplift rates"
-        subtitle="#14 (Model B) — the uplift % per class step used to derive a travel-class upgrade differential: entitlement = chosen fare ÷ (1 + uplift %), so the differential = chosen − entitlement. Different steps carry different uplifts." />
+      <PageTitle id="TR-27" title="Class uplift rates"
+        subtitle="§13.19 (Model B) — the uplift % per class step used to split a fare into its Economy base: base = fare ÷ (1 + uplift %), so the differential = fare − base. Drives the M6 entitlement differential (Economy → the entitled class) for M6-flagged policy groups. Different steps carry different uplifts." />
 
       {!isAdmin && <div className="card p-3 text-sm text-amber-800 bg-amber-50 border-amber-200">Switch persona to <strong>David Kumar — Travel Administrator</strong> (or System Administrator) to maintain the schedule. It is read-only for other roles.</div>}
 

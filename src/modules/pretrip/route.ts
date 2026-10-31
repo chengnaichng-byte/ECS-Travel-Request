@@ -7,6 +7,7 @@ import { EcsIdentity, EcsCharging, EcsWorkflow, EcsRoles } from '@/shared/ecs/se
 import { APPROVER_ROLE, ROLE, POLICY_OUTCOME } from '@/shared/enums';
 import type { FullRequest } from './queries';
 import { isGuestRequest } from './traveller';
+import { hasNonTermApproval } from './nonTerm';
 import { type Ctx, type RouteStepSpec } from './workflowRules';
 import { evaluateScenario, TR_STANDARD_SCENARIO, type WorkflowScenario } from '@/config/workflowScenario';
 
@@ -16,6 +17,7 @@ export interface RouteStep {
   approverId: string | null;
   onBehalfOf?: string | null;
   note?: string;
+  autoGrant?: boolean; // §6.2 step stays on the route (named approver) but is auto-granted on submission
 }
 
 /** §13.14 highest charging department = department bearing the largest share. */
@@ -84,6 +86,21 @@ export function doaCandidatesFor(req: FullRequest, opts: { approvalAmount: numbe
   }));
 }
 
+/** §13.5/§6.2 Is the traveller themselves an ELIGIBLE DOA for this request — i.e. present in the
+ *  (research) DOA line at or above the amount-band's required tier, so their own authority covers the
+ *  amount? Used for PI self-approval: a PI defaults as the DOA only when they are a found, eligible
+ *  DOA (then, separately, within the self-approval threshold). Unlike doaCandidatesFor this does NOT
+ *  exclude self — the whole point is to test the traveller's own membership. */
+export function travellerIsEligibleDoa(req: FullRequest, opts: { approvalAmount: number; sameRouteResearch: boolean }): boolean {
+  const dept = EcsIdentity.department(highestChargingDept(req));
+  const research = isResearchRequest(req) && !opts.sameRouteResearch;
+  const line = research ? (dept?.researchDoaLine ?? dept?.doaLine ?? []) : (dept?.doaLine ?? []);
+  if (line.length === 0) return false;
+  const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
+  const tier = Math.min(band.doaTierIndex, line.length - 1);
+  return line.slice(tier).includes(req.travellerId);
+}
+
 /** Walk a DOA line and pick the tier, escalating past any holder in the self-approval set
  *  (a traveller on, or the requestor of, this request). */
 function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id: string | null; note?: string } {
@@ -94,7 +111,7 @@ function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id
   return { id: line[idx], note };
 }
 
-export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; emergency?: { authoriserId: string | null; retrospective: boolean }; workflowScenario?: WorkflowScenario };
+export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; nonTermAutoApprove?: boolean; emergency?: { authoriserId: string | null; retrospective: boolean }; workflowScenario?: WorkflowScenario };
 
 /** §2.3 Gather the closed FACTS the workflow engine evaluates, from the request + settings. Presence
  *  facts already apply §13.5 self-approval exclusion so a step the originator would fill is not raised. */
@@ -109,8 +126,14 @@ export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded:
     isGroup: req.isGroup,
     researchRoute: isResearchRequest(req) && !opts.sameRouteResearch,
     travellerIsPI: emp?.isPi === true,
+    // §13.x PI self-approval gate — the traveller (PI) is a FOUND eligible DOA for this charging
+    // account + amount (in the DOA line at the required tier). Only then can a PI default as the DOA.
+    travellerIsEligibleDoa: travellerIsEligibleDoa(req, { approvalAmount: opts.approvalAmount, sameRouteResearch: opts.sameRouteResearch }),
     isGuest: isGuestRequest(req),
     hasPolicyException: opts.hasException,
+    // §13.x non-term research auto-approve — research WBS + attested non-term + offline-approval
+    // e-mail attached + no blocking exception, gated by the settings toggle (passed via opts).
+    nonTermResearchAutoApprove: !!opts.nonTermAutoApprove && isResearchRequest(req) && !!req.nonTermDeclared && hasNonTermApproval(req) && !opts.hasException,
     additionalApproverPresent: !!(req.additionalApproverId && !excluded.has(req.additionalApproverId)),
     // §13.19 a travel-class upgrade raises a CLASS policy exception; the Provost is its exception approver.
     travelClassUpgradeException: req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception),
@@ -138,9 +161,11 @@ function resolveSpecs(specs: RouteStepSpec[], req: FullRequest, opts: RouteOpts,
   const research = isResearchRequest(req) && !opts.sameRouteResearch;
   const band = EcsWorkflow.bandForAmount(opts.approvalAmount);
   let seq = 1;
-  const push = (roleType: string, approverId: string | null, note: string) => { steps.push({ seq: seq++, roleType, approverId, note }); };
+  let curAutoGrant: boolean | undefined; // carries the current spec's AUTO_GRANT flag onto each pushed step
+  const push = (roleType: string, approverId: string | null, note: string) => { steps.push({ seq: seq++, roleType, approverId, note, autoGrant: curAutoGrant }); };
 
   for (const spec of specs) {
+    curAutoGrant = spec.autoGrant;
     // ECS "Approver" — a specific named approver pinned on the level overrides the resolver.
     if (spec.approverId && !excluded.has(spec.approverId)) { push(spec.roleType, spec.approverId, spec.note ?? 'Named approver'); continue; }
 

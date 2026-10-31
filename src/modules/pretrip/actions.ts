@@ -12,7 +12,8 @@ import { getSettings, updateSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
-import { buildRoute, statusForStep, doaCandidatesFor } from './route';
+import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travellerIsEligibleDoa } from './route';
+import { hasNonTermApproval } from './nonTerm';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { findBlockingDuplicates } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
@@ -22,7 +23,8 @@ import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember } from './traveller';
 import { hasEmergencyApproval, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from './emergency';
 import { ruleActive } from '@/config/policyRules';
-import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
+import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
+import { m6GroupCodes } from './policyGroups';
 import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { getActiveWorkflowScenario } from './workflowConfig';
 import { isHighRisk, highRiskDestinationsForRequest } from './risk';
@@ -554,25 +556,18 @@ export async function addAirfare(id: string, fd: FormData) {
   const now = new Date();
   const sgd = EcsFx.toSgd(foreign, currency, now); // §13.4 converted at the entry-date rate; re-locked at submission
   const spForeign = num(fd, 'sponsorship');
-  const upFunding = (str(fd, 'upgradeFunding') || '').toUpperCase();
-  const upgradeFunding = upFunding === 'NTU' || upFunding === 'SELF' ? upFunding : null;
-  // #14 Model B — the entitlement fare is DERIVED from the chosen fare and the configured uplift %
-  // for the class step (entitled → proposed): entitlement = chosen / (1 + pct), delta = chosen −
-  // entitlement. No second quote is captured; a missing rate for the step blocks the add.
+  // §13.19 M6 is now ENTITLEMENT-based (not a traveller upgrade). When the traveller flies their
+  // entitlement, their policy group attracts M6, and the entitlement is above Economy, the entitled
+  // fare splits into an Economy base + an M6 differential (funded from an M6 account); m6EconomyBaseSgd
+  // returns the Economy base (stored as entitlementFareSgd), per traveller, from the uplift master. A
+  // class ABOVE entitlement is a policy exception (justification + routing), with no M6 split.
   const proposed = str(fd, 'proposedClassId');
-  const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true } });
+  const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true, travellerId: true, startDate: true } });
   const entitledId = reqRow?.entitledClassId ?? 'TC-ECO';
   const isClassUpgrade = !!proposed && EcsTravelClassRegister.rank(proposed) > EcsTravelClassRegister.rank(entitledId);
-  let entFareSgd: number | null = null;
-  if (isClassUpgrade) {
-    const pct = upliftPctFrom(await listUpliftRates(), entitledId, proposed);
-    if (pct == null) {
-      const fromN = EcsReference.travelClass(entitledId)?.name ?? entitledId;
-      const toN = EcsReference.travelClass(proposed)?.name ?? proposed;
-      redirect(`/requests/${id}/estimates?error=${encodeURIComponent(`No upgrade uplift rate is configured for ${fromN} → ${toN} — add it in Setup → Upgrade Uplift Rates before adding this airfare.`)}`);
-    }
-    entFareSgd = deriveEntitlementSgd(sgd, pct);
-  }
+  const onDate = reqRow?.startDate ?? now;
+  const upliftRates = await listUpliftRates();
+  const m6Codes = await m6GroupCodes();
   const tids = await travellerFanout(id, fd);
   // §13.19 enforce the class-upgrade justification at the point of adding the airfare (individual
   // lines) — resolved here, not deferred to a policy-review hard stop.
@@ -589,6 +584,13 @@ export async function addAirfare(id: string, fd: FormData) {
     ts.forEach((t) => { classByTraveller[t.employeeId] = t.chosenClassId; });
   }
   for (const tid of tids) {
+    // Per-traveller M6 entitlement split: each traveller flies their own entitlement, so the split
+    // (and whether their policy group attracts M6) is resolved per line. Groups fly entitlement; an
+    // individual's proposed class above entitlement is an exception (handled below), not M6.
+    const empId = tid ?? reqRow?.travellerId ?? 'E-TRAV';
+    const lineEntitled = tid ? (classByTraveller[tid] ?? entitledId) : entitledId;
+    const lineProposed = (tid && classByTraveller[tid]) || proposed;
+    const economyBase = m6EconomyBaseSgd(upliftRates, m6Codes, { fareSgd: sgd, employeeId: empId, entitledClassId: lineEntitled, proposedClassId: lineProposed, onDate });
     await prisma.estimatedExpense.create({
       data: {
         requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR',
@@ -596,11 +598,12 @@ export async function addAirfare(id: string, fd: FormData) {
         sponsorForeign: spForeign, sponsorSgd: EcsFx.toSgd(spForeign, currency, now),
         estimateBasis: 'QUOTED', expectedDate: dateOrNull(fd, 'expectedDate'),
         originCode: str(fd, 'originCode'), destCode: str(fd, 'destCode'),
-        proposedClassId: (tid && classByTraveller[tid]) || str(fd, 'proposedClassId'), fareCeiling: sgd, handoffStatus: 'Pending',
+        proposedClassId: lineProposed, fareCeiling: sgd, handoffStatus: 'Pending',
         notes: str(fd, 'notes'),
-        // #7/#14 upgrade split is captured on the individual airfare line only (groups fly entitlement).
-        entitlementFareSgd: tid === null ? entFareSgd : null,
-        upgradeFunding: tid === null ? upgradeFunding : null,
+        // §13.19 M6 entitlement split (Economy base stored; M6 differential = fare − base, funded from
+        // an M6 account). Null when the group doesn't attract M6 / the traveller isn't above Economy.
+        entitlementFareSgd: economyBase,
+        upgradeFunding: economyBase != null ? 'NTU' : null,
         travellerId: tid, // §13.14 airfare is always individual
       },
     });
@@ -622,6 +625,50 @@ export async function addAirfare(id: string, fd: FormData) {
   await audit(id, 'AMEND', `Airfare estimate added (${currency} ${foreign})${tids.length > 1 ? ` — one per traveller (${tids.length})` : ''}`);
   revalidatePath(`/requests/${id}/estimates`);
   redirect(`/requests/${id}/estimates`);   // land on a clean URL (clears any prior ?error= banner)
+}
+
+/** §13.20 Multi-city airfare booked as SEPARATE per-leg tickets — creates one airfare line per leg
+ *  that carries a fare (blank legs are skipped), from the per-leg table on the Estimates step. Each
+ *  line records its own Origin/Destination and fare; the lines are booked at the traveller's
+ *  ENTITLEMENT class (a per-leg upgrade is handled by editing that line afterwards), so there is no
+ *  upgrade differential here. The grouped Airfare cost row then sums the legs. (Individual requests;
+ *  a group books each traveller's airfare as one combined fare per traveller.) */
+export async function addAirfareLegs(id: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const count = Math.max(0, Math.floor(num(fd, 'legCount')));
+  const req = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true, travelClassId: true, travellerId: true, startDate: true } });
+  const cls = req?.entitledClassId ?? req?.travelClassId ?? 'TC-ECO';
+  const now = new Date();
+  const onDate = req?.startDate ?? now;
+  const empId = req?.travellerId ?? 'E-TRAV';
+  const upliftRates = await listUpliftRates();
+  const m6Codes = await m6GroupCodes();
+  let created = 0;
+  for (let i = 0; i < count; i++) {
+    const amount = num(fd, `legAmount_${i}`);
+    const origin = str(fd, `legOrigin_${i}`);
+    const dest = str(fd, `legDest_${i}`);
+    if (!(amount > 0) || !origin || !dest) continue; // skip blank / incomplete legs
+    const currency = str(fd, `legCurrency_${i}`) || 'SGD';
+    const sgd = EcsFx.toSgd(amount, currency, now); // §13.4 converted at the entry-date rate
+    // Per-leg lines fly the entitlement → M6 entitlement split applies per leg (null when no M6).
+    const economyBase = m6EconomyBaseSgd(upliftRates, m6Codes, { fareSgd: sgd, employeeId: empId, entitledClassId: cls, proposedClassId: cls, onDate });
+    await prisma.estimatedExpense.create({
+      data: {
+        requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR',
+        currency, foreignAmount: amount, sgdAmount: sgd, sponsorForeign: 0, sponsorSgd: 0,
+        estimateBasis: 'QUOTED', expectedDate: null,
+        originCode: origin, destCode: dest, proposedClassId: cls, fareCeiling: sgd,
+        entitlementFareSgd: economyBase, upgradeFunding: economyBase != null ? 'NTU' : null,
+        handoffStatus: 'Pending', travellerId: null,
+      },
+    });
+    created++;
+  }
+  if (!created) redirect(`/requests/${id}/estimates?error=${encodeURIComponent('Enter a fare for at least one leg to add per-leg airfares.')}`);
+  await audit(id, 'AMEND', `Per-leg airfares added (${created} leg${created > 1 ? 's' : ''})`);
+  revalidatePath(`/requests/${id}/estimates`);
+  redirect(`/requests/${id}/estimates`);
 }
 
 /** §13.19 Update the class-upgrade justification on an existing airfare (individual) without
@@ -899,30 +946,19 @@ export async function updateAirfare(id: string, expenseId: string, fd: FormData)
   const sgd = EcsFx.toSgd(foreign, currency, now);
   const spForeign = num(fd, 'sponsorship');
   const individual = exp.travellerId === null; // group lines fly each traveller's entitlement (class is locked)
+  const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true, travellerId: true, startDate: true } });
+  const entitledId = reqRow?.entitledClassId ?? 'TC-ECO';
+  const onDate = reqRow?.startDate ?? now;
   let proposedClassId = exp.proposedClassId;
-  let entFareSgd = exp.entitlementFareSgd;
-  let upgradeFunding = exp.upgradeFunding;
   if (individual) {
     const proposed = str(fd, 'proposedClassId');
-    const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { entitledClassId: true } });
-    const entitledId = reqRow?.entitledClassId ?? 'TC-ECO';
+    // §13.19 a class ABOVE entitlement is a policy exception → justification required (routed to the
+    // exception approver). No M6 split on an exception; M6 is entitlement-based only.
     const isClassUpgrade = !!proposed && EcsTravelClassRegister.rank(proposed) > EcsTravelClassRegister.rank(entitledId);
-    const upFunding = (str(fd, 'upgradeFunding') || '').toUpperCase();
-    upgradeFunding = isClassUpgrade && (upFunding === 'NTU' || upFunding === 'SELF') ? upFunding : null;
-    entFareSgd = null;
-    if (isClassUpgrade) {
-      const pct = upliftPctFrom(await listUpliftRates(), entitledId, proposed);
-      if (pct == null) {
-        const fromN = EcsReference.travelClass(entitledId)?.name ?? entitledId;
-        const toN = EcsReference.travelClass(proposed)?.name ?? proposed;
-        back(`No upgrade uplift rate is configured for ${fromN} → ${toN} — add it in Setup → Upgrade Uplift Rates before saving this airfare.`);
-      }
-      entFareSgd = deriveEntitlementSgd(sgd, pct!);
-      if (!(str(fd, 'classJustification') || '').trim()) {
-        const propName = EcsReference.travelClass(proposed)?.name ?? proposed;
-        const entName = EcsReference.travelClass(entitledId)?.name ?? 'your entitlement';
-        back(`${propName} is above your ${entName} entitlement — enter a justification for the higher class before saving.`);
-      }
+    if (isClassUpgrade && !(str(fd, 'classJustification') || '').trim()) {
+      const propName = EcsReference.travelClass(proposed)?.name ?? proposed;
+      const entName = EcsReference.travelClass(entitledId)?.name ?? 'your entitlement';
+      back(`${propName} is above your ${entName} entitlement — enter a justification for the higher class before saving.`);
     }
     proposedClassId = proposed || proposedClassId;
     await prisma.travelRequest.update({
@@ -934,6 +970,15 @@ export async function updateAirfare(id: string, expenseId: string, fd: FormData)
       },
     });
   }
+  // Recompute the M6 entitlement split for the new amount, per the line's traveller + entitlement.
+  const empId = exp.travellerId ?? reqRow?.travellerId ?? 'E-TRAV';
+  let lineEntitled = entitledId;
+  if (exp.travellerId) {
+    const t = await prisma.travelRequestTraveller.findFirst({ where: { requestId: id, employeeId: exp.travellerId }, select: { chosenClassId: true, entitledClassId: true } });
+    lineEntitled = t?.chosenClassId ?? t?.entitledClassId ?? entitledId;
+  }
+  const lineProposed = exp.travellerId ? lineEntitled : (proposedClassId ?? entitledId);
+  const economyBase = m6EconomyBaseSgd(await listUpliftRates(), await m6GroupCodes(), { fareSgd: sgd, employeeId: empId, entitledClassId: lineEntitled, proposedClassId: lineProposed, onDate });
   await prisma.estimatedExpense.update({
     where: { id: expenseId },
     data: {
@@ -941,7 +986,8 @@ export async function updateAirfare(id: string, expenseId: string, fd: FormData)
       sponsorForeign: spForeign, sponsorSgd: EcsFx.toSgd(spForeign, currency, now),
       expectedDate: dateOrNull(fd, 'expectedDate'),
       originCode: str(fd, 'originCode'), destCode: str(fd, 'destCode'), notes: str(fd, 'notes'),
-      ...(individual ? { proposedClassId, entitlementFareSgd: entFareSgd, upgradeFunding } : {}),
+      entitlementFareSgd: economyBase, upgradeFunding: economyBase != null ? 'NTU' : null,
+      ...(individual ? { proposedClassId } : {}),
     },
   });
   await audit(id, 'AMEND', `Airfare estimate updated (${currency} ${foreign})`);
@@ -1105,6 +1151,17 @@ export async function submitRequest(id: string, fd?: FormData) {
     const aaId = aa && aa !== req.travellerId ? aa : null;
     const personalAck = str(fd, 'personalAck') === 'on';
     const highRiskAck = str(fd, 'highRiskAck') === 'on' || req.highRiskAck;
+    // §13.x non-term research travel attestation (captured here; the auto-approve routing is gated
+    // separately and off by default — this only records the declaration + its evidence attachment).
+    const nonTermDeclared = str(fd, 'nonTerm') === 'on';
+    // §13.x PI self-approval gate (decision 3) — a PI defaults as their own DOA only when they are a
+    // FOUND eligible DOA (in the DOA line at the required tier) AND within the self-approval threshold;
+    // otherwise they pick a DOA from the list, self excluded. Mirrors the PI_SELF_APPROVAL scenario rule.
+    const submitAmount = computeSummary(req.expenses, settings.approvalAmountBasis).approvalAmount;
+    const emp = EcsIdentity.employee(req.travellerId);
+    const piSelfApproves = isResearchRequest(req) && !req.isGroup && emp?.isPi === true && settings.researchPiSelfApproval
+      && travellerIsEligibleDoa(req, { approvalAmount: submitAmount, sameRouteResearch: settings.sameRouteResearch })
+      && (settings.selfApprovalLimitSgd ?? 0) > 0 && submitAmount <= (settings.selfApprovalLimitSgd ?? 0);
     if (highRisk && !highRiskAck) {
       await audit(id, 'STATUS', 'Submission blocked — high-risk destination requires the traveller acknowledgement (§4.8)');
       revalidatePath(`/requests/${id}/review`);
@@ -1148,19 +1205,23 @@ export async function submitRequest(id: string, fd?: FormData) {
       await prisma.travelRequest.update({ where: { id }, data: {
         isEmergency: true, isRetrospective: false, emergencyOutsideWindow: outsideWindow,
         emergencyJustification: ej, emergencyAuthoriserId: ea, emergencyRatified: false,
-        additionalApproverId: aaId, selectedDoaId: str(fd, 'selectedDoaId') || null, personalAck, highRiskAck,
+        additionalApproverId: aaId, selectedDoaId: str(fd, 'selectedDoaId') || null, personalAck, highRiskAck, nonTermDeclared,
       } });
+    } else if (piSelfApproves) {
+      // decision 3 — the PI is the DOA; no external DOA selection is needed.
+      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, emergencyOutsideWindow: false, additionalApproverId: aaId, selectedDoaId: null, personalAck, highRiskAck, nonTermDeclared } });
     } else {
-      // §13.14 the traveller must select the approving DOA from the eligible candidates.
-      const approvalAmount = computeSummary(req.expenses, settings.approvalAmountBasis).approvalAmount;
-      const candidates = doaCandidatesFor(req, { approvalAmount, sameRouteResearch: settings.sameRouteResearch });
+      // §13.14 / decision 1 — the DOA is DEFAULTED when exactly one candidate is eligible; with several,
+      // the traveller selects one (self is already excluded from the candidate list).
+      const candidates = doaCandidatesFor(req, { approvalAmount: submitAmount, sameRouteResearch: settings.sameRouteResearch });
       const selDoa = str(fd, 'selectedDoaId');
-      const doaOk = candidates.length === 0 || candidates.some((c) => c.id === selDoa);
+      const effectiveDoa = selDoa || (candidates.length === 1 ? candidates[0].id : '');
+      const doaOk = candidates.length === 0 || candidates.some((c) => c.id === effectiveDoa);
       if (!doaOk) {
         await audit(id, 'STATUS', 'Submission blocked — please select the approving DOA');
         redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
       }
-      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, emergencyOutsideWindow: false, additionalApproverId: aaId, selectedDoaId: selDoa || null, personalAck, highRiskAck } });
+      await prisma.travelRequest.update({ where: { id }, data: { isEmergency: false, emergencyOutsideWindow: false, additionalApproverId: aaId, selectedDoaId: effectiveDoa || null, personalAck, highRiskAck, nonTermDeclared } });
     }
   }
 
@@ -1204,6 +1265,7 @@ export async function submitRequest(id: string, fd?: FormData) {
     guestUpgradeProvostId,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
+    nonTermAutoApprove: settings.nonTermAutoApprove,
     emergency: fresh.isEmergency ? { authoriserId: fresh.emergencyAuthoriserId, retrospective: fresh.isRetrospective } : undefined,
     workflowScenario: await getActiveWorkflowScenario(),
   });
@@ -1212,7 +1274,10 @@ export async function submitRequest(id: string, fd?: FormData) {
   // for the PI to approve from their queue.
   const travellerIsRequestor = fresh.requestorId === fresh.travellerId;
   const isPiSelfStep = (s: typeof steps[number]) => s.approverId === fresh.travellerId && s.roleType === APPROVER_ROLE.ResearchDOA && (s.note ?? '').includes('PI self-approval');
-  const autoGrant = (s: typeof steps[number]) => travellerIsRequestor && isPiSelfStep(s);
+  // §6.2 a step is auto-granted when it is the PI's own self-approval step (raised by the PI), OR the
+  // workflow marked it AUTO_GRANT (e.g. non-term research travel) — the approver stays named, the step
+  // is stamped Approved on submission rather than requiring a click.
+  const autoGrant = (s: typeof steps[number]) => (travellerIsRequestor && isPiSelfStep(s)) || !!s.autoGrant;
   const pending = steps.filter((s) => !autoGrant(s));
   const firstStatus = pending.length ? statusForStep(pending[0].roleType) : REQUEST_STATUS.Approved;
   // Atomic: approval amount + rebuilt route + status move together (no half-built route).
@@ -1224,7 +1289,7 @@ export async function submitRequest(id: string, fd?: FormData) {
   ]);
 
   await snapshot(fresh, 'SUBMISSION', false);
-  const routeText = steps.map((s) => autoGrant(s) ? `${s.roleType} (self-approved)` : s.roleType).join(' → ');
+  const routeText = steps.map((s) => autoGrant(s) ? `${s.roleType} (${s.autoGrant ? 'auto-granted' : 'self-approved'})` : s.roleType).join(' → ') || 'no approval steps';
   await audit(id, 'SUBMIT', `Submitted for approval — routed to ${routeText}`, req.requestorId !== req.travellerId ? req.travellerId : null);
   // If the PI self-approval cleared the only step, finalize now (issue the Travel Authorisation + hand-off).
   if (!pending.length) await finalizeApproval(id);
@@ -1271,7 +1336,18 @@ export async function approveStep(id: string, fd?: FormData) {
     await audit(id, 'STATUS', `${EcsIdentity.employee(persona)?.name ?? persona} acknowledged the high-risk travel advisory (§4.8)`);
   }
 
-  const next = req.approvalSteps.find((s) => s.seq > step.seq && s.status === 'Pending');
+  // decision 4 — one person never approves twice: when the SAME approver holds a later step (e.g.
+  // RO = DOA), that later step auto-approves on this approval. Both steps stay on the route (audit).
+  const sameApproverLater = step.approverId
+    ? req.approvalSteps.filter((s) => s.seq > step.seq && s.status === 'Pending' && s.approverId === step.approverId)
+    : [];
+  for (const d of sameApproverLater) {
+    await prisma.approvalStep.updateMany({ where: { id: d.id, status: 'Pending' }, data: { status: 'Approved', decidedAt: new Date() } });
+    await audit(id, 'APPROVE', `${d.roleType} auto-approved — ${EcsIdentity.employee(persona)?.name ?? persona} already approved as ${step.roleType} (one person does not approve twice)`);
+  }
+  const autoDone = new Set(sameApproverLater.map((d) => d.id));
+
+  const next = req.approvalSteps.find((s) => s.seq > step.seq && s.status === 'Pending' && !autoDone.has(s.id));
   if (next) {
     // During reapproval the umbrella status stays Amendment In Progress (§13.1).
     if (!inReapproval) await prisma.travelRequest.update({ where: { id }, data: { status: statusForStep(next.roleType) } });
@@ -1762,6 +1838,26 @@ export async function addAttachment(id: string, fd: FormData) {
     data: { requestId: id, docType: str(fd, 'docType') || 'Other', fileName, sizeKb: Math.max(1, Math.round(num(fd, 'sizeKb')) || 120), uploadedById: persona },
   });
   await audit(id, 'AMEND', `Attachment added: ${fileName}`);
+  revalidatePath(`/requests/${id}`);
+}
+
+/** Attach a file from a UNIQUELY-named field under a fixed docType — for evidence uploaders that
+ *  share the big submit form with other file inputs (e.g. the non-term offline-approval e-mail
+ *  alongside the emergency approval e-mail), so each button reads only its own field and never
+ *  collides on the generic `file` / `docType` names. */
+export async function attachNamedFile(id: string, fieldName: string, docType: string, fd: FormData) {
+  const persona = await currentPersonaId();
+  const file = fd.get(fieldName);
+  const ALLOWED = ['application/pdf', 'image/png', 'image/jpeg'];
+  const maxMb = (await getSettings()).attachmentMaxMb;
+  if (file && typeof file === 'object' && 'arrayBuffer' in file && (file as File).size > 0) {
+    const f = file as File;
+    if (!ALLOWED.includes(f.type)) { await audit(id, 'AMEND', `Attachment rejected — unsupported type ${f.type || 'unknown'} (PDF/PNG/JPEG only)`); revalidatePath(`/requests/${id}`); return; }
+    if (f.size > maxMb * 1024 * 1024) { await audit(id, 'AMEND', `Attachment rejected — ${(f.size / 1048576).toFixed(1)} MB exceeds the ${maxMb} MB limit`); revalidatePath(`/requests/${id}`); return; }
+    const bytes = Buffer.from(await f.arrayBuffer());
+    await prisma.attachment.create({ data: { requestId: id, docType, fileName: f.name, sizeKb: Math.max(1, Math.round(f.size / 1024)), contentType: f.type, content: bytes, uploadedById: persona } });
+    await audit(id, 'AMEND', `Attachment uploaded: ${f.name} (${Math.max(1, Math.round(f.size / 1024))} KB) · ${docType}`);
+  }
   revalidatePath(`/requests/${id}`);
 }
 

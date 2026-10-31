@@ -16,7 +16,10 @@ import { Card } from './ui';
 
 export interface Opt { code: string; name: string }
 export interface ClassOpt { id: string; name: string }
-export interface AirportMeta { city: string; country: string }
+export interface AirportMeta { city: string; country: string; cityCode: string; countryCode: string }
+// §13.x a live request sharing a traveller with this one — intersected live against the itinerary
+// (dates + derived main destination) to surface a duplicate / overlap warning as the trip is typed.
+export interface TravellerConflict { requestNumber: string; status: string; destination: string; destCountry: string | null; destCity: string | null; startISO: string; endISO: string }
 export interface LegIn { originCode: string; destCode: string; departDate: string; arriveDate: string; nights: number; durationHours: string; isPersonal: boolean }
 
 type TripType = 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
@@ -46,10 +49,23 @@ function legLabel(type: TripType, i: number): string {
 
 const toD = (s: string) => (s ? new Date(s + 'T00:00:00') : null);
 
+// Nights at a leg's destination are AUTO-COMPUTED from the dates — the stay lasts from arriving at
+// this leg's destination until the next leg departs (the last leg home has no onward departure → 0).
+// This is the same rule syncAutoEstimates uses to budget accommodation/ODA, so the itinerary's Nights
+// column, the longest-stay main destination and the budget all agree instead of a hand-keyed value.
+const DAY = 86400000;
+function computeLegNights(ls: LegIn[], i: number): number {
+  const cur = ls[i]; const next = ls[i + 1];
+  const from = toD(cur.arriveDate) ?? toD(cur.departDate);
+  const to = next ? (toD(next.departDate) ?? toD(next.arriveDate)) : null;
+  if (!from || !to) return 0;
+  return Math.max(Math.round((to.getTime() - from.getTime()) / DAY), 0);
+}
+
 export function TripPlanner({
   airports, airportMeta, initialTripType, initialLegs,
   initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
-  continueHref, disabled,
+  continueHref, disabled, conflicts,
 }: {
   airports: Opt[];
   airportMeta: Record<string, AirportMeta>;
@@ -58,6 +74,9 @@ export function TripPlanner({
   initialStart: string; initialEnd: string; initialEventStart: string; initialEventEnd: string; initialPersonalStart: string; initialPersonalEnd: string;
   continueHref: string;
   disabled?: boolean;
+  // Live requests sharing a traveller — the Trip step runs the duplicate/overlap check against the
+  // itinerary being entered and shows it in the validation panel (not only at the Submit gate).
+  conflicts?: TravellerConflict[];
 }) {
   const [start, setStartRaw] = useState(initialStart);
   const [end, setEndRaw] = useState(initialEnd);
@@ -73,11 +92,13 @@ export function TripPlanner({
   // server applies on save), shown read-only so the traveller sees what the review/approval
   // pages will record without a second editable destination field to keep in sync.
   const mainDest = useMemo(() => {
-    const withDest = legs.filter((l) => l.destCode);
-    if (!withDest.length) return null;
-    const main = [...withDest].filter((l) => !l.isPersonal).sort((a, b) => b.nights - a.nights)[0] ?? withDest[0];
-    const m = airportMeta?.[main.destCode];
-    return m ? { code: main.destCode, city: m.city, country: m.country, nights: main.nights } : null;
+    const idx = legs.map((l, i) => ({ l, i })).filter(({ l }) => l.destCode);
+    if (!idx.length) return null;
+    const nonP = idx.filter(({ l }) => !l.isPersonal);
+    const pool = nonP.length ? nonP : idx;
+    const main = [...pool].sort((a, b) => computeLegNights(legs, b.i) - computeLegNights(legs, a.i))[0];
+    const m = airportMeta?.[main.l.destCode];
+    return m ? { code: main.l.destCode, city: m.city, country: m.country, cityCode: m.cityCode, countryCode: m.countryCode, nights: computeLegNights(legs, main.i) } : null;
   }, [legs, airportMeta]);
 
   const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => ls.map((l, j) => j === i ? { ...l, ...p } : l));
@@ -133,10 +154,38 @@ export function TripPlanner({
 
   const blocking = errors.length > 0;
 
+  // §13.x Live duplicate / overlap check — run as the itinerary is entered, against the official
+  // travel window (overlap) and the derived main destination (same-destination = true duplicate).
+  // Mirrors findDuplicateRequests on the server; here it is a warning, not a save-block (the hard
+  // block stays at the Submit gate). "Blocking" duplicates are same-destination date clashes.
+  const dup = useMemo(() => {
+    // Overlap window = the itinerary's actual travel footprint (first departure → last arrival from
+    // the legs), not the official-business dates. Industry practice keys double-booking / duty-of-care
+    // on where the traveller is physically present (the PNR dates); falls back to the official dates
+    // only when the legs carry no dates yet. The server (travelWindow) uses the same rule.
+    const legDates = legs.flatMap((l) => [toD(l.departDate), toD(l.arriveDate)]).filter((d): d is Date => !!d);
+    const os = legDates.length ? new Date(Math.min(...legDates.map((d) => d.getTime()))) : toD(start);
+    const oe = legDates.length ? new Date(Math.max(...legDates.map((d) => d.getTime()))) : toD(end);
+    if (!conflicts?.length || !os || !oe) return { duplicate: [] as TravellerConflict[], clash: [] as TravellerConflict[] };
+    const myCountry = mainDest?.countryCode ?? null;
+    const myCity = mainDest?.cityCode ?? null;
+    const duplicate: TravellerConflict[] = [];
+    const clash: TravellerConflict[] = [];
+    for (const c of conflicts) {
+      const cs = toD(c.startISO), ce = toD(c.endISO);
+      if (!cs || !ce) continue;
+      if (!(os <= ce && cs <= oe)) continue; // official date ranges must intersect
+      const sameCountry = !!myCountry && myCountry === c.destCountry;
+      const sameCity = !myCity || !c.destCity || myCity === c.destCity;
+      (sameCountry && sameCity ? duplicate : clash).push(c);
+    }
+    return { duplicate, clash };
+  }, [conflicts, legs, start, end, mainDest]);
+
   return (
     <>
       <input type="hidden" name="tripType" value={type} />
-      <input type="hidden" name="legsJson" value={JSON.stringify(legs.filter((l) => l.destCode))} />
+      <input type="hidden" name="legsJson" value={JSON.stringify(legs.map((l, i) => ({ ...l, nights: computeLegNights(legs, i) })).filter((l) => l.destCode))} />
 
       <Card title="Dates">
         <div className="grid md:grid-cols-4 gap-4">
@@ -197,7 +246,7 @@ export function TripPlanner({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr>
-                  <th className="th">Leg</th><th className="th">From</th><th className="th">To</th><th className="th">Depart</th><th className="th">Arrive</th><th className="th">Nights</th><th className="th">Personal</th>{multi && <th className="th"></th>}
+                  <th className="th">Leg</th><th className="th">From</th><th className="th">To</th><th className="th">Depart</th><th className="th">Arrive</th><th className="th">Nights <span className="font-normal normal-case text-[var(--ecs-muted)]">(auto)</span></th><th className="th">Personal</th>{multi && <th className="th"></th>}
                 </tr></thead>
                 <tbody>
                   {legs.map((l, i) => (
@@ -207,7 +256,7 @@ export function TripPlanner({
                       <td className="td"><select className="field" disabled={disabled} value={l.destCode} onChange={(e) => setLeg(i, { destCode: e.target.value })}><option value="">—</option>{airports.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select></td>
                       <td className="td"><input type="date" className="field" disabled={disabled} value={l.departDate} onChange={(e) => setLeg(i, { departDate: e.target.value, arriveDate: l.arriveDate || e.target.value })} /></td>
                       <td className="td"><input type="date" className="field" disabled={disabled} value={l.arriveDate} onChange={(e) => setLeg(i, { arriveDate: e.target.value })} /></td>
-                      <td className="td"><input type="number" min="0" className="field w-20" disabled={disabled} value={l.nights} onChange={(e) => setLeg(i, { nights: Number(e.target.value) || 0 })} /></td>
+                      <td className="td"><span className="inline-flex items-center justify-center min-w-[3rem] text-sm text-[var(--ecs-muted)]" title="Auto-computed from the dates — the stay until the next leg departs">{computeLegNights(legs, i)}</span></td>
                       <td className="td text-center"><input type="checkbox" disabled={disabled} checked={l.isPersonal} onChange={(e) => setLeg(i, { isPersonal: e.target.checked })} /></td>
                       {multi && (
                         <td className="td whitespace-nowrap">
@@ -234,6 +283,25 @@ export function TripPlanner({
             <div className="card p-3 text-sm text-red-800 bg-red-50 border-red-200">
               <div className="font-semibold mb-1">Please review the dates:</div>
               <ul className="list-disc list-inside space-y-0.5">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+            </div>
+          )}
+
+          {/* §13.x Duplicate / overlap check — run against the itinerary entered above. A same-
+              destination overlap is a true duplicate (hard block at Submit); a different-destination
+              overlap is a softer double-booking notice. Both are warnings here, not save-blocks. */}
+          {dup.duplicate.length > 0 && (
+            <div className="card p-3 text-sm text-red-800 bg-red-50 border-red-200">
+              <b>Duplicate travel request.</b> An active request already covers this trip — this will block submission until you cancel or amend it:
+              <ul className="list-disc pl-5 mt-1">
+                {dup.duplicate.map((d) => (
+                  <li key={d.requestNumber}><Link href={`/requests?find=${d.requestNumber}`} className="underline">{d.requestNumber}</Link> ({d.status}) — {d.destination}, {d.startISO} → {d.endISO}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {dup.clash.length > 0 && (
+            <div className="card p-3 text-sm text-amber-900 bg-amber-50 border-amber-200">
+              <b>Overlapping dates.</b> This traveller has another active request with overlapping dates (different destination) — check this is not a double-booking: {dup.clash.map((d) => `${d.requestNumber} (${d.destination}, ${d.startISO} → ${d.endISO})`).join('; ')}.
             </div>
           )}
 

@@ -83,8 +83,9 @@ export async function Shell({ children }: { children: React.ReactNode }) {
               { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
               { href: '/setup/provosts', label: 'Provost List (guest upgrades)', icon: '◈' },
               { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
-              { href: '/setup/upgrade-accounts', label: 'Upgrade Differential (M6) Accounts', icon: '▲' },
-              { href: '/setup/upgrade-rates', label: 'Upgrade Uplift Rates', icon: '％' },
+              { href: '/setup/policy-groups', label: 'Travel Policy Groups (M6)', icon: '◎' },
+              { href: '/setup/upgrade-accounts', label: 'M6 Differential Accounts', icon: '▲' },
+              { href: '/setup/upgrade-rates', label: 'Class Uplift Rates', icon: '％' },
               { href: '/setup/workflow', label: 'Workflow Configuration (TR)', icon: '⇄' },
               { href: '/setup/policy', label: 'Policy Configuration (TR)', icon: '§' },
             ]} /></div>

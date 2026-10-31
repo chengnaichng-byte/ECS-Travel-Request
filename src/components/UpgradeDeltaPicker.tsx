@@ -36,7 +36,7 @@ export function UpgradeDeltaPicker({ requestId, lines, pool, canEdit, govBAName,
         return (
           <div key={l.expenseId} className="text-sm">
             <div className="mb-1">{l.route} · <strong>{l.toClassName}</strong>
-              <span className="text-[var(--ecs-muted)]"> — chosen {fmt(l.fareSgd)}, entitlement {fmt(l.entitlementSgd)}, differential {fmt(l.deltaSgd)}{l.upliftPct != null ? ` · ${Math.round(l.upliftPct * 100)}% uplift (${l.fromClassName}→${l.toClassName})` : ''}</span>
+              <span className="text-[var(--ecs-muted)]"> — entitled fare {fmt(l.fareSgd)}, Economy base {fmt(l.entitlementSgd)}, M6 differential {fmt(l.deltaSgd)}{l.upliftPct != null ? ` · ${Math.round(l.upliftPct * 100)}% uplift (${l.fromClassName} → ${l.toClassName})` : ''}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[var(--ecs-muted)] whitespace-nowrap">Charge differential to M6 account ({govBAName}):</span>

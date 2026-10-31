@@ -25,6 +25,8 @@ export type RouteStepSpec = {
   note?: string;       // builder note; the resolver may append detail (band label, escalation)
   order?: number;      // canonical precedence for ordering the final route (base levels + decision adds)
   requirement?: 'REQUIRED' | 'CONDITIONAL';
+  autoGrant?: boolean; // §6.2 the step stays ON the route (named approver) but is auto-granted on
+                       // submission — set by an AUTO_GRANT decision point (e.g. non-term research).
 };
 
 // ----- Fact catalogue (closed + typed, so the engine stays testable and the builder is guided) -----
@@ -34,8 +36,10 @@ export const FACTS: FactDef[] = [
   { key: 'isGroup', label: 'Group request', type: 'bool', source: 'Request' },
   { key: 'researchRoute', label: 'Research funding route', type: 'bool', source: 'Charging' },
   { key: 'travellerIsPI', label: 'Traveller is Principal Investigator', type: 'bool', source: 'Workday' },
+  { key: 'travellerIsEligibleDoa', label: 'Traveller is an eligible DOA (in the DOA list at tier)', type: 'bool', source: 'DOA rules' },
   { key: 'isGuest', label: 'Guest (non-employee) request', type: 'bool', source: 'Request' },
   { key: 'hasPolicyException', label: 'Has a policy exception', type: 'bool', source: 'Policy' },
+  { key: 'nonTermResearchAutoApprove', label: 'Non-term research — auto-approve', type: 'bool', source: 'Policy' },
   { key: 'additionalApproverPresent', label: 'Additional approver selected', type: 'bool', source: 'Request' },
   { key: 'travelClassUpgradeException', label: 'Travel-class upgrade (exception)', type: 'bool', source: 'Policy' },
   // §6.2 ECS-mirrored fields (Expense-Claim "Edit workflow rule" → Travel-Request equivalents)

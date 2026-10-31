@@ -1,26 +1,25 @@
-// #7 / #14 Travel-class upgrade split. When an airfare line is booked above the traveller's
-// entitlement, the differential is derived (Model B) from a configured uplift % for the class step:
-// entitlement = chosenFare / (1 + pct) is stored on the line (entitlementFareSgd), so the delta is
-// chosenFare − entitlement. The delta is then funded one of two ways:
-//   • NTU-funded  → NTU pays the full fare; the delta is charged to the traveller-selected M6 account
-//                   (upgradeDeltaCode) while the entitlement stays on the original WBS / cost centre (#14).
-//   • Self-funded → NTU pays only the entitlement (to the original WBS); the traveller pays the
-//                   delta to the TMC directly, so the delta is never an NTU charge or reimbursement (#7).
-// This helper reads the stored derived entitlement; capture (addAirfare / demo) does the derivation.
+// §13.19 M6 ENTITLEMENT split (the corrected M6 model). When a traveller flies their entitlement and
+// their travel-policy group attracts M6 (and the entitlement is above Economy), the entitled fare
+// splits into an Economy base + an M6 differential (Economy→entitled). The base is stored on the line
+// (entitlementFareSgd, derived at capture via the uplift % master); the M6 differential = fare − base.
+// NTU always funds the full entitled fare; the M6 differential is reallocated to the M6 account
+// (upgradeDeltaCode) while the Economy base stays on the original WBS / cost centre. M6 is NOT a
+// traveller-requested upgrade — a class ABOVE entitlement is a policy exception, handled separately.
+// (Self-funding does not apply to M6; the SELF branch is retained only for backward data safety.)
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 
 export type UpgradeFunding = 'NTU' | 'SELF';
 
 export interface AirfareUpgrade {
-  isUpgrade: boolean;
-  fareSgd: number;          // the chosen (upgraded) fare — the amount paid to the TMC
-  entitlementSgd: number;   // the derived entitlement-class fare (chosenFare / (1 + upliftPct))
-  deltaSgd: number;         // fareSgd - entitlementSgd (the upgrade differential)
-  upliftPct: number | null; // the applied uplift fraction over the entitlement (for display)
-  funding: UpgradeFunding | null;
-  ntuAirfareSgd: number;    // airfare charged to NTU: full fare (NTU-funded) or entitlement only (self-funded)
-  travellerPaysSgd: number; // delta the traveller settles with the TMC directly (self-funded only)
-  deltaCostCentre: string | null; // the selected M6 account an NTU-funded delta charges (null until chosen)
+  isUpgrade: boolean;       // true = line carries an M6 entitlement split
+  fareSgd: number;          // the entitled-class fare — the amount paid to the TMC
+  entitlementSgd: number;   // the derived Economy base (fare / (1 + upliftPct(ECO→entitled)))
+  deltaSgd: number;         // fareSgd - base (the M6 differential, Economy→entitled)
+  upliftPct: number | null; // the applied uplift fraction (for display)
+  funding: UpgradeFunding | null; // always NTU for M6 (the org funds the entitlement)
+  ntuAirfareSgd: number;    // airfare charged to NTU: the full entitled fare
+  travellerPaysSgd: number; // 0 for M6 (retained for backward data safety)
+  deltaCostCentre: string | null; // the M6 account the differential charges (null until resolved)
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;

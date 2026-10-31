@@ -253,9 +253,9 @@ export async function computeCtaPostings(): Promise<CtaPostingsView> {
       allocs.forEach((a, i) => {
         const amt = i === allocs.length - 1 ? r2(entNet - running) : r2(entNet * (a.percent / 100));
         running = r2(running + amt);
-        lines.push({ side: 'DR', glAccount: gl, description: ntuUpgrade ? `${et?.name ?? c.chargeType} — entitlement` : `${et?.name ?? c.chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
+        lines.push({ side: 'DR', glAccount: gl, description: ntuUpgrade ? `${et?.name ?? c.chargeType} — Economy base` : `${et?.name ?? c.chargeType}`, costObject: a.code, costObjectType: a.type, percent: a.percent, amountSgd: amt });
       });
-      if (ntuUpgrade && deltaNet > 0) lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? c.chargeType} — upgrade differential`, costObject: c.upgrade!.deltaCostCentre, costObjectType: 'CC', percent: null, amountSgd: deltaNet });
+      if (ntuUpgrade && deltaNet > 0) lines.push({ side: 'DR', glAccount: gl, description: `${et?.name ?? c.chargeType} — M6 differential`, costObject: c.upgrade!.deltaCostCentre, costObjectType: 'CC', percent: null, amountSgd: deltaNet });
       if (tax > 0) lines.push({ side: 'DR', glAccount: GST_INPUT_GL, description: `Input GST (${c.gstCode})`, costObject: null, costObjectType: null, percent: null, amountSgd: tax });
       lines.push({ side: 'CR', glAccount: clearingGl, description: `CTA clearing${b.ctaAccountId ? ` — ${b.ctaAccountId}` : ''}`, costObject: null, costObjectType: null, percent: null, amountSgd: gross });
       const dr = r2(lines.filter((l) => l.side === 'DR').reduce((s, l) => s + l.amountSgd, 0));

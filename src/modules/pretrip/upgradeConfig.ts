@@ -8,6 +8,9 @@ import { businessAreas } from '@/data/charging';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { airfareUpgrade } from './upgrade';
 import { getSettings } from './settings';
+import { EcsTravelClassRegister } from '@/shared/ecs/services';
+
+const ECO_CLASS = 'TC-ECO';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -29,10 +32,10 @@ function defaultUpliftRates(): { fromClassId: string; toClassId: string; pct: nu
 function defaultUpgradeAccounts(): { code: string; name: string; businessArea: string; companyCode: string; isDefault: boolean }[] {
   const out: { code: string; name: string; businessArea: string; companyCode: string; isDefault: boolean }[] = [];
   for (const ba of businessAreas) {
-    out.push({ code: `M6-${ba.code.replace(/^BA-/, '')}`, name: `${ba.name} — NTU-Funded Upgrade Differential`, businessArea: ba.code, companyCode: ba.companyCode, isDefault: true });
+    out.push({ code: `M6-${ba.code.replace(/^BA-/, '')}`, name: `${ba.name} — M6 Entitlement Differential`, businessArea: ba.code, companyCode: ba.companyCode, isDefault: true });
   }
   // a second BA-CS account (e.g. a school-specific differential pool) to exercise traveller selection
-  out.push({ code: 'M6-CS-DEAN', name: 'SCSE Dean Office — Upgrade Differential', businessArea: 'BA-CS', companyCode: '1000', isDefault: false });
+  out.push({ code: 'M6-CS-DEAN', name: 'SCSE Dean Office — M6 Entitlement Differential', businessArea: 'BA-CS', companyCode: '1000', isDefault: false });
   return out;
 }
 
@@ -72,10 +75,33 @@ export function upliftPctFrom(rates: UpliftRateRow[], fromClassId: string | null
   return r ? r.pct : null;
 }
 
-/** Derived entitlement fare (Model B): chosenFare / (1 + pct). Null when the step has no rate. */
+/** Derived base fare (Model B): fare / (1 + pct). Null when the step has no rate. */
 export function deriveEntitlementSgd(fareSgd: number, pct: number | null): number | null {
   if (pct == null || pct <= 0 || fareSgd <= 0) return null;
   return r2(fareSgd / (1 + pct));
+}
+
+/** M6 entitlement split (the CORRECTED M6 model). When the traveller flies their entitlement, their
+ *  travel-policy group attracts M6, and the entitlement is above Economy, the entitled fare splits
+ *  into an Economy base + an M6 differential (Economy→entitled), the differential funded from an M6
+ *  account. This returns the ECONOMY BASE (stored on the line as entitlementFareSgd); M6 = fare − base.
+ *  Null means no M6 split — the whole fare stays on the normal allocation. M6 is NOT a traveller
+ *  upgrade: a class ABOVE entitlement is a policy exception, handled separately (no M6 split here). */
+export function m6EconomyBaseSgd(
+  rates: UpliftRateRow[],
+  m6Codes: Set<string>,
+  opts: { fareSgd: number; employeeId: string; entitledClassId: string; proposedClassId?: string | null; onDate: Date },
+): number | null {
+  const { fareSgd, employeeId, entitledClassId, proposedClassId, onDate } = opts;
+  if (!(fareSgd > 0)) return null;
+  // entitlement must be above Economy (else no premium portion to fund)
+  if (EcsTravelClassRegister.rank(entitledClassId) <= EcsTravelClassRegister.rank(ECO_CLASS)) return null;
+  // only when flying the entitlement itself — a class above is an exception, below has no premium
+  if (proposedClassId && proposedClassId !== entitledClassId) return null;
+  // the traveller's policy group must attract M6 (DB-effective set — reflects the live master)
+  const code = EcsTravelClassRegister.policyGroup(employeeId, onDate);
+  if (!code || !m6Codes.has(code)) return null;
+  return deriveEntitlementSgd(fareSgd, upliftPctFrom(rates, ECO_CLASS, entitledClassId));
 }
 
 /** Active M6 accounts available for a Business Area (the pool the traveller selects from). */

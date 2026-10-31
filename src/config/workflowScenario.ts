@@ -28,7 +28,7 @@ export interface ApprovalTier {
   levels: ApprovingLevel[];
 }
 
-export type DecisionVerb = 'SKIP' | 'ADD' | 'REPLACE';
+export type DecisionVerb = 'SKIP' | 'ADD' | 'REPLACE' | 'AUTO_GRANT';
 export interface DecisionAction {
   verb: DecisionVerb;
   targetLevel: string;      // the APPROVER_ROLE to skip / replace, or the role an ADD carries
@@ -74,6 +74,9 @@ const PI_SELF_APPROVAL: Condition[] = [
   { fact: 'isGroup', op: 'is', value: false },
   { fact: 'researchPiSelfApproval', op: 'is', value: true },
   { fact: 'travellerIsPI', op: 'is', value: true },
+  // §13.x the PI must be a FOUND eligible DOA (in the DOA list at the required tier) to self-approve;
+  // otherwise they pick a DOA from the list (self excluded). Then, additionally, within the threshold.
+  { fact: 'travellerIsEligibleDoa', op: 'is', value: true },
   { fact: 'selfApprovalLimitSgd', op: 'gt', value: 0 },
   { fact: 'approvalAmount', op: 'lte', value: { fact: 'selfApprovalLimitSgd' } },
 ];
@@ -124,6 +127,16 @@ export const TR_STANDARD_SCENARIO: WorkflowScenario = {
     // Named-user RO override (ECS #2/#10 example): a designated traveller’s RO is replaced with a
     // specific approver. Here the Head of School’s RO is replaced with the Provost (illustrative).
     { seq: 11, label: 'Replace RO with the Provost for a designated traveller (ECS #2/#10)', conditions: [{ fact: 'traveller', op: 'eq', value: 'E-RO' }], actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.RO, approverId: 'E-PROVOST', note: 'Named-user RO override' }] },
+    // §13.x Non-term research travel — a research-WBS trip in non-term time, attested with the offline-
+    // approval e-mail attached and no unresolved exception, already has approval offline. The approvers
+    // stay ON the route (named for the audit), but their steps are AUTO-GRANTED on submission rather than
+    // requiring a click — the DOA, and the RO where the workflow keeps one. Gated by the
+    // `nonTermResearchAutoApprove` fact (the settings toggle controls it), so it is off unless enabled.
+    { seq: 12, label: 'Auto-grant the approvers for non-term research travel (offline approval obtained)', conditions: [{ fact: 'nonTermResearchAutoApprove', op: 'is', value: true }], actions: [
+      { verb: 'AUTO_GRANT', targetLevel: APPROVER_ROLE.RO, note: 'Auto-granted — non-term research travel (offline approval attested)' },
+      { verb: 'AUTO_GRANT', targetLevel: APPROVER_ROLE.DOA, note: 'Auto-granted — non-term research travel (offline approval attested)' },
+      { verb: 'AUTO_GRANT', targetLevel: APPROVER_ROLE.ResearchDOA, note: 'Auto-granted — non-term research travel (offline approval attested)' },
+    ] },
   ],
 };
 
@@ -155,6 +168,9 @@ export function evaluateScenario(s: WorkflowScenario, ctx: Ctx): ScenarioEval {
         specs = specs.map((sp) => sp.roleType === a.targetLevel
           ? { ...sp, resolver: a.resolver ?? sp.resolver, ref: a.ref ?? (a.resolver ? undefined : sp.ref), roleType: a.targetLevel, approverId: a.approverId ?? sp.approverId, note: a.note ?? sp.note }
           : sp);
+      } else if (a.verb === 'AUTO_GRANT') {
+        // §6.2 keep the step (named approver stays on the route) but mark it auto-granted on submission.
+        specs = specs.map((sp) => sp.roleType === a.targetLevel ? { ...sp, autoGrant: true, note: a.note ?? sp.note } : sp);
       } else { // ADD
         specs.push({ resolver: a.resolver ?? 'ROLE', ref: a.ref, roleType: a.targetLevel, approverId: a.approverId, note: a.note, order: a.order ?? defaultOrder(a.targetLevel, a.ref) });
       }

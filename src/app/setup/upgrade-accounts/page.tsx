@@ -23,7 +23,7 @@ export default async function UpgradeAccountsPage() {
   return (
     <div className="w-full space-y-5">
       <PageTitle id="TR-26" title="Upgrade Differential (M6) accounts"
-        subtitle="#14 — the M6 accounts an NTU-funded travel-class upgrade differential charges, grouped by Business Area. The traveller selects which on the Charging step; a BA with a single account auto-selects, and the derived differential posts to it." />
+        subtitle="§13.19 — the M6 accounts the entitlement differential (Economy → entitled class) charges for an M6-flagged travel-policy group, grouped by Business Area. The traveller selects which on the Charging step; a BA with a single account auto-selects, and the differential posts to it." />
 
       {!isAdmin && <div className="card p-3 text-sm text-amber-800 bg-amber-50 border-amber-200">Switch persona to <strong>David Kumar — Travel Administrator</strong> (or System Administrator) to maintain the list. It is read-only for other roles.</div>}
 

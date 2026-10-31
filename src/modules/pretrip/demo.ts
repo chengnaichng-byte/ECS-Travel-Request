@@ -3,13 +3,17 @@
 // logic (pricing, policy, route, TMC adapter, TE pre-population), so every scenario
 // runs without manual setup (§13.7). Triggered from the dashboard.
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
+import { PERSONA_COOKIE, ROLE_COOKIE } from '@/shared/session';
 import { prisma } from '@/shared/db';
 import { loadRequest, type FullRequest } from './queries';
 import { getSettings } from './settings';
 import { nextRequestNumber, nextAuthorisationNumber, nextClaimNumber } from './numbering';
 import { computeAccommodation, computeOda, computeOdaTiered, computeSummary } from './pricing';
 import { evaluatePolicies, hasException, hasHardStop } from './policy';
-import { ensureUpgradeConfigSeed, listUpliftRates, upliftPctFrom, deriveEntitlementSgd, listUpgradeAccounts, defaultAccountForBA, upgradeCheckCtx } from './upgradeConfig';
+import { ensureUpgradeConfigSeed, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, defaultAccountForBA, upgradeCheckCtx } from './upgradeConfig';
+import { m6GroupCodes } from './policyGroups';
 import { evaluateConfiguredPolicies } from './policyConfigEval';
 import { buildRoute, statusForStep } from './route';
 import { getActiveWorkflowScenario } from './workflowConfig';
@@ -24,20 +28,22 @@ import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
 import { assignGroupLineNos } from './groupLines';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
+import { NON_TERM_APPROVAL_DOC } from './nonTerm';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
 
 const YEAR = 2026;
 const day = (iso: string) => new Date(iso + 'T00:00:00Z');
 
-/** #14 Model B upgrade line fields — derive the entitlement from the chosen fare + the configured
- *  uplift % for the class step, and (for an NTU-funded delta) route to the governing BA's default M6
- *  account. Keeps the demo consistent with the live capture (addAirfare). */
-async function upgradeLineFields(fareSgd: number, fromClassId: string, toClassId: string, funding: 'NTU' | 'SELF', ba: string) {
+/** §13.19 M6 entitlement-split line fields — when the traveller flies their entitlement and their
+ *  policy group attracts M6 (entitlement above Economy), split the entitled fare into an Economy base
+ *  + an M6 differential (Economy→entitled) routed to the BA's default M6 account. Returns {} when no
+ *  M6 applies. Keeps the demo consistent with live capture (addAirfare). */
+async function m6LineFields(fareSgd: number, employeeId: string, entitledClassId: string, ba: string, onDate: Date) {
   await ensureUpgradeConfigSeed();
-  const pct = upliftPctFrom(await listUpliftRates(), fromClassId, toClassId);
-  const entitlementFareSgd = deriveEntitlementSgd(fareSgd, pct);
-  const upgradeDeltaCode = funding === 'NTU' ? (defaultAccountForBA(await listUpgradeAccounts(), ba)?.code ?? null) : null;
-  return { entitlementFareSgd, upgradeFunding: funding, upgradeDeltaCode };
+  const base = m6EconomyBaseSgd(await listUpliftRates(), await m6GroupCodes(), { fareSgd, employeeId, entitledClassId, proposedClassId: entitledClassId, onDate });
+  if (base == null) return {};
+  const upgradeDeltaCode = defaultAccountForBA(await listUpgradeAccounts(), ba)?.code ?? null;
+  return { entitlementFareSgd: base, upgradeFunding: 'NTU' as const, upgradeDeltaCode };
 }
 
 interface Charge { code: string; pct: number }
@@ -410,6 +416,62 @@ async function buildCtaCancelledReversalS32() {
   await audit(id, 'E-SYS', 'INTEGRATION', 'Booking cancelled — CTA refund reversed, SGD 150 penalty retained');
 }
 
+/** §13.x Demo helper — builds a research DRAFT, ready at the Submit/review step, with the non-term
+ *  offline-approval attestation declared and the approval email attached, but deliberately NOT submitted.
+ *  Lets the non-term auto-approve branch be demonstrated live from the Submit page (attest → submit →
+ *  the Research DOA / RO steps are auto-granted and the request lands Approved). Exception-free by design
+ *  (Economy, no hotel/ODA cap exposure, future dates) so nothing diverts the auto-grant. Returns the id. */
+const DEMO_MARK = '[non-term demo]';
+// Destinations the demo rotates through — each the traveller does not already hold a live request to,
+// so the duplicate guard (same traveller + overlapping dates + same destination) can never hard-block
+// a repeated demo. Dr Henry Ong's standing research trips are London/Tokyo, so those are excluded.
+const DEMO_DESTS = [
+  { country: 'FR', city: 'PAR', airport: 'CDG' },
+  { country: 'KR', city: 'SEL', airport: 'ICN' },
+  { country: 'JP', city: 'OSA', airport: 'KIX' },
+  { country: 'EG', city: 'CAI', airport: 'CAI' },
+];
+
+export async function seedNonTermResearchDraft(): Promise<string> {
+  // Repeatable by design: clear any prior UNSUBMITTED demo draft first so clicks don't pile up drafts
+  // or self-conflict; an already-submitted (Approved) demo is left intact as evidence.
+  const stale = await prisma.travelRequest.findMany({ where: { status: REQUEST_STATUS.Draft, description: { contains: DEMO_MARK } }, select: { id: true } });
+  if (stale.length) {
+    const ids = stale.map((s) => s.id);
+    await prisma.auditEvent.deleteMany({ where: { requestId: { in: ids } } });
+    await prisma.travelRequest.deleteMany({ where: { id: { in: ids } } });
+  }
+  // Pick a destination the traveller has no existing request to → the duplicate guard never hard-blocks.
+  const used = new Set((await prisma.travelRequest.findMany({ where: { travellerId: 'E-TRAV3' }, select: { destCity: true } })).map((r) => r.destCity));
+  const dest = DEMO_DESTS.find((d) => !used.has(d.city)) ?? DEMO_DESTS[0];
+  const plus = (days: number) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
+  const offset = 60 + Math.floor(Math.random() * 60);   // 2–4 months out, staggered so windows rarely overlap
+  const id = await buildDraft({
+    requestorId: 'E-TRAV3', travellerId: 'E-TRAV3', purposeId: 'TP-OB-RES', isResearch: true,
+    destCountry: dest.country, destCity: dest.city, destAirport: dest.airport, start: plus(offset), end: plus(offset + 5),
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1800, currency: 'SGD', classId: 'TC-ECO' },
+    conference: { amount: 600 },
+    charging: [{ code: 'WBS-R100', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { nonTermDeclared: true, description: `Dr Henry Ong — non-term research demonstration ${DEMO_MARK}` } });
+  await prisma.attachment.create({ data: { requestId: id, docType: NON_TERM_APPROVAL_DOC, fileName: 'offline-research-approval.pdf', sizeKb: 24, contentType: 'application/pdf' } });
+  await audit(id, 'E-TRAV3', 'ATTACH', `Non-term offline-approval email attached — ${NON_TERM_APPROVAL_DOC}`);
+  return id;
+}
+
+/** Dashboard demo button — seed a fresh non-term research draft, switch the acting persona to its
+ *  traveller/requestor (Dr Henry Ong) so the Submit step is editable, and open it at the review page
+ *  ready to submit. Lets a presenter trigger the auto-approve walkthrough live in one click. */
+export async function seedNonTermResearchDemo() {
+  const id = await seedNonTermResearchDraft();
+  const store = await cookies();
+  store.set(PERSONA_COOKIE, 'E-TRAV3', { path: '/' });
+  store.set(ROLE_COOKIE, 'TRAVELLER', { path: '/' });
+  revalidatePath('/', 'layout');
+  redirect(`/requests/${id}/review`);
+}
+
 export async function seedDemoScenarios() {
   const existing = await prisma.travelRequest.count();
   if (existing > 0) { revalidatePath('/dashboard'); return; }
@@ -443,8 +505,8 @@ export async function seedDemoScenarios() {
   const s02 = await buildDraft({
     requestorId: 'E-TRAV3', travellerId: 'E-TRAV3', purposeId: 'TP-OB-RES', isResearch: true,
     destCountry: 'GB', destCity: 'LON', destAirport: 'LHR', start: '2026-09-20', end: '2026-09-27',
-    travelClassId: 'TC-PEY', bookingMethod: BOOKING_METHOD.AgentAssisted,
-    airfare: { amount: 2400, currency: 'SGD', classId: 'TC-PEY' },
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
+    airfare: { amount: 2400, currency: 'SGD', classId: 'TC-ECO' },
     hotel: { city: 'LON', nights: 7, quotedNightly: 260 },
     oda: { country: 'GB', city: 'LON', arrive: '2026-09-20', depart: '2026-09-27' },
     conference: { amount: 600 },
@@ -644,7 +706,7 @@ async function buildMultiCityPendingS22() {
     { seq: 4, o: 'ICN', d: 'SIN', dep: '2026-12-07', dur: 6, nights: 0 },
   ];
   for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', chosenClassId: 'TC-PEY' } });
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400 } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400, ...(await m6LineFields(3400, 'E-TRAV', 'TC-PEY', 'BA-CS', day('2026-11-16'))) } });
   for (const [city, nights, rate] of [['TYO', 2, 300], ['OSA', 2, 300], ['SEL', 2, 240]] as [string, number, number][]) {
     const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
     const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
@@ -684,7 +746,7 @@ async function buildMultiCityBookedS28() {
     { seq: 4, o: 'ICN', d: 'SIN', dep: '2026-11-22', dur: 6, nights: 0 },
   ];
   for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', chosenClassId: 'TC-PEY' } });
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400 } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400, ...(await m6LineFields(3400, 'E-TRAV', 'TC-PEY', 'BA-CS', day('2026-11-16'))) } });
   for (const [city, nights, rate] of [['TYO', 2, 300], ['OSA', 2, 300], ['SEL', 2, 240]] as [string, number, number][]) {
     const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
     const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
@@ -895,7 +957,7 @@ async function buildS14() {
   for (const l of legs) {
     await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-PEY', entitledClassId: l.ent, chosenClassId: 'TC-PEY' } });
   }
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 1900, sgdAmount: 1900, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 1900 } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 1900, sgdAmount: 1900, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 1900, ...(await m6LineFields(1900, 'E-TRAV', 'TC-PEY', 'BA-CS', day('2026-11-16'))) } });
   // Accommodation per stay location (Tokyo & Osaka) against each city cap.
   for (const [city, nights, rate] of [['TYO', 5, 320], ['OSA', 3, 280]] as [string, number, number][]) {
     const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
@@ -931,7 +993,7 @@ async function buildS15() {
     await prisma.itineraryLeg.create({ data: { requestId: id, seq, originCode: o, destCode: d, departDate: day(dep), arriveDate: day(dep), transportMode: 'AIR', durationHours: 7, nights: seq === 1 ? 3 : 0, travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', chosenClassId: 'TC-BIZ' } });
   }
   // #7/#14 NTU-funded upgrade: Business 3800, Economy entitlement derived via the ECO→BIZ uplift %; the delta charges the BA-CS M6 account.
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800, ...(await upgradeLineFields(3800, 'TC-ECO', 'TC-BIZ', 'NTU', 'BA-CS')) } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800 } });
   const c = computeAccommodation({ cityCode: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, basis: settings.hotelEstimateBasis });
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
@@ -949,10 +1011,10 @@ async function buildS15b() {
     data: {
       requestNumber, requestorId: 'E-TRAV4', travellerId: 'E-TRAV4',
       entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
-      purposeId: 'TP-TC-ACAD', description: 'Class upgrade — Business requested, self-funded delta (S15b)',
+      purposeId: 'TP-TC-ACAD', description: 'Class above entitlement — Business requested vs Economy (policy exception, S15b)',
       destCountry: 'JP', destCity: 'TYO', startDate: day('2026-12-01'), endDate: day('2026-12-04'),
       travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', classBasis: 'Default (not in register) → Economy',
-      classJustification: 'Personal preference — traveller self-funds the upgrade above the Economy entitlement.',
+      classJustification: 'Overnight long-haul ahead of a same-day event; business class requested above the Economy entitlement.',
       bookingMethod: BOOKING_METHOD.TMCOnline,
     },
   });
@@ -962,7 +1024,7 @@ async function buildS15b() {
     await prisma.itineraryLeg.create({ data: { requestId: id, seq, originCode: o, destCode: d, departDate: day(dep), arriveDate: day(dep), transportMode: 'AIR', durationHours: 7, nights: seq === 1 ? 3 : 0, travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', chosenClassId: 'TC-BIZ' } });
   }
   // #7 self-funded: Business 3800, Economy entitlement derived; the traveller pays the TMC the delta directly (no M6).
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800, ...(await upgradeLineFields(3800, 'TC-ECO', 'TC-BIZ', 'SELF', 'BA-CS')) } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-BIZ', fareCeiling: 3800 } });
   const c = computeAccommodation({ cityCode: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, basis: settings.hotelEstimateBasis });
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 3, personalNights: 0, quotedNightly: 300, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
@@ -980,10 +1042,10 @@ async function buildS35() {
     data: {
       requestNumber, requestorId: 'E-TRAV4', travellerId: 'E-TRAV4',
       entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
-      purposeId: 'TP-TC-ACAD', description: 'Booked NTU-funded upgrade — CTA airfare split entitlement → CC, delta → M6 (S35)',
+      purposeId: 'TP-TC-ACAD', description: 'Class above entitlement — Business vs Economy, booked (policy exception, S35)',
       destCountry: 'GB', destCity: 'LON', startDate: day('2026-12-08'), endDate: day('2026-12-11'),
       travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', classBasis: 'Default (not in register) → Economy',
-      classJustification: 'Overnight long-haul ahead of a same-day board meeting; NTU-funded upgrade to M6.',
+      classJustification: 'Overnight long-haul ahead of a same-day board meeting; business class requested above the Economy entitlement.',
       bookingMethod: BOOKING_METHOD.TMCOnline,
     },
   });
@@ -993,7 +1055,7 @@ async function buildS35() {
     await prisma.itineraryLeg.create({ data: { requestId: id, seq, originCode: o, destCode: d, departDate: day(dep), arriveDate: day(dep), transportMode: 'AIR', durationHours: 13, nights: seq === 1 ? 3 : 0, travelClassId: 'TC-BIZ', entitledClassId: 'TC-ECO', chosenClassId: 'TC-BIZ' } });
   }
   // #14 NTU-funded: Business 3800, Economy entitlement derived; the delta charges the BA-CS M6 account on posting.
-  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'LHR', proposedClassId: 'TC-BIZ', fareCeiling: 3800, ...(await upgradeLineFields(3800, 'TC-ECO', 'TC-BIZ', 'NTU', 'BA-CS')) } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3800, sgdAmount: 3800, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'LHR', proposedClassId: 'TC-BIZ', fareCeiling: 3800 } });
   const c = computeAccommodation({ cityCode: 'LON', nights: 3, personalNights: 0, quotedNightly: 260, basis: settings.hotelEstimateBasis });
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
   await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'LON', nights: 3, personalNights: 0, quotedNightly: 260, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });

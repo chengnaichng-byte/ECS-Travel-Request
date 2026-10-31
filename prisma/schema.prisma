@@ -36,6 +36,7 @@ model ModuleSettings {
   // §43 Settings breadth
   selfApprovalLimitSgd   Int     @default(0)      // approval amount at/below which a traveller-approver self-approves (0 = never)
   researchPiSelfApproval Boolean @default(true)   // #1 research-WBS trip raised for a PI traveller, within selfApprovalLimitSgd, is self-approved (PI is the DOA)
+  nonTermAutoApprove     Boolean @default(false)  // §13.x research-WBS trip in non-term time (attested + approval e-mail attached) → auto-approved (zero approval steps); offline approval already exists
   upgradeDeltaRoutingEnabled Boolean @default(true)    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account (off = keep it on the original allocation)
   upgradeDeltaSelectionRequired Boolean @default(true) // #14 when the governing BA has >1 M6 account the traveller must pick one (hard stop until set); a single-account BA auto-selects
   attachmentMaxMb        Int     @default(7)      // §2 max upload size per file
@@ -101,6 +102,10 @@ model TravelRequest {
   emergencyAuthoriserId  String?                      // the officer who authorised the emergency (recorded)
   emergencyRatified Boolean  @default(false)          // the DOA ratified the emergency after the fact
   emergencyOutsideWindow Boolean @default(false)      // DD-23 emergency raised outside the standard lead-time window (soft-gated, needs extra justification)
+  // §13.x Non-term research travel — the traveller attests the trip is in non-term time and offline
+  // approval already exists (evidence is the approval email, uploaded via the Attachment system).
+  // When enabled in config and the trip is on a research WBS, this can auto-approve the pre-trip.
+  nonTermDeclared   Boolean  @default(false)          // attestation: non-term research travel with offline approval obtained
   entityId          String?
   departmentId      String?
   isResearch        Boolean  @default(false)
@@ -387,6 +392,15 @@ model UpgradeUpliftRate {
   active      Boolean @default(true)
   createdAt   DateTime @default(now())
   @@unique([fromClassId, toClassId])
+}
+
+/// §13.19 Travel Policy Group M6 flag — the editable "attracts M6" flag per policy group. The group
+/// definitions (tiers, entitled class) stay in the reference master (data/travelPolicyGroups.ts); only
+/// whether a group attracts M6 is runtime-editable here. Seeded idempotently from the data-file default.
+model PolicyGroupM6 {
+  code      String   @id         // travel policy group code, e.g. C20
+  m6        Boolean  @default(false)
+  updatedAt DateTime @updatedAt
 }
 
 /// §6.2 WorkflowScenario — ECS-structured TR approval-workflow configuration, mirroring the ECS

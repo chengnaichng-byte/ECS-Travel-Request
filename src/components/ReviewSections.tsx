@@ -218,9 +218,9 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           </div>
           {m6Delta > 0 && (
             <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
-              <div className="text-[11px] text-[var(--ecs-muted)]">Class-upgrade differential</div>
-              <div className="text-[13px] font-medium">{ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} <span className="pill-info ml-1">upgrade</span> {fmtSgd(m6Delta)}</div>
-              <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded — entitlement stays on the account(s) above</div>
+              <div className="text-[11px] text-[var(--ecs-muted)]">M6 entitlement differential</div>
+              <div className="text-[13px] font-medium">{ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} <span className="pill-info ml-1">M6</span> {fmtSgd(m6Delta)}</div>
+              <div className="text-[11px] text-[var(--ecs-muted)]">Funded from M6 — the Economy base stays on the account(s) above</div>
             </div>
           )}
           <TileRow label="Cross-charge">
@@ -332,7 +332,7 @@ export function SummaryCard({ req, bookingDeadlineDays }: { req: FullRequest; bo
         <Field label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</Field>
         <Field label="Primary Charging Account">
           {pc ? <span>{pc.code} · {pc.name} <span className="text-[var(--ecs-muted)]">({pc.pct}%{pc.research ? ' · research' : ''})</span></span> : '—'}
-          {m6Delta > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">+ class-upgrade differential {fmtSgd(m6Delta)} → {ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} (NTU-funded)</div>}
+          {m6Delta > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">+ M6 entitlement differential {fmtSgd(m6Delta)} → {ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} (funded from M6)</div>}
         </Field>
         <Field label="Personal Extension">
           {req.isGroup ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers` : (req.personalStart ? `${fmtDate(req.personalStart)} – ${fmtDate(req.personalEnd)}` : 'None')}
@@ -537,24 +537,35 @@ export function ItineraryLegsCard({ req, letter, className }: { req: FullRequest
 /* ------------------------------------------------------ Policy Exceptions */
 export function PolicyExceptionsCard({ req, letter, className }: { req: FullRequest; letter?: string; className?: string }) {
   const views = exceptionViews(req);
-  const sevClass: Record<string, string> = { Low: 'pill-info', Medium: 'pill-warn', High: 'pill-stop' };
   if (views.length === 0) return (
     <Card title={heading(letter, 'Policy Exceptions')} className={className}><div className="flex items-center gap-2 text-sm"><span className="pill-pass">Pass</span> No policy exceptions.</div></Card>
   );
+  // Soft emphasis: a warm tinted panel with a left severity rail and a bold impact figure — clearer
+  // than a plain callout, without a stark solid fill. Severity sets the hue (orange Medium, red High,
+  // amber Low) on the rail, tint and pill. Full width inside the card. Whether an exception actually
+  // needs approval is a routing decision (policy config), so this card does not assert it.
+  const sev: Record<string, { rail: string; bg: string; border: string; text: string; pill: string }> = {
+    Low:    { rail: '#f59e0b', bg: '#fffdf4', border: '#fbe7bd', text: '#92610e', pill: '#fbe6bf' },
+    Medium: { rail: '#ea580c', bg: '#fff8f1', border: '#fbd7b8', text: '#9a3412', pill: '#fbddc6' },
+    High:   { rail: '#dc2626', bg: '#fef5f5', border: '#f5cccf', text: '#991b1b', pill: '#f6d2d4' },
+  };
   return (
     <Card title={heading(letter, `Policy Exceptions (${views.length})`)} className={className}>
-      <div className="grid md:grid-cols-2 gap-3">
-        {views.map((v, i) => (
-          <div key={i} className="border border-[#f0d9a8] bg-[#fff8ec] rounded p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-medium text-sm flex items-center gap-2"><span className="text-[#c07a00]">⚠</span> {v.label}</div>
-              <span className={sevClass[v.severity]}>{v.severity}</span>
+      <div className="space-y-3">
+        {views.map((v, i) => {
+          const s = sev[v.severity] ?? sev.Medium;
+          return (
+            <div key={i} className="rounded-md border p-3" style={{ borderColor: s.border, borderLeftWidth: 4, borderLeftColor: s.rail, background: s.bg }}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-semibold text-sm flex items-start gap-1.5" style={{ color: s.text }}><span aria-hidden className="mt-px">⚠</span><span>{v.label}</span></div>
+                <span className="text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 mt-px" style={{ background: s.pill, color: s.text }}>{v.severity}</span>
+              </div>
+              <div className="text-xs text-[#7c2d12] mt-1.5">{v.detail}{v.travellerName ? ` · ${v.travellerName}` : ''}</div>
+              <div className="text-xs mt-1.5 text-[#7c2d12]"><span className="font-semibold">Justification:</span> {v.justification ? <span className="italic">&ldquo;{v.justification}&rdquo;</span> : <span className="opacity-70">— none provided</span>}</div>
+              {v.impactSgd > 0 && <div className="text-sm mt-2 pt-2 border-t flex items-center justify-between" style={{ borderColor: s.border }}><span className="text-[#7c2d12]">Impact (est.)</span><span className="font-bold tabular-nums text-[#5a1e0a]">{fmtSgd(v.impactSgd)}</span></div>}
             </div>
-            <div className="text-xs text-[var(--ecs-muted)] mt-1">{v.detail}{v.travellerName ? ` · ${v.travellerName}` : ''}</div>
-            <div className="text-xs mt-1"><span className="font-medium text-[var(--ecs-text)]">Justification:</span> {v.justification ? <span className="italic">&ldquo;{v.justification}&rdquo;</span> : <span className="text-[var(--ecs-muted)]">— none provided</span>}</div>
-            {v.impactSgd > 0 && <div className="text-sm mt-2 pt-2 border-t border-[#f0d9a8] flex items-center justify-between"><span className="text-[var(--ecs-muted)]">Impact (est.)</span><span className="font-semibold tabular-nums">{fmtSgd(v.impactSgd)}</span></div>}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
   );
@@ -607,7 +618,7 @@ export function CostAllocationCard({ req, amount, letter }: { req: FullRequest; 
                 <td className="td">{m6Company}</td>
                 <td className="td whitespace-nowrap">{m6BA}</td>
                 <td className="td">CC</td>
-                <td className="td whitespace-nowrap">{m.code ?? '—'} · NTU-Funded Upgrade Differential <span className="pill-info ml-1">upgrade</span></td>
+                <td className="td whitespace-nowrap">{m.code ?? '—'} · M6 Entitlement Differential <span className="pill-info ml-1">M6</span></td>
                 <td className="td">—</td>
                 <td className="td">No</td>
                 <td className="td text-right">—</td>
@@ -639,12 +650,15 @@ function budgetBasisPhrase(a: { quotedNightly: number; capNightly: number }, bas
 }
 
 /* --------------------------------------- Estimated Cost Items (+ merged summary) */
-export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor }: {
+export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor, bare }: {
   req: FullRequest; summary: CostSummary; basis: string; letter?: string;
   // Estimates step only: per-line Edit/Remove or rate-edit controls shown in a row's expanded
   // breakdown, and a LIVE policy outcome (the Review step omits both and uses the persisted checks).
   lineActions?: (e: FullRequest['expenses'][number]) => React.ReactNode;
   outcomeFor?: (category: string, lines: FullRequest['expenses']) => { exc: boolean; label: string };
+  // Render just the table (no Card wrapper) so it can share a card with the inline add-line tabs
+  // on the Estimates step (EstimateCostAdd supplies the card + "Estimated … Travel Cost Items" head).
+  bare?: boolean;
 }) {
   const legs = sharedLegs(req);
   const exView = exceptionViews(req);
@@ -661,7 +675,7 @@ export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor
     const selected = selectedId ?? t?.chosenClassId ?? req.travelClassId;
     const justification = t?.classJustification ?? req.classJustification;
     const kv: [string, string][] = [['Entitled class', clsName(entitled)], ['Selected class', clsName(selected)]];
-    if (entitled && selected && entitled !== selected) kv.push(['Upgrade justification', justification?.trim() || '— (none provided)']);
+    if (entitled && selected && entitled !== selected) kv.push(['Exception justification (class above entitlement)', justification?.trim() || '— (none provided)']);
     return kv;
   };
   const datesFor = (travellerId?: string | null): [string, string] => {
@@ -702,9 +716,20 @@ export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor
         actions: lineActions?.(e),
       });
     } else if (r.category === EXPENSE_CATEGORY.Accommodation) {
-      const a0 = r.lines[0].accommodation;
-      detail = a0 ? `${EcsReference.city(a0.city)?.name ?? a0.city}, ${a0.nights} nights` : '—';
-      basisLabel = `Hotel cap · ${a0?.exceptionOutcome === POLICY_OUTCOME.Exception ? 'over cap' : 'within cap'}`;
+      // Multi-city: one hotel line is derived per stop × traveller, all sharing ET-ACC and so grouped
+      // into this single row. Summarise the DISTINCT stops (deduped across travellers) in the Details
+      // column — not just the first — so a multi-city trip reads every city it was budgeted for. Stops
+      // are keyed by leg when present, else by city (older/demo lines carry no legSeq), so distinct
+      // cities never collapse and traveller duplicates do.
+      const accStops = new Map<string, { city: string; nights: number }>();
+      for (const e of [...r.lines].filter((x) => x.accommodation).sort((x, y) => (x.accommodation!.legSeq ?? 9999) - (y.accommodation!.legSeq ?? 9999))) {
+        const a = e.accommodation!; const k = a.legSeq != null ? `L${a.legSeq}` : `C${a.city}`;
+        if (!accStops.has(k)) accStops.set(k, { city: EcsReference.city(a.city)?.name ?? a.city, nights: a.nights });
+      }
+      const accParts = [...accStops.values()].map((s) => `${s.city}, ${s.nights} night${s.nights === 1 ? '' : 's'}`);
+      detail = accParts.length ? (accParts.length > 3 ? `${accParts.slice(0, 3).join(' · ')} +${accParts.length - 3} more` : accParts.join(' · ')) : '—';
+      const anyOverCap = r.lines.some((e) => e.accommodation?.exceptionOutcome === POLICY_OUTCOME.Exception);
+      basisLabel = `Hotel cap · ${anyOverCap ? 'over cap' : 'within cap'}`;
       for (const e of r.lines) {
         const a = e.accommodation; if (!a) continue;
         const city = EcsReference.city(a.city)?.name ?? a.city;
@@ -745,8 +770,19 @@ export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor
         }
       }
     } else if (r.category === EXPENSE_CATEGORY.ODA) {
-      const o0 = r.lines[0].oda;
-      detail = o0 ? `${EcsReference.country(o0.country)?.name}, ${o0.eligibleDays} days` : '—';
+      // Multi-city: one ODA line per stop × employee, all sharing ET-ODA. ODA is a COUNTRY
+      // entitlement, so summarise distinct stops (deduped across travellers by leg, else by country)
+      // and then MERGE by country — summing the days — so two cities in one country read as a single
+      // "Japan, 4 days" rather than "Japan · Japan". The Gross/NTU totals already sum all stops.
+      const odaStops = new Map<string, { country: string; days: number }>();
+      for (const e of [...r.lines].filter((x) => x.oda).sort((x, y) => (x.oda!.legSeq ?? 9999) - (y.oda!.legSeq ?? 9999))) {
+        const o = e.oda!; const k = o.legSeq != null ? `L${o.legSeq}` : `C${o.country}`;
+        if (!odaStops.has(k)) odaStops.set(k, { country: o.country, days: o.eligibleDays });
+      }
+      const odaByCountry = new Map<string, number>();
+      for (const s of odaStops.values()) odaByCountry.set(s.country, (odaByCountry.get(s.country) ?? 0) + s.days);
+      const odaParts = [...odaByCountry.entries()].map(([c, d]) => `${EcsReference.country(c)?.name ?? c}, ${d} day${d === 1 ? '' : 's'}`);
+      detail = odaParts.length ? (odaParts.length > 3 ? `${odaParts.slice(0, 3).join(' · ')} +${odaParts.length - 3} more` : odaParts.join(' · ')) : '—';
       basisLabel = 'ODA rate';
       for (const e of r.lines) {
         const o = e.oda; if (!o) continue;
@@ -815,10 +851,12 @@ export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor
     { label: 'Approved booking ceiling', value: summary.bookingCeiling },
   ];
 
-  return (
-    <Card title={heading(letter, `Estimated ${req.isGroup ? 'Group ' : ''}Travel Cost Items`)}>
+  const body = (
+    <>
       <p className="text-xs text-[var(--ecs-muted)] mb-2">Click a row to see how the amount is computed (cap, nights, rate, eligible days).</p>
       <CostItemsTable rows={rows} group={req.isGroup} summaryRows={summaryRows} />
-    </Card>
+    </>
   );
+  if (bare) return body;
+  return <Card title={heading(letter, `Estimated ${req.isGroup ? 'Group ' : ''}Travel Cost Items`)}>{body}</Card>;
 }

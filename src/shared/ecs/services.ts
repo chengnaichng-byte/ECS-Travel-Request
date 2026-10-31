@@ -12,6 +12,7 @@ import { countries, cities, airports, flightHoursFromSIN } from '@/data/location
 import { hotelCaps, hotelCapsByCountry, odaRates, ODA_TRAVEL_DAY_PCT, ODA_FULL_DAY_PCT, ODA_TRAVEL_DAYS, ODA_TIER1_END_DAY, ODA_TIER1_PCT, ODA_TIER2_END_DAY, ODA_TIER2_PCT, ODA_MONTHLY_DAYS } from '@/data/policyRates';
 import { travelClasses } from '@/data/travelClass';
 import { travelClassRegister, type TravelClassRegisterEntry } from '@/data/travelClassRegister';
+import { travelPolicyGroups, type TravelPolicyGroup } from '@/data/travelPolicyGroups';
 import { chargingCodes, type ChargingCode } from '@/data/charging';
 import { workflowBands, bandForAmount } from '@/data/workflow';
 import { sgdPerUnit, currencies, fxRates } from '@/data/fxRates';
@@ -105,8 +106,25 @@ export const EcsPolicy = {
   odaMonthlyDays: ODA_MONTHLY_DAYS,
 };
 
-/* ------------------------------------------- Travel Class register (§13.19) */
+/* ------------------------------------- Travel Policy Group master (travel eligibility, §13.19) */
 const DEFAULT_CLASS = 'TC-ECO';
+export const EcsTravelPolicyGroup = {
+  all: (): TravelPolicyGroup[] => travelPolicyGroups,
+  get: (code: string | null | undefined): TravelPolicyGroup | undefined => travelPolicyGroups.find((g) => g.code === code),
+  /** Entitled class for a leg of the given duration under a group's tiers — the highest tier whose
+   *  minHours is met, else Economy. Unknown/absent group → Economy. */
+  entitledForDuration: (code: string | null | undefined, hours: number): string => {
+    const g = EcsTravelPolicyGroup.get(code);
+    if (!g) return DEFAULT_CLASS;
+    let best = DEFAULT_CLASS; let bestMin = -1;
+    for (const t of g.tiers) if (hours >= t.minHours && t.minHours >= bestMin) { best = t.classId; bestMin = t.minHours; }
+    return best;
+  },
+  /** Does this policy group attract M6 (entitlement differential funded from an M6 account)? */
+  attractsM6: (code: string | null | undefined): boolean => EcsTravelPolicyGroup.get(code)?.m6 ?? false,
+};
+
+/* ------------------------------------------- Travel Class register (§13.19) */
 export const EcsTravelClassRegister = {
   all: () => travelClassRegister,
   /** Effective register entry for an employee on a given date. */
@@ -114,12 +132,16 @@ export const EcsTravelClassRegister = {
     const iso = onDate.toISOString().slice(0, 10);
     return travelClassRegister.find((r) => r.employeeId === employeeId && r.effectiveFrom <= iso && iso <= r.effectiveTo);
   },
-  /** Entitled class for a single leg of the given duration (Economy if the duration
-   *  condition is not met, or the employee is absent from the register). */
+  /** The employee's policy group on a date (null when absent → Economy default). */
+  policyGroup: (employeeId: string, onDate: Date): string | null => EcsTravelClassRegister.entry(employeeId, onDate)?.policyGroup ?? null,
+  /** True when the employee's effective policy group attracts M6. */
+  attractsM6: (employeeId: string, onDate: Date): boolean => EcsTravelPolicyGroup.attractsM6(EcsTravelClassRegister.policyGroup(employeeId, onDate)),
+  /** Entitled class for a single leg of the given duration — derived from the employee's policy group
+   *  (the source of entitlement). Economy if the employee is absent from the register. */
   entitledForDuration: (employeeId: string, hours: number, onDate: Date): string => {
     const e = EcsTravelClassRegister.entry(employeeId, onDate);
     if (!e) return DEFAULT_CLASS;
-    return hours >= e.minHours ? e.entitledClassId : DEFAULT_CLASS;
+    return EcsTravelPolicyGroup.entitledForDuration(e.policyGroup, hours);
   },
   /** Overall entitlement across an itinerary = highest per-leg entitlement, plus the
    *  per-leg outcomes (mixed itineraries — §13.20) and a human-readable basis. */
@@ -137,8 +159,9 @@ export const EcsTravelClassRegister = {
     const rankOf = (id: string) => travelClasses.find((c) => c.id === id)?.rank ?? 1;
     const classId = perLeg.reduce((best, p) => (rankOf(p.classId) > rankOf(best) ? p.classId : best), DEFAULT_CLASS);
     const clsName = (id: string) => travelClasses.find((c) => c.id === id)?.name ?? id;
-    const basis = entry
-      ? `Register ${entry.policyGroup} — ${clsName(entry.entitledClassId)} for flights ≥ ${entry.minHours}h`
+    const grp = EcsTravelPolicyGroup.get(entry?.policyGroup);
+    const basis = entry && grp
+      ? `Policy group ${grp.code} — ${grp.eligibilityClass}${grp.m6 ? ' · attracts M6' : ''}`
       : 'Default (not in register) → Economy';
     return { classId, basis, perLeg };
   },

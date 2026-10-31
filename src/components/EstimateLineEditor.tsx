@@ -12,7 +12,8 @@ import { travelClasses } from '@/data/travelClass';
 import { hotelCaps } from '@/data/policyRates';
 import { currencies } from '@/data/fxRates';
 import { expenseTypes } from '@/data/expenseTypes';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
+import { m6GroupCodes } from '@/modules/pretrip/policyGroups';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { makeEntitledClassFor } from '@/modules/pretrip/liveOutcome';
 import { isGuestRequest, memberName } from '@/modules/pretrip/traveller';
@@ -32,7 +33,15 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
 }) {
   const e = editExp;
   const isGroup = req.isGroup;
-  const cancel = <Link href={returnTo} className="btn-ghost w-full text-center">Cancel</Link>;
+  const isMultiCity = req.tripType === 'MULTI_CITY';
+  const cancel = <Link href={returnTo} className="btn-secondary text-xs">Cancel</Link>;
+  // Airfare flight date is derived from the itinerary (the matching sector's departure, else the first
+  // leg's) and shown read-only — it is not a value to key on the cost line. See the airfare forms.
+  const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
+  const airfareDepart = (origin?: string | null, dest?: string | null) => {
+    const leg = sharedLegs.find((l) => l.originCode === origin && l.destCode === dest);
+    return d(leg?.departDate ?? null) || d(sharedLegs[0]?.departDate ?? null) || d(req.startDate);
+  };
   const member = e.travellerId ? req.travellers.find((t) => t.employeeId === e.travellerId) : undefined;
   const travellerLabel = member ? memberName(member) : (e.travellerId ? EcsIdentity.employee(e.travellerId)?.name ?? e.travellerId : null);
   const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
@@ -41,27 +50,42 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
     // §13.14 a group books each traveller at their entitlement (class locked) → simple inline form.
     if (isGroup) {
       return (
-        <Card title="Edit airfare line" className="mb-5" id="edit-line">
-          <form action={updateAirfare.bind(null, id, e.id)} className="space-y-3">
+        <Card title="Edit airfare line" className="mb-5" id="edit-line" actions={<>{cancel}<button form="el-airfare" type="submit" className="btn-primary text-xs">Save airfare changes</button></>}>
+          <form id="el-airfare" action={updateAirfare.bind(null, id, e.id)} className="space-y-3">
             <input type="hidden" name="returnTo" value={returnTo} />
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Origin"><select name="originCode" defaultValue={e.originCode ?? 'SIN'} className="field">{airports.map((a) => <option key={a.code} value={a.code}>{a.code}</option>)}</select></Field>
-              <Field label="Destination"><select name="destCode" defaultValue={e.destCode ?? ''} className="field">{airports.filter((a) => a.cityCode !== 'SIN').map((a) => <option key={a.code} value={a.code}>{a.code}</option>)}</select></Field>
+              <Field label={isMultiCity ? 'Departure from' : 'Origin'}><select name="originCode" defaultValue={e.originCode ?? 'SIN'} className="field">{airports.map((a) => <option key={a.code} value={a.code}>{a.code}</option>)}</select></Field>
+              <Field label={isMultiCity ? 'Primary destination' : 'Destination'}><select name="destCode" defaultValue={e.destCode ?? ''} className="field">{airports.filter((a) => a.cityCode !== 'SIN').map((a) => <option key={a.code} value={a.code}>{a.code}</option>)}</select></Field>
               <div><label className="label">Proposed class</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed">Per traveller — set to entitlement</div></div>
-              <Field label="Expected date"><input name="expectedDate" type="date" defaultValue={d(e.expectedDate)} className="field" /></Field>
+              <div>
+                <label className="label">Expected date of travel</label>
+                <div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed flex items-center justify-between gap-2">
+                  <span>{airfareDepart(e.originCode, e.destCode) || 'Set on the Trip step'}</span>
+                  <span className="text-[11px] whitespace-nowrap">from the itinerary</span>
+                </div>
+                <input type="hidden" name="expectedDate" value={airfareDepart(e.originCode, e.destCode)} />
+              </div>
               <Field label="Currency"><select name="currency" defaultValue={e.currency} className="field">{currencies.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
               <Field label="Quoted amount"><input name="amount" type="number" step="any" defaultValue={String(e.foreignAmount)} className="field" /></Field>
               <Field label="Expected sponsorship"><input name="sponsorship" type="number" step="any" defaultValue={String(e.sponsorForeign ?? 0)} className="field" /></Field>
               <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{travellerLabel ?? '—'}</div></div>
             </div>
-            <button className="btn-primary w-full">Save airfare changes</button>
-            {cancel}
           </form>
         </Card>
       );
     }
     const entitledFor = makeEntitledClassFor(req);
     const entId = entitledFor(req.travellerId);
+    const entName = EcsReference.travelClass(entId)?.name ?? 'Economy';
+    // §13.19 M6 note — group attracts M6 and entitlement above Economy → automatic differential.
+    const m6OnDate = req.startDate ?? new Date();
+    const grpCode = EcsTravelClassRegister.policyGroup(req.travellerId, m6OnDate);
+    const showM6 = !!grpCode && (await m6GroupCodes()).has(grpCode) && EcsTravelClassRegister.rank(entId) > EcsTravelClassRegister.rank('TC-ECO');
+    const m6Note = showM6 ? (
+      <div className="rounded border border-[#bfe3c9] bg-[#f0faf3] p-3 text-xs text-[#1f5131]">
+        <b>M6 — entitlement differential (automatic).</b> Travel policy group <b>{grpCode}</b> attracts M6: the <b>Economy → {entName}</b> portion is funded from an M6 account automatically. This is not a travel-class upgrade.
+      </div>
+    ) : null;
     const guest = isGuestRequest(req);
     const hostSchoolId = req.departmentId ?? EcsIdentity.employee(req.requestorId)?.departmentId ?? null;
     const provostOptions = guest ? await provostsForSchool(hostSchoolId) : [];
@@ -72,6 +96,8 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
           action={updateAirfare.bind(null, id, e.id)}
           submitLabel="Save airfare changes"
           editing
+          multiCity={isMultiCity}
+          m6Note={m6Note}
           cancel={cancel}
           returnTo={returnTo}
           originOpts={airports.map((a) => [a.code, a.code])}
@@ -83,7 +109,7 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
             origin: e.originCode ?? 'SIN',
             dest: e.destCode ?? '',
             proposedClassId: e.proposedClassId ?? entId,
-            expectedDate: d(e.expectedDate),
+            expectedDate: airfareDepart(e.originCode, e.destCode),
             currency: e.currency,
             amount: String(e.foreignAmount),
             sponsorship: String(e.sponsorForeign ?? 0),
@@ -104,8 +130,8 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
   if (e.category === EXPENSE_CATEGORY.Accommodation) {
     const a = e.accommodation;
     return (
-      <Card title="Edit accommodation line" className="mb-5" id="edit-line">
-        <form action={updateAccommodation.bind(null, id, e.id)} className="space-y-3">
+      <Card title="Edit accommodation line" className="mb-5" id="edit-line" actions={<>{cancel}<button form="el-accom" type="submit" className="btn-primary text-xs">Save accommodation changes</button></>}>
+        <form id="el-accom" action={updateAccommodation.bind(null, id, e.id)} className="space-y-3">
           <input type="hidden" name="returnTo" value={returnTo} />
           {travellerLabel && <p className="text-xs text-[var(--ecs-muted)]">Editing this accommodation line for <b>{travellerLabel}</b>.</p>}
           <div className="grid grid-cols-2 gap-3">
@@ -118,8 +144,6 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
           <Field label="Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)"><input name="notes" defaultValue={e.notes ?? ''} className="field" /></Field>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" defaultChecked={a?.conferenceHotel ?? false} /> Conference hotel</label>
           <p className="text-xs text-[var(--ecs-muted)]">The rate <b>defaults to the selected city&apos;s cap</b> and budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
-          <button className="btn-primary w-full">Save accommodation changes</button>
-          {cancel}
         </form>
       </Card>
     );
@@ -127,8 +151,8 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
 
   // Other / incidental
   return (
-    <Card title="Edit cost line" className="mb-5" id="edit-line">
-      <form action={updateOther.bind(null, id, e.id)} className="space-y-3">
+    <Card title="Edit cost line" className="mb-5" id="edit-line" actions={<>{cancel}<button form="el-other" type="submit" className="btn-primary text-xs">Save changes</button></>}>
+      <form id="el-other" action={updateOther.bind(null, id, e.id)} className="space-y-3">
         <input type="hidden" name="returnTo" value={returnTo} />
         {travellerLabel && <p className="text-xs text-[var(--ecs-muted)]">Editing this line for <b>{travellerLabel}</b>.</p>}
         <div className="grid grid-cols-2 gap-3">
@@ -137,8 +161,6 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
           <Field label="Amount"><input name="amount" type="number" step="any" defaultValue={String(e.foreignAmount)} className="field" /></Field>
           <Field label="Note"><input name="notes" defaultValue={e.notes ?? ''} className="field" /></Field>
         </div>
-        <button className="btn-primary w-full">Save changes</button>
-        {cancel}
       </form>
     </Card>
   );

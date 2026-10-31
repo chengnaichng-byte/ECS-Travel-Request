@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { submitRequest, addAttachment } from '@/modules/pretrip/actions';
+import { submitRequest, addAttachment, attachNamedFile } from '@/modules/pretrip/actions';
+import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
 import { EMERGENCY_APPROVAL_DOC, emergencyMethodAllowed, withinEmergencyWindow, leadTimeDays, EMERGENCY_OOW_MIN_JUSTIFICATION } from '@/modules/pretrip/emergency';
-import { EcsReference, EcsIdentity, EcsCharging } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
 import { getActiveWorkflowScenario } from '@/modules/pretrip/workflowConfig';
@@ -14,12 +15,11 @@ import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { employees } from '@/data/employees';
 import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
-import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretrip/upgrade';
 import { isHighRisk } from '@/modules/pretrip/risk';
 import { findDuplicateRequests } from '@/modules/pretrip/duplicates';
 import { bookingsForAuthorisation, legPnrMap } from '@/modules/pretrip/tmcRetrieval';
 import { bookingSummaryText, isTmcArrangement } from '@/modules/pretrip/booking';
-import { CostItems } from '@/components/ReviewSections';
+import { CostItems, CostAllocationCard } from '@/components/ReviewSections';
 import { ReviewRoute } from '@/components/ReviewRoute';
 import { Card, KV, Stepper } from '@/components/ui';
 import { OutcomePill } from '@/components/StatusPill';
@@ -41,9 +41,6 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   if (!req) notFound();
   const settings = await getSettings();
   const summary = computeSummary(req.expenses, settings.approvalAmountBasis);
-  const m6Delta = ntuUpgradeDeltaTotal(req.expenses);   // #14 NTU-funded upgrade differential total
-  const m6Rows = ntuUpgradeDeltaByAccount(req.expenses); // #14 per selected M6 account
-  const m6CodeLabel = m6Rows.map((m) => m.code ?? 'M6').join(', ');
   const hardStops = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.HardStop);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
   // §13.x duplicate / overlap warning — a true duplicate (same destination) hard-blocks submit;
@@ -89,6 +86,10 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const emergencyMethodOk = emergencyMethodAllowed(req);
   const emergencyLeadDays = leadTimeDays(req);
   const emergencyOutsideWindow = !withinEmergencyWindow(req, settings.emergencyLeadDays);
+  // §13.x Non-term research travel — available only when the trip is on a research WBS (offline
+  // approval already exists for research-funded travel). Evidence is the attached approval e-mail.
+  const nonTermAvailable = isResearchRequest(req);
+  const nonTermApprovals = req.attachments.filter((a) => a.docType === NON_TERM_APPROVAL_DOC);
   const additionalCandidates = employees.filter((e) => e.id !== req.travellerId).map((e) => ({ id: e.id, name: e.name, title: e.title }));
   const research = isResearchRequest(req) && !settings.sameRouteResearch;
   const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
@@ -97,7 +98,6 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // destination (multi-city) or carries a personal segment, so the whole route is visible at
   // the top without relying on the Airfare cost line.
   const sharedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
-  const showItinerary = req.tripType === 'MULTI_CITY' || sharedLegs.some((l) => l.isPersonal);
   const routeText = sharedLegs.length ? [sharedLegs[0].originCode, ...sharedLegs.map((l) => l.destCode)].join(' → ') : '';
   // DD-17 PNR provenance on the TR: the TA-keyed booking set (all PNRs under this authorisation)
   // plus the per-leg PNR mapping, shown once the request is booked.
@@ -133,7 +133,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           doaRoleLabel={doaRoleLabel}
           doaCandidates={doaCandidates}
           additionalCandidates={additionalCandidates}
-          initialDoa={req.selectedDoaId ?? ''}
+          initialDoa={req.selectedDoaId || (doaCandidates.length === 1 ? doaCandidates[0].id : '')}
           initialAdditional={req.additionalApproverId ?? ''}
         />
 
@@ -155,23 +155,6 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
               <KV label="Traveller">{travellerName(req)}</KV>
             </dl>
-            {showItinerary && sharedLegs.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
-                <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-1">Itinerary</div>
-                <div className="text-sm font-medium mb-2">{routeText}</div>
-                <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
-                  {sharedLegs.map((l, i) => (
-                    <li key={l.id}>
-                      Leg {i + 1}: {l.originCode} → {l.destCode}
-                      {l.departDate ? ` · ${fmtDate(l.departDate)}` : ''}
-                      {l.nights ? ` · ${l.nights} night${l.nights > 1 ? 's' : ''}` : ''}
-                      {l.isPersonal ? <span className="ml-1 pill-navy">Personal</span> : ''}
-                      {legPnr[l.id] ? <span className="ml-1 pill-info" title="Ticketed on this PNR">{legPnr[l.id]}</span> : ''}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
             {/* DD-17 Booking reference(s) — TR-level provenance (one TR → N PNRs). */}
             {bookingSet.pnrCount > 0 && (
               <div className="mt-3 pt-3 border-t border-[var(--ecs-border)]">
@@ -190,45 +173,34 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               </div>
             )}
           </Card>
-          <Card title="Charging">
-            <table className="w-full text-sm">
-              <tbody>
-                {req.allocations.map((a) => {
-                  const c = EcsCharging.code(a.chargingCode);
-                  return (
-                    <tr key={a.id} className="border-b border-[var(--ecs-border)] last:border-0 align-top">
-                      <td className="py-1.5">
-                        <div className="font-medium">{a.chargingCode}{a.isResearch && <span className="pill-warn ml-1 text-[10px]">Research WBS</span>}</div>
-                        <div className="text-xs text-[var(--ecs-muted)]">{c?.name ?? (a.isResearch ? 'Research' : 'Non-research')}</div>
-                      </td>
-                      <td className="py-1.5 text-right whitespace-nowrap">
-                        <div>{a.percent}%</div>
-                        <div className="text-xs text-[var(--ecs-muted)]">{fmtSgd(((summary.ntuFunded - m6Delta) * a.percent) / 100)}</div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {m6Rows.map((m) => (
-                  <tr key={m.code ?? 'm6'} className="border-b border-[var(--ecs-border)] last:border-0 align-top">
-                    <td className="py-1.5">
-                      <div className="font-medium">{m.code ?? 'M6'}<span className="pill-info ml-1 text-[10px]">upgrade</span></div>
-                      <div className="text-xs text-[var(--ecs-muted)]">NTU-funded class-upgrade differential</div>
-                    </td>
-                    <td className="py-1.5 text-right whitespace-nowrap">
-                      <div>—</div>
-                      <div className="text-xs text-[var(--ecs-muted)]">{fmtSgd(m.amount)}</div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {req.allocations.length > 1
-              ? <p className="text-xs text-[var(--ecs-muted)] mt-2">Cross-charge across {req.allocations.length} accounts · DOA from the highest-share account.{m6Delta > 0 && ` Upgrade differential to ${m6CodeLabel}.`}</p>
-              : <p className="text-xs text-[var(--ecs-muted)] mt-2">NTU-funded {fmtSgd(summary.ntuFunded)}{m6Delta > 0 ? ` · entitlement to this account, ${fmtSgd(m6Delta)} upgrade to ${m6CodeLabel}` : ' · 100% to this account'}.</p>}
+          {/* Itinerary — the full route sits beside the Trip card; charging moves below the cost
+              items (ECS "Cost Allocation" format). Shown whenever the request has shared legs. */}
+          <Card title="Itinerary">
+            {sharedLegs.length > 0 ? (
+              <>
+                <div className="text-sm font-medium mb-2">{routeText}</div>
+                <ul className="space-y-1 text-xs text-[var(--ecs-muted)]">
+                  {sharedLegs.map((l, i) => (
+                    <li key={l.id}>
+                      Leg {i + 1}: {l.originCode} → {l.destCode}
+                      {l.departDate ? ` · ${fmtDate(l.departDate)}` : ''}
+                      {l.nights ? ` · ${l.nights} night${l.nights > 1 ? 's' : ''}` : ''}
+                      {l.isPersonal ? <span className="ml-1 pill-navy">Personal</span> : ''}
+                      {legPnr[l.id] ? <span className="ml-1 pill-info" title="Ticketed on this PNR">{legPnr[l.id]}</span> : ''}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="text-sm text-[var(--ecs-muted)]">No itinerary legs captured for this request.</p>
+            )}
           </Card>
         </div>
 
         <CostItems req={req} summary={summary} basis={settings.approvalAmountBasis} />
+
+        {/* Charging — beneath the cost items, in the full ECS Cost Allocation format. */}
+        <CostAllocationCard req={req} amount={summary.ntuFunded} />
 
         {(hardStops.length > 0 || exceptions.length > 0) && (
           <Card title="Outstanding policy items">
@@ -252,7 +224,11 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
         <details className="group card p-0 overflow-hidden" open={req.isEmergency}>
           <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
             <span className="transition-transform group-open:rotate-90">▸</span> Emergency lane — book first, raise later (DD-23)
-            {req.isEmergency && <span className="pill-exc ml-1">In use</span>}
+            {req.isEmergency
+              ? <span className="pill-exc ml-1">In use</span>
+              : emergencyMethodOk
+                ? <span className="ml-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f3ec] text-[#2f7d4f]">Available</span>
+                : <span className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] text-[var(--ecs-muted)] border border-[var(--ecs-border)]">Not available · needs agent-assisted / offline booking</span>}
             {req.isEmergency && req.emergencyOutsideWindow && <span className="pill-warn ml-1">Outside standard window</span>}
           </summary>
           <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
@@ -305,6 +281,48 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
                     <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
                     <input type="hidden" name="docType" value={EMERGENCY_APPROVAL_DOC} />
                     <button formAction={addAttachment.bind(null, id)} className="btn-secondary text-xs">Attach email approval</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </details>
+
+        {/* §13.x Non-term research travel — offline-approval attestation (research WBS only). Same
+            available / not-available signalling as the emergency lane, with an inline email attach. */}
+        <details className="group card p-0 overflow-hidden" open={req.nonTermDeclared || nonTermAvailable}>
+          <summary className="px-4 py-3 cursor-pointer select-none flex items-center gap-2 font-semibold text-[var(--ecs-navy)] list-none">
+            <span className="transition-transform group-open:rotate-90">▸</span> Non-term research travel — offline approval
+            {req.nonTermDeclared
+              ? <span className="pill-exc ml-1">Attested</span>
+              : nonTermAvailable
+                ? <span className="ml-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f3ec] text-[#2f7d4f]">Available</span>
+                : <span className="ml-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] text-[var(--ecs-muted)] border border-[var(--ecs-border)]">Not available · research-funded travel only</span>}
+          </summary>
+          <div className="px-4 pb-4 space-y-3 border-t border-[var(--ecs-border)] pt-3">
+            <p className="text-xs text-[var(--ecs-muted)]">When a <strong>research-funded</strong> trip takes place in <strong>non-term time</strong>, the required approval has already been obtained offline. Attest below and attach the approval e-mail; where enabled in the workflow configuration, this fast-tracks the pre-trip approval. Available only for trips charged to a <strong>research WBS</strong>.</p>
+            {!nonTermAvailable ? (
+              <div className="text-sm rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 text-[var(--ecs-muted)]">
+                <strong className="text-[var(--ecs-text)]">Available for research-funded travel only.</strong> This trip is not charged to a research WBS. Charge it to a research cost object on the <Link href={`/requests/${id}/charging`} className="underline">Charging step</Link> to use this.
+              </div>
+            ) : (
+              <>
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" name="nonTerm" value="on" defaultChecked={req.nonTermDeclared} className="mt-0.5 w-4 h-4" />
+                  <span>This trip is in <strong>non-term time</strong> and the required <strong>offline approval has already been obtained</strong>.</span>
+                </label>
+                <div className="pl-6">
+                  <label className="label">Offline approval e-mail <span className="text-[var(--ecs-red)]">*</span> — attach the approving e-mail (PDF/PNG/JPEG)</label>
+                  {nonTermApprovals.length > 0 ? (
+                    <ul className="text-xs mb-1 space-y-0.5">
+                      {nonTermApprovals.map((a) => <li key={a.id} className="flex items-center gap-2"><span className="pill-pass">Attached</span> {a.fileName} <span className="text-[var(--ecs-muted)]">({a.sizeKb} KB)</span></li>)}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-[var(--ecs-muted)] mb-1">Attach the approval e-mail that supports this attestation.</p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input type="file" name="nonTermEmail" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
+                    <button formAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} className="btn-secondary text-xs">Attach approval e-mail</button>
                   </div>
                 </div>
               </>

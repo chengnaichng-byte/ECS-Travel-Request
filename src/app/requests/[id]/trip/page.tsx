@@ -14,7 +14,7 @@ import { TripPlanner } from '@/components/TripPlanner';
 import { isTmcArrangement } from '@/modules/pretrip/booking';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { Card, Stepper } from '@/components/ui';
-import { DuplicateWarning } from '@/components/DuplicateWarning';
+import { findTravellerConflicts } from '@/modules/pretrip/duplicates';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,19 +33,21 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const tripType = (req.tripType === 'ONE_WAY' || req.tripType === 'MULTI_CITY' ? req.tripType : 'ROUND_TRIP') as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
   const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
   // airport → city/country names, so the leg builder can show the derived main destination.
-  const airportMeta: Record<string, { city: string; country: string }> = {};
+  const airportMeta: Record<string, { city: string; country: string; cityCode: string; countryCode: string }> = {};
   for (const a of airports) {
     const city = cities.find((c) => c.code === a.cityCode);
     const country = city ? countries.find((c) => c.code === city.countryCode) : undefined;
-    airportMeta[a.code] = { city: city?.name ?? a.cityCode, country: country?.name ?? '' };
+    airportMeta[a.code] = { city: city?.name ?? a.cityCode, country: country?.name ?? '', cityCode: a.cityCode, countryCode: city?.countryCode ?? '' };
   }
+  // §13.x live duplicate/overlap candidates — other live requests sharing a traveller; the Trip
+  // step intersects them against the itinerary being entered (see TripPlanner's validation panel).
+  const conflicts = await findTravellerConflicts(req);
 
   return (
     <div>
       <Stepper id={id} active="trip" requestNumber={req.requestNumber} status={req.status} />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
-      <DuplicateWarning req={req} />
-      {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s trip details.</div>}
+      {!canEdit &&<div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s trip details.</div>}
       <form action={saveTrip.bind(null, id)} className="space-y-5">
         <Card title="Trip Purpose & Justification">
           <div className="grid md:grid-cols-3 gap-4">
@@ -97,6 +99,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           initialPersonalEnd={d(req.personalEnd)}
           continueHref={`/requests/${id}/estimates`}
           disabled={!canEdit}
+          conflicts={conflicts}
         />
       </form>
     </div>

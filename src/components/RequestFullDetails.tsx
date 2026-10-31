@@ -22,9 +22,9 @@ export function RequestFullDetails({ req, summary, settings }: {
       <div id="sec-trip" className="scroll-mt-20"><SummaryCard req={req} bookingDeadlineDays={settings.bookingDeadlineDays} /></div>
 
       {/* Lettered cards (letters assigned in reading order) */}
-      <div className="grid md:grid-cols-2 gap-5 items-start">
-        <div id="sec-traveller" className="scroll-mt-20">{req.isGroup ? <GroupSummaryCard req={req} letter="A" /> : <TravellerCard req={req} letter="A" />}</div>
-        <div id="sec-exceptions" className="scroll-mt-20"><PolicyExceptionsCard req={req} letter="B" /></div>
+      <div className="grid md:grid-cols-2 gap-5 items-stretch">
+        <div id="sec-traveller" className="scroll-mt-20 h-full">{req.isGroup ? <GroupSummaryCard req={req} letter="A" className="h-full" /> : <TravellerCard req={req} letter="A" className="h-full" />}</div>
+        <div id="sec-exceptions" className="scroll-mt-20 h-full"><PolicyExceptionsCard req={req} letter="B" className="h-full" /></div>
       </div>
       {req.isGroup && <TravellerRoster req={req} letter="C" />}
       {isMulti && <ItineraryLegsCard req={req} letter="C" />}

@@ -58,7 +58,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
     .map(({ e, u }) => ({
       expenseId: e.id,
       route: `${e.originCode ?? ''} → ${e.destCode ?? ''}`,
-      fromClassName: EcsReference.travelClass(req.entitledClassId ?? 'TC-ECO')?.name ?? 'Economy',
+      fromClassName: EcsReference.travelClass('TC-ECO')?.name ?? 'Economy',
       toClassName: EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? '',
       fareSgd: u.fareSgd, entitlementSgd: u.entitlementSgd, deltaSgd: u.deltaSgd, upliftPct: u.upliftPct,
       currentCode: e.upgradeDeltaCode ?? null,
@@ -166,27 +166,25 @@ export default async function ChargingStep({ params, searchParams }: { params: P
       <DuplicateWarning req={req} />
 
       {upgradeLines.length > 0 && (
-        <Card title="Travel-class upgrade — charging split (#7 / #14)" className="mb-5">
-          <p className="text-xs text-[var(--ecs-muted)] mb-3">The entitlement is derived from the chosen fare and the configured uplift&nbsp;% (Model B) and charges the original WBS / cost centre; the NTU-funded differential charges a selected M6 account for the governing business area. With cross-charging, the amount distributed across the allocation is the total less the M6 differential.</p>
+        <Card title="M6 — entitlement differential (charging split, §13.19)" className="mb-5">
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">The traveller flies their entitlement. Because their <b>travel-policy group attracts M6</b>, the entitled fare splits into an <b>Economy base</b> (charged to the original WBS / cost centre) and an <b>M6 entitlement differential</b> — the Economy&nbsp;→&nbsp;entitled-class portion, derived from the uplift&nbsp;% master and charged to an M6 account for the governing business area. This is automatic, not a travel-class upgrade. With cross-charging, the amount distributed across the allocation is the total less the M6 differential.</p>
           <div className="space-y-4">
             {upgradeLines.map(({ e, u }) => (
               <div key={e.id} className="text-sm">
                 <div className="font-medium mb-1">{e.originCode} → {e.destCode} · {EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? ''}
-                  <span className="text-[var(--ecs-muted)] font-normal"> — chosen {fmtSgd(u.fareSgd)}, entitlement {fmtSgd(u.entitlementSgd)}, differential {fmtSgd(u.deltaSgd)}{u.upliftPct != null ? ` · ${Math.round(u.upliftPct * 100)}% uplift` : ''}</span>
+                  <span className="text-[var(--ecs-muted)] font-normal"> — entitled fare {fmtSgd(u.fareSgd)}, Economy base {fmtSgd(u.entitlementSgd)}, M6 differential {fmtSgd(u.deltaSgd)}{u.upliftPct != null ? ` · ${Math.round(u.upliftPct * 100)}% uplift (Economy → ${EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? 'entitled'})` : ''}</span>
                 </div>
                 <table className="w-full text-sm">
                   <tbody>
                     <tr className="border-t border-[var(--ecs-border)]">
-                      <td className="td">Standard entitlement</td>
+                      <td className="td">Economy base</td>
                       <td className="td text-right tabular-nums">{fmtSgd(u.entitlementSgd)}</td>
                       <td className="td">→ original WBS / cost centre{mainCode ? ` (${chargingCodes.find((c) => c.code === mainCode)?.name ?? mainCode})` : ' (per the allocation below)'}</td>
                     </tr>
                     <tr className="border-t border-[var(--ecs-border)]">
-                      <td className="td">Upgrade differential</td>
+                      <td className="td">M6 entitlement differential</td>
                       <td className="td text-right tabular-nums">{fmtSgd(u.deltaSgd)}</td>
-                      <td className="td">{u.funding === 'NTU'
-                        ? <>→ M6 account {u.deltaCostCentre ? <strong>{u.deltaCostCentre}</strong> : <em>select below</em>} <span className="pill-info ml-1">NTU-funded</span></>
-                        : <>→ <strong>traveller</strong> — paid to the TMC directly, not reimbursed <span className="pill-warn ml-1">self-funded</span></>}</td>
+                      <td className="td">→ M6 account {u.deltaCostCentre ? <strong>{u.deltaCostCentre}</strong> : <em>select below</em>} <span className="pill-info ml-1">funded from M6</span></td>
                     </tr>
                   </tbody>
                 </table>
@@ -195,9 +193,9 @@ export default async function ChargingStep({ params, searchParams }: { params: P
           </div>
           {settings.upgradeDeltaRoutingEnabled && m6PickLines.length > 0 && (
             <div className="mt-4 border-t border-[var(--ecs-border)] pt-4">
-              <h4 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Upgrade differential (M6) account — {govBAName}</h4>
+              <h4 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">M6 differential account — {govBAName}</h4>
               {m6Pool.length === 0 ? (
-                <p className="text-sm text-amber-700">No active M6 account is configured for business area {govBA ?? '—'}. Add one in <Link className="underline" href="/setup/upgrade-accounts">Setup → Upgrade Differential Accounts</Link>.</p>
+                <p className="text-sm text-amber-700">No active M6 account is configured for business area {govBA ?? '—'}. Add one in <Link className="underline" href="/setup/upgrade-accounts">Setup → M6 Accounts</Link>.</p>
               ) : (
                 <UpgradeDeltaPicker requestId={id} lines={m6PickLines} pool={m6Pool.map((a) => ({ code: a.code, name: a.name }))} canEdit={canEdit} govBAName={govBAName} action={setUpgradeDeltaAccount} />
               )}
@@ -233,11 +231,9 @@ export default async function ChargingStep({ params, searchParams }: { params: P
         initialLineMap={initialLineMap}
         submitLabel="Save &amp; run policy review →"
         entriesTitle="Allocation Outcome"
+        backHref={`/requests/${id}/estimates`}
+        backLabel="← Back to estimates"
       />
-
-      <div className="mt-5">
-        <Link href={`/requests/${id}/estimates`} className="btn-secondary">← Back to estimates</Link>
-      </div>
     </div>
   );
 }

@@ -8,6 +8,7 @@
 // The effective split is submitted to the bound server action, which persists the canonical
 // ChargingAllocation rows that drive approval routing (unchanged contract).
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 
 export interface AccountOpt { code: string; name: string; type: string; companyCode: string; businessArea: string; research: boolean; crossCharge: boolean; closed: boolean; }
 export interface CompanyOpt { code: string; name: string; }
@@ -46,7 +47,7 @@ function groupByCategory(lines: CostLineX[]): { category: string; typeName: stri
 export function ChargingAccountEditor({
   action, canEdit, total, companyCodes, businessAreas, accounts, expenseTypes, lines,
   defaultAccount, initialMode, initialMain, initialRows, initialLineMap, submitLabel = 'Save & run policy review →',
-  entriesTitle = 'Accounting Entries',
+  entriesTitle = 'Accounting Entries', backHref, backLabel,
 }: {
   action: (fd: FormData) => void;
   canEdit: boolean;
@@ -63,6 +64,8 @@ export function ChargingAccountEditor({
   initialLineMap: Record<string, string>;
   submitLabel?: string;
   entriesTitle?: string;       // "Allocation Outcome" on the TR; "Accounting Entries" on the TE
+  backHref?: string;           // when set, a Back link renders on the LEFT of the action row
+  backLabel?: string;
 }) {
   const acc = (c: string) => accounts.find((a) => a.code === c);
   const et = (id: string) => expenseTypes.find((e) => e.id === id);
@@ -143,8 +146,8 @@ export function ChargingAccountEditor({
     let deltaTotal = 0; let deltaCode = '';
     for (const l of lines) if (deltaOf(l) > 0.005 && l.upgradeDeltaCode) { deltaTotal += deltaOf(l); deltaCode = l.upgradeDeltaCode; }
     if (deltaTotal > 0.005 && deltaCode) {
-      for (const r of out) if (r.typeId === 'ET-AIR') r.label = 'Airfare — entitlement';
-      out.push({ code: deltaCode, typeId: 'ET-AIR', amount: Math.round(deltaTotal * 100) / 100, percent: null, io: '', isMain: false, label: 'Airfare — upgrade differential' });
+      for (const r of out) if (r.typeId === 'ET-AIR') r.label = 'Airfare — Economy base';
+      out.push({ code: deltaCode, typeId: 'ET-AIR', amount: Math.round(deltaTotal * 100) / 100, percent: null, io: '', isMain: false, label: 'Airfare — M6 differential' });
     }
     return out.sort((a, b) => a.code.localeCompare(b.code) || a.typeId.localeCompare(b.typeId));
   }, [mode, effective, lines, lineAllocs, main.code]);
@@ -323,7 +326,7 @@ export function ChargingAccountEditor({
                       <td className="td font-medium whitespace-nowrap">{e.code}{a?.research && <span className="pill-warn ml-1">Research</span>}{a?.crossCharge && <span className="pill-info ml-1">X-charge</span>}</td>
                       <td className="td">{e.io || '—'}</td>
                       <td className="td">{t?.gl ?? '—'}</td>
-                      <td className="td">{e.label ?? t?.name ?? e.typeId}{e.percent == null && <span className="pill-info ml-1">upgrade → {e.code}</span>}</td>
+                      <td className="td">{e.label ?? t?.name ?? e.typeId}{e.percent == null && <span className="pill-info ml-1">M6 → {e.code}</span>}</td>
                       <td className="td text-right whitespace-nowrap font-medium">{fmt(e.amount)}</td>
                       <td className="td text-right">{e.percent == null ? '—' : `${e.percent}%`}</td>
                       <td className="td">{e.isMain ? 'Yes' : 'No'}</td>
@@ -346,7 +349,12 @@ export function ChargingAccountEditor({
         </div>
       </div>
 
-      {canEdit && <div className="flex justify-end gap-2"><button type="submit" name="saveMode" value="draft" className="btn-secondary" title="Save and return to the dashboard — finish it later">Save as draft</button><button type="submit" className="btn-primary">{submitLabel}</button></div>}
+      {(canEdit || backHref) && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          {backHref ? <Link href={backHref} className="btn-secondary">{backLabel ?? '← Back'}</Link> : <span />}
+          {canEdit && <div className="flex gap-2"><button type="submit" name="saveMode" value="draft" className="btn-secondary" title="Save and return to the dashboard — finish it later">Save as draft</button><button type="submit" className="btn-primary">{submitLabel}</button></div>}
+        </div>
+      )}
     </form>
   );
 }
