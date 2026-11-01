@@ -21,7 +21,7 @@ export const moduleSettingsDefaults = {
   selfBookingEnabled: true,         // §13.17
   selfApprovalLimitSgd: 5000,       // §43 self-approval limit (0 = never); the research PI self-approval band
   researchPiSelfApproval: true,     // #1 research WBS raised for a PI traveller ≤ limit → self-approved (PI is the DOA)
-  nonTermAutoApprove: false,        // §13.x research-WBS non-term travel (attested + approval e-mail) → auto-approved (off by default)
+  nonTermAutoApprove: true,         // §13.x research-WBS non-term travel (attested + approval e-mail) → auto-approved (on by default)
   upgradeDeltaRoutingEnabled: true,    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account
   upgradeDeltaSelectionRequired: false, // #14 default to the BA's default (or first) M6 account and let the traveller re-select; set true to force a pick when the BA has >1
   attachmentMaxMb: 7,               // §2 max upload size per file
