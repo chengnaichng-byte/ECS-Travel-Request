@@ -244,8 +244,11 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
           />
         ) },
 
-        // Accommodation (TR-07) — auto per stop; a manual extra line can still be added.
-        { key: 'accommodation', label: 'Accommodation', node: (
+        // Accommodation (TR-07) — auto-populated per stop from the itinerary. The ＋ button is disabled
+        // (greyed): a hotel cannot be added manually; it is edited in place (rate only) from the table.
+        { key: 'accommodation', label: 'Accommodation',
+          disabled: true, disabledTitle: 'Accommodation is auto-populated per stop from your itinerary — it cannot be added manually. Edit a hotel line’s rate from the table below.',
+          node: (
           <>
           <p className="text-xs text-[var(--ecs-muted)] mb-2">{ac ? <>Editing this accommodation line{editTravellerLabel ? <> for <b>{editTravellerLabel}</b></> : null} — {autoStay ? <>change the <b>rate</b> (the stay is set by the itinerary).</> : <>change the values and save.</>}</> : <>A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</>}</p>
           {/* DD-19 hotel payment channel — CTA (central) only when the trip is a TMC arrangement. */}

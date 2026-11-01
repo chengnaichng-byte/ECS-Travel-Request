@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 
 export function EstimateCostAdd({ title, tabs, defaultActive, editSignal, children }: {
   title: string;
-  tabs: { key: string; label: string; node: React.ReactNode }[];
+  tabs: { key: string; label: string; node: React.ReactNode; disabled?: boolean; disabledTitle?: string }[];
   defaultActive?: string | null; // open this tab on load (e.g. when editing a line)
   // Changes whenever the edit target changes (the ?edit line id, '' when not editing). Clicking a
   // line's Edit is a SOFT navigation that re-renders this mounted component with a new defaultActive
@@ -31,11 +31,14 @@ export function EstimateCostAdd({ title, tabs, defaultActive, editSignal, childr
             {tabs.map((t) => {
               const on = active === t.key;
               return (
-                <button key={t.key} type="button" aria-expanded={on}
-                  onClick={() => setActive((a) => (a === t.key ? null : t.key))}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-[#ea580c] cursor-pointer transition-colors text-white font-semibold shadow-sm ${on
-                    ? 'bg-[#c2410c]'
-                    : 'bg-[#ea580c] hover:bg-[#c2410c]'}`}>
+                <button key={t.key} type="button" aria-expanded={on} disabled={t.disabled}
+                  title={t.disabled ? t.disabledTitle : undefined}
+                  onClick={() => { if (t.disabled) return; setActive((a) => (a === t.key ? null : t.key)); }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-[#ea580c] transition-colors text-white font-semibold shadow-sm ${t.disabled
+                    ? 'opacity-50 cursor-not-allowed bg-[#ea580c]'
+                    : on
+                    ? 'bg-[#c2410c] cursor-pointer'
+                    : 'bg-[#ea580c] hover:bg-[#c2410c] cursor-pointer'}`}>
                   <span aria-hidden className="text-[15px] leading-none font-bold">＋</span>{t.label}
                 </button>
               );
