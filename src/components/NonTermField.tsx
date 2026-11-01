@@ -27,7 +27,7 @@ export function NonTermField({ eligible, declared, attachAction, approvals }: {
             : 'Not available — research-funded travel only'}
         </span>
       </label>
-      <p className="text-xs text-[var(--ecs-muted)] mt-1">A research-funded trip in <b>non-term time</b> already carries an offline approval, so the pre-trip can be fast-tracked where the workflow allows it. Available only for research-funded travel (the Is-Research flag follows the charging account).</p>
+      <p className="text-xs text-[var(--ecs-muted)] mt-1">Research-funded travel during <b>non-term time</b> may be fast-tracked with prior offline approval, subject to workflow rules.</p>
       {on && (
         <div className="mt-2 max-w-xl">
           <label className="label">Offline approval e-mail <span className="text-[var(--ecs-red)]">*</span> — attach the approving e-mail (PDF/PNG/JPEG)</label>
