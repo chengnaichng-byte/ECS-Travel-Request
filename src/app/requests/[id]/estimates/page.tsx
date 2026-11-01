@@ -7,7 +7,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, updateAccommodationRate, setHotelSettlement, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
+import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, setHotelSettlement, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
@@ -97,11 +97,11 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // It is deliberately NOT surfaced on the airfare form: the traveller flies their entitlement and
   // need not think about which account funds the Economy→entitled portion at estimate time.
 
-  // Controls shown inside each cost row's expanded breakdown on the Estimates step: the auto hotel
-  // nightly-rate edit, or Edit / Remove for a manual line (auto ODA has none).
+  // Edit / Remove controls per cost line. Overseas Accommodation (auto-derived per stop) edits the
+  // SAME way as a manually-added line like airfare — the full accommodation editor (rate, conference
+  // hotel, justification). Only auto ODA has no line editor (it re-derives from the Trip step).
   const lineActions = (e: (typeof req.expenses)[number]) => {
-    if (!canEdit) return null;
-    if (e.autoDerived) return e.accommodation ? <RateCell id={id} e={e} canEdit={canEdit} /> : null;
+    if (!canEdit || e.category === EXPENSE_CATEGORY.ODA) return null;
     return (
       <span className="inline-flex items-center gap-1">
         <Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link>
@@ -135,9 +135,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   };
 
   // Edit-in-place: ?edit=<lineId> opens that line's category tab pre-filled with its current values,
-  // and the form updates the line (no duplicate). Only a manual (non-auto) airfare / accommodation /
-  // other line is editable — auto hotel lines edit their rate inline and ODA re-derives from the Trip.
-  const editExp = canEdit && edit ? req.expenses.find((e) => e.id === edit && !e.autoDerived && e.category !== EXPENSE_CATEGORY.ODA) ?? null : null;
+  // and the form updates the line (no duplicate). Airfare, accommodation (incl. the auto per-stop hotel)
+  // and other lines are editable; only auto ODA is not (it re-derives from the Trip step).
+  const editExp = canEdit && edit ? req.expenses.find((e) => e.id === edit && e.category !== EXPENSE_CATEGORY.ODA) ?? null : null;
   const editKind = editExp ? (editExp.category === EXPENSE_CATEGORY.Airfare ? 'airfare' : editExp.category === EXPENSE_CATEGORY.Accommodation ? 'accommodation' : 'other') : null;
   const af = editKind === 'airfare' ? editExp! : null;
   const ac = editKind === 'accommodation' ? editExp! : null;
@@ -312,32 +312,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   );
 }
 
-// Rate cell for an estimate line. An AUTO hotel line exposes an inline nightly-rate edit (the stay is
-// locked); every other line shows a static per-night / per-day rate, or "—" where rate doesn't apply.
-function RateCell({ id, e, canEdit }: { id: string; e: { id: string; autoDerived: boolean; notes: string | null; accommodation: { quotedNightly: number; capNightly: number; conferenceHotel: boolean } | null; oda: { dailyRate: number } | null }; canEdit: boolean }) {
-  if (e.accommodation) {
-    const over = e.accommodation.capNightly > 0 && e.accommodation.quotedNightly > e.accommodation.capNightly;
-    if (e.autoDerived && canEdit) {
-      // Rate edit + above-cap justification on a SINGLE line — justification takes the wider space
-      // (left), the nightly-rate stepper and Set sit next to the line total on the right.
-      return (
-        <form action={updateAccommodationRate.bind(null, id, e.id)} className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-[var(--ecs-muted)]">$</span>
-          <input name="quotedNightly" type="number" step="any" defaultValue={e.accommodation.quotedNightly} aria-label="Nightly rate" className="field !w-16 !py-1 !px-1.5 text-xs text-right" />
-          <button className="btn-ghost text-xs" title="Update nightly rate">Set</button>
-          {/* §4.5 above-cap justification OR conference-hotel declaration (self-justifying) — enforced on Set. */}
-          <label className="flex items-center gap-1 text-[11px] text-[var(--ecs-muted)] whitespace-nowrap" title="A conference-venue hotel is self-justifying — no written justification needed"><input type="checkbox" name="conferenceHotel" defaultChecked={e.accommodation.conferenceHotel} /> Conf. hotel</label>
-          <input name="justification" defaultValue={e.notes ?? ''} aria-label="Above-cap justification"
-            placeholder={`Justification if > ${fmtSgd(e.accommodation.capNightly)} cap`}
-            className={`field !py-1 !px-2 text-[11px] !w-[22rem] max-w-[55vw] ${over && !(e.notes ?? '').trim() && !e.accommodation.conferenceHotel ? '!border-[var(--ecs-red)]' : ''}`} />
-        </form>
-      );
-    }
-    return <span className="text-xs whitespace-nowrap">{fmtSgd(e.accommodation.quotedNightly)}<span className="text-[var(--ecs-muted)]">/n</span>{over && <span className="text-[var(--ecs-red)]" title="Above cap"> ⚠</span>}</span>;
-  }
-  if (e.oda) return <span className="text-xs whitespace-nowrap">{fmtSgd(e.oda.dailyRate)}<span className="text-[var(--ecs-muted)]">/day</span></span>;
-  return <span className="text-xs text-[var(--ecs-muted)]">—</span>;
-}
 // Form header bar — the intro/caption on the left, the Save (+ Cancel) actions pinned to the
 // top-right of the add/edit card, so the primary action sits at the top rather than full-width below.
 function FormBar({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {

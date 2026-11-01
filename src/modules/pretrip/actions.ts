@@ -1052,7 +1052,10 @@ export async function updateAirfare(id: string, expenseId: string, fd: FormData)
 export async function updateAccommodation(id: string, expenseId: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
   const exp = await prisma.estimatedExpense.findUnique({ where: { id: expenseId }, include: { accommodation: true } });
-  if (!exp || exp.requestId !== id || exp.category !== EXPENSE_CATEGORY.Accommodation || exp.autoDerived || !exp.accommodation) return;
+  // An auto per-stop hotel is editable here too (same editor as a manual line); it stays auto-derived,
+  // so the stay (nights/legSeq) still re-derives on a later dates change — only the rate/justification
+  // /conference-hotel edits persist until then. ODA remains non-editable (re-derives from the Trip).
+  if (!exp || exp.requestId !== id || exp.category !== EXPENSE_CATEGORY.Accommodation || !exp.accommodation) return;
   const returnTo = str(fd, 'returnTo') || `/requests/${id}/estimates`;
   const settings = await getSettings();
   const city = str(fd, 'city');
