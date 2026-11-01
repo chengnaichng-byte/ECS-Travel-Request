@@ -17,7 +17,7 @@ import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travell
 import { hasNonTermApproval, nonTermResearchEligible } from './nonTerm';
 import { exceptionNeedsApproval } from '@/config/policyThresholds';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
-import { findBlockingDuplicates } from './duplicates';
+import { findBlockingDuplicates, findDuplicateRequests } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
@@ -439,6 +439,20 @@ export async function saveTrip(id: string, fd: FormData) {
   const newSig = `${start?.getTime() ?? 0}:${end?.getTime() ?? 0}:${legSig(newLegs)}`;
   await syncAutoEstimates(id, oldSig !== newSig);
   if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
+  // §13.x Overlapping-trip gate — advancing past the Trip step requires the itinerary to be clear of
+  // any LIVE authorisation for the same traveller. This uses findDuplicateRequests (the same traveller
+  // + footprint-overlap basis the Trip panel warns on, and the Submit block enforces), so the warning,
+  // this gate and Submit all agree. Any overlap blocks — not only a same-destination duplicate — because
+  // a traveller cannot be on two trips at once. The trip is already saved above, and "Save as draft"
+  // stays allowed, so the step can be parked while the clash is resolved (change the dates, or
+  // cancel/amend the other request).
+  const reqNow = await loadRequest(id);
+  const clashes = reqNow ? await findDuplicateRequests(reqNow) : [];
+  if (clashes.length) {
+    const list = clashes.map((h) => `${h.requestNumber} (${h.dates})`).join('; ');
+    await audit(id, 'STATUS', `Trip step blocked — overlapping travel dates with ${list}`);
+    redirect(`/requests/${id}/trip?error=${encodeURIComponent(`These travel dates overlap an active request — ${list}. A traveller cannot be on two trips at once: change the dates (or cancel/amend the other request) before continuing. You can still "Save as draft".`)}`);
+  }
   revalidatePath(`/requests/${id}/trip`);
   redirect(`/requests/${id}/estimates`);
 }
