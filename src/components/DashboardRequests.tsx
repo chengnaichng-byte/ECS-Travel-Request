@@ -5,11 +5,13 @@
 import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { StatusPill } from '@/components/StatusPill';
+import { useTableSort, SortableTh } from '@/components/tableSort';
 
 export interface DashRow {
   id: string; requestNumber: string; type: 'S' | 'E'; kind: 'IND' | 'GRP' | 'GST'; groupType?: 'STAFF' | 'STUDENT' | null;
   ba: string; traveller: string; requestor: string; purpose: string; dest: string; dates: string; ntu: string;
   exceptions: number; status: string; bookingStatus: string;
+  startSort: string | null; ntuSort: number;   // raw values for date / cost sorting (not the formatted strings)
   ta?: string | null; pnrs?: string;   // booking provenance — TA number + PNR(s), for search + inline display
 }
 
@@ -32,6 +34,23 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
       return true;
     });
   }, [rows, q, type, status]);
+
+  // Column sorting (two-state asc/desc) — applied AFTER the filters so both compose. Sort keys use
+  // raw values (startSort / ntuSort / exception count) so dates and money order numerically.
+  const accessors = useMemo(() => ({
+    requestNumber: (r: DashRow) => r.requestNumber,
+    ba: (r: DashRow) => r.ba,
+    traveller: (r: DashRow) => r.traveller,
+    requestor: (r: DashRow) => r.requestor,
+    purpose: (r: DashRow) => r.purpose,
+    dest: (r: DashRow) => r.dest,
+    dates: (r: DashRow) => r.startSort,
+    ntu: (r: DashRow) => r.ntuSort,
+    exceptions: (r: DashRow) => r.exceptions,
+    status: (r: DashRow) => r.status,
+    bookingStatus: (r: DashRow) => r.bookingStatus,
+  }), []);
+  const { sorted, sort, toggle } = useTableSort(filtered, accessors, { key: 'requestNumber', dir: 'desc' });
 
   const TypePill = ({ t }: { t: 'S' | 'E' }) => t === 'E'
     ? <span className="pill-exc" title="Emergency — book first, raise/approve later (DD-23)">E</span>
@@ -76,14 +95,21 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr>
-              <th className="th">Request</th><th className="th">Business area</th><th className="th">Traveller</th><th className="th">Requestor</th><th className="th">Purpose</th>
-              <th className="th">Destination</th><th className="th">Travel dates</th>
-              <th className="th text-right">Est. NTU cost</th><th className="th">Exc.</th>
-              <th className="th">Status</th><th className="th">Booking</th>
+              <SortableTh sortKey="requestNumber" sort={sort} onSort={toggle} disabled={!ready}>Request</SortableTh>
+              <SortableTh sortKey="ba" sort={sort} onSort={toggle} disabled={!ready}>Business area</SortableTh>
+              <SortableTh sortKey="traveller" sort={sort} onSort={toggle} disabled={!ready}>Traveller</SortableTh>
+              <SortableTh sortKey="requestor" sort={sort} onSort={toggle} disabled={!ready}>Requestor</SortableTh>
+              <SortableTh sortKey="purpose" sort={sort} onSort={toggle} disabled={!ready}>Purpose</SortableTh>
+              <SortableTh sortKey="dest" sort={sort} onSort={toggle} disabled={!ready}>Destination</SortableTh>
+              <SortableTh sortKey="dates" sort={sort} onSort={toggle} disabled={!ready}>Travel dates</SortableTh>
+              <SortableTh sortKey="ntu" sort={sort} onSort={toggle} disabled={!ready} align="right">Est. NTU cost</SortableTh>
+              <SortableTh sortKey="exceptions" sort={sort} onSort={toggle} disabled={!ready} align="center">Exc.</SortableTh>
+              <SortableTh sortKey="status" sort={sort} onSort={toggle} disabled={!ready}>Status</SortableTh>
+              <SortableTh sortKey="bookingStatus" sort={sort} onSort={toggle} disabled={!ready}>Booking</SortableTh>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {sorted.map((r) => (
               <tr key={r.id} className={r.exceptions > 0 ? 'bg-[#fff8ec] hover:bg-[#ffeedd]' : 'hover:bg-[var(--ecs-panel-2)]'}>
                 <td className="td font-medium">
                   {/* A draft / sent-back request opens straight into the editing wizard so the
@@ -107,7 +133,7 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
                 <td className="td text-xs text-[var(--ecs-muted)]">{r.bookingStatus}</td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td className="td text-[var(--ecs-muted)]" colSpan={11}>No requests match the filters.</td></tr>}
+            {sorted.length === 0 && <tr><td className="td text-[var(--ecs-muted)]" colSpan={11}>No requests match the filters.</td></tr>}
           </tbody>
         </table>
       </div>

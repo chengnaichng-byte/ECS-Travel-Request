@@ -41,7 +41,9 @@ export default async function Dashboard() {
       purpose: EcsReference.travelPurpose(r.purposeId ?? '')?.name ?? '—',
       dest: EcsReference.city(r.destCity ?? '')?.name ?? '—',
       dates: `${fmtDate(r.startDate)} → ${fmtDate(r.endDate)}`,
+      startSort: r.startDate ? r.startDate.toISOString() : null,   // raw value for date sorting
       ntu: fmtSgd(summary.ntuFunded),
+      ntuSort: summary.ntuFunded,                                   // raw value for cost sorting
       exceptions: r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length,
       status: r.status, bookingStatus: r.bookingStatus,
       // Booking provenance — the TA number and PNR(s) once booked, so the request is findable by either.
