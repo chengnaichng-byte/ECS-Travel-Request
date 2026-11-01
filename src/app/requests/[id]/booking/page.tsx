@@ -7,6 +7,7 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, amendAfterFailedBooking, cancelRequest, receiveCancellation, refreshBookingsFromTmc } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
+import { currentPersonaId } from '@/shared/session';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
 import { isTmcArrangement, isSelfBooked, isHostArranged, isNoBooking, arrangementLabel } from '@/modules/pretrip/booking';
 import { taLineRef } from '@/modules/pretrip/groupLines';
@@ -23,6 +24,10 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   const req = await loadRequest(id);
   if (!req) notFound();
   const settings = await getSettings();
+  // §13.9 The canonical TMC payloads are an integration-diagnostics view — shown only to a
+  // Travel/System Administrator. A traveller/requestor never sees the raw wire message.
+  const persona = await currentPersonaId();
+  const isAdmin = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN');
   const outbound = req.messages.find((m) => m.kind === 'TMC_HANDOFF');
   const inbound = req.messages.find((m) => m.kind === 'TMC_RESPONSE');
   const sapPost = req.messages.find((m) => m.kind === 'SAP_AIRFARE_POST');
@@ -268,7 +273,7 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         </Card>
       </div>
 
-      {(outbound || inbound) && (
+      {isAdmin && (outbound || inbound) && (
         <div className="grid md:grid-cols-2 gap-5">
           {outbound && (
             <Card title="Canonical Outbound Payload (§13.9)">
@@ -283,7 +288,7 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {(cancelMsg || cancelConfirmMsg) && (
+      {isAdmin && (cancelMsg || cancelConfirmMsg) && (
         <div className="grid md:grid-cols-2 gap-5">
           {cancelMsg && (
             <Card title="→ TMC Cancellation Request (§34)">
@@ -298,7 +303,7 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {sapPost && (
+      {isAdmin && sapPost && (
         <Card title="Direct Airfare Posting to ERP (§36)">
           <p className="text-xs text-[var(--ecs-muted)] mb-2">Airfare treatment is <strong>DIRECT_SAP</strong>: the booked airfare posts straight to ERP against the trip&apos;s cost objects (GL from the airfare expense type) and does <strong>not</strong> flow through the expense claim.</p>
           <pre className="text-xs bg-[var(--ecs-panel-2)] p-3 rounded overflow-x-auto border border-[var(--ecs-border)]">{sapPost.payload}</pre>
