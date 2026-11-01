@@ -47,7 +47,7 @@ function groupByCategory(lines: CostLineX[]): { category: string; typeName: stri
 export function ChargingAccountEditor({
   action, canEdit, total, companyCodes, businessAreas, accounts, extraAccounts, expenseTypes, lines,
   defaultAccount, initialMode, initialMain, initialRows, initialLineMap, submitLabel = 'Save & run policy review →',
-  entriesTitle = 'Accounting Entries', backHref, backLabel,
+  entriesTitle = 'Accounting Entries', backHref, backLabel, showProvenance = false,
 }: {
   action: (fd: FormData) => void;
   canEdit: boolean;
@@ -70,6 +70,7 @@ export function ChargingAccountEditor({
   entriesTitle?: string;       // "Allocation Outcome" on the TR; "Accounting Entries" on the TE
   backHref?: string;           // when set, a Back link renders on the LEFT of the action row
   backLabel?: string;
+  showProvenance?: boolean;    // field-provenance markers (pilot, TR charging step only)
 }) {
   const acc = (c: string) => accounts.find((a) => a.code === c) ?? extraAccounts?.find((a) => a.code === c);
   const et = (id: string) => expenseTypes.find((e) => e.id === id);
@@ -187,7 +188,7 @@ export function ChargingAccountEditor({
       {/* Main charging account — 4-level cascade */}
       <div className="card p-4">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="font-semibold text-[var(--ecs-navy)]">Charging account details</h3>
+          <h3 className="font-semibold text-[var(--ecs-navy)]">Charging account details{showProvenance && <span className="prov-tag prov-tag-resolved ml-2" title="Defaults to the traveller's Workday / profile cost object — you can override it">Default · from Workday/Profile</span>}</h3>
         </div>
         <p className="text-xs text-[var(--ecs-muted)] mb-4">Main charging account — defaults to the traveller’s profile cost object. Research WBS drives the research route; the highest-share department derives the DOA (§13.14).</p>
         <div className="grid md:grid-cols-4 gap-4">
@@ -315,7 +316,7 @@ export function ChargingAccountEditor({
         {/* Accounting Entries — collapsed by default (the GL-posting detail most travellers don't need). */}
         <details className="mt-5 border-t border-[var(--ecs-border)] pt-4 group">
           <summary className="text-sm font-semibold text-[var(--ecs-navy)] mb-2 cursor-pointer select-none list-none flex items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-            <span>{entriesTitle}<span className="text-xs font-normal text-[var(--ecs-muted)]"> · {entries.length} line{entries.length === 1 ? '' : 's'} · {fmt(entriesTotal)}</span></span>
+            <span>{entriesTitle}{showProvenance && <span className="prov-tag prov-tag-derived ml-2" title="Rolled up automatically from the charging split and the M6 differential — not editable">Derived</span>}<span className="text-xs font-normal text-[var(--ecs-muted)]"> · {entries.length} line{entries.length === 1 ? '' : 's'} · {fmt(entriesTotal)}</span></span>
             <span className="text-[var(--ecs-muted)] transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
           </summary>
           <div className="overflow-x-auto">

@@ -23,6 +23,7 @@ import { CostItems } from '@/components/ReviewSections';
 import { EstimateLineEditor } from '@/components/EstimateLineEditor';
 import { makeOutcomeFor } from '@/modules/pretrip/liveOutcome';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
+import { ProvenanceLegend } from '@/components/ProvenanceLegend';
 import { UpgradeDeltaPicker, type UpgradePickLine } from '@/components/UpgradeDeltaPicker';
 import { Card, Stepper, Empty } from '@/components/ui';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
@@ -171,6 +172,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
       <Stepper id={id} active="charging" requestNumber={req.requestNumber} status={req.status} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s charging.</div>}
       <DuplicateWarning req={req} />
+      <ProvenanceLegend className="mb-4" />
 
       {upgradeLines.length > 0 && (
         <Card title="M6 — entitlement differential (charging split, §13.19)" className="mb-5">
@@ -179,6 +181,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
             {upgradeLines.map(({ e, u }) => (
               <div key={e.id} className="text-sm">
                 <div className="font-medium mb-1">{e.originCode} → {e.destCode} · {EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? ''}
+                  <span className="prov-tag prov-tag-derived ml-2" title="Computed from the fare and the uplift-% master — not editable">Derived</span>
                   <span className="text-[var(--ecs-muted)] font-normal"> — entitled fare {fmtSgd(u.fareSgd)}, Economy base {fmtSgd(u.entitlementSgd)}, M6 differential {fmtSgd(u.deltaSgd)}{u.upliftPct != null ? ` · ${Math.round(u.upliftPct * 100)}% uplift (Economy → ${EcsReference.travelClass(e.proposedClassId ?? '')?.name ?? 'entitled'})` : ''}</span>
                 </div>
                 <table className="w-full text-sm">
@@ -200,7 +203,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
           </div>
           {settings.upgradeDeltaRoutingEnabled && m6PickLines.length > 0 && (
             <div className="mt-4 border-t border-[var(--ecs-border)] pt-4">
-              <h4 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">M6 differential account — {govBAName}</h4>
+              <h4 className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">M6 differential account — {govBAName}<span className="prov-tag prov-tag-resolved ml-2" title="Defaults to the business area's M6 account — you can select another eligible one">Default</span></h4>
               {m6Pool.length === 0 ? (
                 <p className="text-sm text-amber-700">No active M6 account is configured for business area {govBA ?? '—'}. Add one in <Link className="underline" href="/setup/upgrade-accounts">Setup → M6 Accounts</Link>.</p>
               ) : (
@@ -230,6 +233,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
         businessAreas={businessAreas.map((b) => ({ code: b.code, name: b.name, companyCode: b.companyCode }))}
         accounts={accounts}
         extraAccounts={m6Accounts}
+        showProvenance
         expenseTypes={etOpts}
         lines={lines}
         defaultAccount={defaultAccount}

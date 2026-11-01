@@ -96,6 +96,34 @@ body { background: var(--background); color: var(--foreground); font-family: var
 .pill-info { background: #e6e8ef; color: #3a3f52; }
 .pill-navy { background: var(--ecs-panel); color: var(--ecs-navy); }
 
+/* ----------------------------------------------------------------------------
+   Field provenance (pilot) — a quiet visual language for where a value comes from
+   and whether it can be changed. Colour is ALWAYS paired with a marker (chip /
+   glyph) and the legend, never colour alone (accessibility + single light theme).
+     • Entered           — the user typed/chose it; baseline control, no marker.
+     • Resolved-editable — system pre-filled a default; the user may override.
+     • Derived-locked    — computed, read-only.
+   -------------------------------------------------------------------------- */
+:root {
+  --prov-resolved: #2563eb;            /* editable default — quiet blue accent */
+  --prov-resolved-bg: #eef3ff;
+  --prov-resolved-text: #1e40af;
+  --prov-derived: var(--ecs-muted);    /* locked derived — muted */
+  --prov-derived-bg: var(--ecs-readonly);
+}
+.prov-tag { display: inline-flex; align-items: center; gap: .3rem; padding: .05rem .45rem; border-radius: 9999px; font-size: .66rem; font-weight: 600; letter-spacing: .01em; white-space: nowrap; vertical-align: middle; }
+.prov-tag::before { content: ""; width: .4rem; height: .4rem; border-radius: 9999px; }
+.prov-tag-entered  { background: var(--ecs-panel); color: var(--ecs-navy); }
+.prov-tag-entered::before  { background: var(--ecs-navy); }
+.prov-tag-resolved { background: var(--prov-resolved-bg); color: var(--prov-resolved-text); }
+.prov-tag-resolved::before { background: var(--prov-resolved); }
+.prov-tag-derived  { background: var(--prov-derived-bg); color: var(--prov-derived); }
+.prov-tag-derived::before  { background: var(--prov-derived); }
+/* A derived, locked value rendered as static text; the ƒ glyph marks "computed". */
+.prov-derived { color: var(--prov-derived); }
+.prov-fx { font-style: italic; opacity: .75; margin-right: .15rem; }
+.prov-legend { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
+
 /* Workflow chevrons (§13.21) — arrow-shaped, connector node dots */
 .chev-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
 .chev {
