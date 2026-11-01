@@ -600,6 +600,46 @@ export async function demoM6Draft() {
   redirect(`/requests/${id}/review`);
 }
 
+/** Multi-city individual TR — pre-filled draft as Dr Jason Lee (Economy, not in the C20 register, so
+ *  no M6), routed SIN → Tokyo → Osaka → Seoul → SIN with a hotel per stop and ODA per country. Shows
+ *  the §4.4 multi-city trip type end to end. Not submitted; opens at Review. */
+export async function demoMultiCityDraft() {
+  const TAG = '[demo:multicity]';
+  await clearDemoDrafts(TAG);
+  const settings = await getSettings();
+  const off = 70;
+  const d = [demoDay(off), demoDay(off + 2), demoDay(off + 4), demoDay(off + 6)];
+  const requestNumber = await nextRequestNumber(YEAR);
+  const req = await prisma.travelRequest.create({ data: {
+    requestNumber, requestorId: 'E-TRAV4', travellerId: 'E-TRAV4',
+    entityId: EcsIdentity.entity().id, departmentId: EcsIdentity.employee('E-TRAV4')?.departmentId, isResearch: false,
+    status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+    purposeId: 'TP-TC-ACAD', description: `Multi-city — Tokyo, Osaka & Seoul ${TAG}`,
+    tripType: 'MULTI_CITY', destCountry: 'JP', destCity: 'TYO', startDate: day(d[0]), endDate: day(d[3]),
+    travelClassId: 'TC-ECO', bookingArrangement: 'AUTO', bookingMethod: BOOKING_METHOD.TMCOnline,
+  } });
+  const id = req.id;
+  await audit(id, 'E-TRAV4', 'CREATE', `Multi-city draft ${requestNumber} created`);
+  const legs = [
+    { seq: 1, o: 'SIN', d: 'HND', dep: d[0], dur: 7, nights: 2 },   // Tokyo
+    { seq: 2, o: 'HND', d: 'KIX', dep: d[1], dur: 1.5, nights: 2 }, // Osaka
+    { seq: 3, o: 'KIX', d: 'ICN', dep: d[2], dur: 2, nights: 2 },   // Seoul
+    { seq: 4, o: 'ICN', d: 'SIN', dep: d[3], dur: 6, nights: 0 },
+  ];
+  for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-ECO', entitledClassId: 'TC-ECO', chosenClassId: 'TC-ECO' } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 2200, sgdAmount: 2200, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-ECO', fareCeiling: 2200, handoffStatus: 'Pending' } });
+  for (const [city, nights, rate] of [['TYO', 2, 300], ['OSA', 2, 300], ['SEL', 2, 240]] as [string, number, number][]) {
+    const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
+    const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+    await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city, nights, personalNights: 0, quotedNightly: rate, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
+  }
+  const master = EcsCharging.code('CC-1000');
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
+  await backfillHotelDates(id); await rebuildOda(id);
+  await switchPersona('E-TRAV4', 'REQUESTOR');
+  redirect(`/requests/${id}/review`);
+}
+
 /** DOA review & approval — opens an already-SUBMITTED request sitting at Pending DOA, acting as the
  *  assigned DOA (a draft cannot be approved, so this scenario necessarily uses a submitted request). */
 export async function demoDoaReview() {

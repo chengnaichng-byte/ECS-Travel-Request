@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoDoaReview } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoDoaReview } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
@@ -85,6 +85,7 @@ export default async function Dashboard() {
           <div className="text-xs text-[var(--ecs-muted)] mb-3">One click seeds a pre-filled draft (ready to submit) and switches you to the right persona. The DOA review opens a submitted request to approve.</div>
           <div className="flex flex-wrap gap-2">
             <form action={demoIndividualDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled individual draft and act as the traveller.">▶ Individual TR · as Dr Alice Tan</button></form>
+            <form action={demoMultiCityDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled multi-city individual draft (Dr Jason Lee, Economy) routed SIN → Tokyo → Osaka → Seoul → SIN, with a hotel per stop and ODA per country. Act as the traveller.">▶ Multi-city TR · as Dr Jason Lee</button></form>
             <form action={demoGroupDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled group draft and act as the PA.">▶ Group TR · as Priya Nair (PA)</button></form>
             <form action={demoGuestDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled guest draft and act as the host PA.">▶ Guest TR · as Priya Nair (PA)</button></form>
             <form action={demoEmergencyDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled, urgent agent-assisted draft (qualifies for the emergency lane on submit) and act as the traveller.">▶ Emergency TR · as Dr Alice Tan</button></form>
