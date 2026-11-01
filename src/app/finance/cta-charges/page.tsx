@@ -8,41 +8,54 @@ import { listCtaCharges, type CtaChargeRow } from '@/modules/te/ctaCharges';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { ExportCtaCsv } from '@/components/ExportCtaCsv';
+import { SortableTable, type SortCol, type SortRow } from '@/components/SortableTable';
 
 export const dynamic = 'force-dynamic';
 
-function ChargeRows({ rows, pending }: { rows: CtaChargeRow[]; pending?: boolean }) {
-  return (
-    <>
-      {rows.map((r, i) => (
-        <tr key={i} className="hover:bg-[var(--ecs-panel-2)]">
-          <td className="td"><Link href={`/requests/${r.requestId}`} className="font-mono text-[var(--ecs-navy)] hover:underline">{r.requestNumber}</Link></td>
-          <td className="td font-mono text-xs">{r.authorisationNo ?? '—'}</td>
-          <td className="td">{r.travellerName}</td>
-          <td className="td font-mono text-xs">{r.pnr ?? '—'}{r.ticketNo ? ` · ${r.ticketNo}` : ''}</td>
-          <td className="td">{r.type}</td>
-          <td className="td">{r.detail}</td>
-          <td className="td whitespace-nowrap">{pending ? <span className="pill-warn">pending</span> : (r.chargeDate ?? '—')}</td>
-          <td className="td font-mono text-xs" title={r.ctaAccountLabel}>{r.ctaAccountId ?? '—'}</td>
-          <td className="td font-mono text-xs" title="Credit side of the accounting entry (CTA clearing account, from the CTA master)">{r.clearingGlAccount}</td>
-          <td className="td whitespace-nowrap">{pending ? <span className="text-[var(--ecs-muted)]">—</span> : (<>
-            <span className={r.postingStatus === 'Posted' ? 'pill-pass' : r.postingStatus === 'Reversed' ? 'pill-warn' : 'pill-info'}>{r.postingStatus}</span>
-            {r.sapDocNo && <span className="font-mono text-xs ml-1 text-[var(--ecs-muted)]">{r.sapDocNo}</span>}
-          </>)}</td>
-          <td className="td text-right">{fmtSgd(r.amountSgd)}</td>
-        </tr>
-      ))}
-    </>
-  );
-}
+const CTA_COLS: SortCol[] = [
+  { key: 'request', label: 'Request' },
+  { key: 'ta', label: 'TA' },
+  { key: 'traveller', label: 'Traveller' },
+  { key: 'pnrTicket', label: 'PNR / ticket', sortable: false },
+  { key: 'type', label: 'Type' },
+  { key: 'detail', label: 'Detail' },
+  { key: 'charged', label: 'Charged' },
+  { key: 'ctaAccount', label: 'CTA account' },
+  { key: 'creditGl', label: 'Credit GL' },
+  { key: 'posting', label: 'Posting (SAP)' },
+  { key: 'amount', label: 'Amount (SGD)', align: 'right' },
+];
 
-const HEAD = (
-  <thead><tr>
-    <th className="th">Request</th><th className="th">TA</th><th className="th">Traveller</th><th className="th">PNR / ticket</th>
-    <th className="th">Type</th><th className="th">Detail</th><th className="th">Charged</th><th className="th">CTA account</th>
-    <th className="th">Credit GL</th><th className="th">Posting (SAP)</th><th className="th text-right">Amount (SGD)</th>
-  </tr></thead>
-);
+// Reuse the row rendering for both the settled-group tables and the pending table; returns the
+// SortableTable rows (raw sort values + the server-rendered cells).
+function chargeSortRows(rows: CtaChargeRow[], pending?: boolean): SortRow[] {
+  return rows.map((r, i) => ({
+    key: String(i),
+    className: 'hover:bg-[var(--ecs-panel-2)]',
+    sort: {
+      request: r.requestNumber, ta: r.authorisationNo ?? '', traveller: r.travellerName,
+      type: r.type, detail: r.detail, charged: pending ? null : (r.chargeDate ?? null),
+      ctaAccount: r.ctaAccountId ?? '', creditGl: r.clearingGlAccount,
+      posting: pending ? '' : r.postingStatus, amount: r.amountSgd,
+    },
+    cells: (<>
+      <td className="td"><Link href={`/requests/${r.requestId}`} className="font-mono text-[var(--ecs-navy)] hover:underline">{r.requestNumber}</Link></td>
+      <td className="td font-mono text-xs">{r.authorisationNo ?? '—'}</td>
+      <td className="td">{r.travellerName}</td>
+      <td className="td font-mono text-xs">{r.pnr ?? '—'}{r.ticketNo ? ` · ${r.ticketNo}` : ''}</td>
+      <td className="td">{r.type}</td>
+      <td className="td">{r.detail}</td>
+      <td className="td whitespace-nowrap">{pending ? <span className="pill-warn">pending</span> : (r.chargeDate ?? '—')}</td>
+      <td className="td font-mono text-xs" title={r.ctaAccountLabel}>{r.ctaAccountId ?? '—'}</td>
+      <td className="td font-mono text-xs" title="Credit side of the accounting entry (CTA clearing account, from the CTA master)">{r.clearingGlAccount}</td>
+      <td className="td whitespace-nowrap">{pending ? <span className="text-[var(--ecs-muted)]">—</span> : (<>
+        <span className={r.postingStatus === 'Posted' ? 'pill-pass' : r.postingStatus === 'Reversed' ? 'pill-warn' : 'pill-info'}>{r.postingStatus}</span>
+        {r.sapDocNo && <span className="font-mono text-xs ml-1 text-[var(--ecs-muted)]">{r.sapDocNo}</span>}
+      </>)}</td>
+      <td className="td text-right">{fmtSgd(r.amountSgd)}</td>
+    </>),
+  }));
+}
 
 export default async function CtaChargesPage() {
   const { settledGroups, pending, totalSettled, settledCount, totalPending, pendingCount } = await listCtaCharges();
@@ -66,14 +79,16 @@ export default async function CtaChargesPage() {
       ) : settledGroups.map((g) => (
         <Card key={g.clearingGlAccount} title={`Credit GL ${g.clearingGlAccount} · CTA clearing${g.ctaAccountIds.length ? `  ·  ${g.ctaAccountIds.join(', ')}` : ''}`}>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              {HEAD}
-              <tbody><ChargeRows rows={g.rows} /></tbody>
-              <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
+            <SortableTable
+              tableClassName="w-full text-sm"
+              initialSort={{ key: 'request', dir: 'asc' }}
+              columns={CTA_COLS}
+              rows={chargeSortRows(g.rows)}
+              foot={<tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
                 <td className="td" colSpan={10}>Subtotal → credit GL {g.clearingGlAccount}</td>
                 <td className="td text-right">{fmtSgd(g.subtotalSgd)}</td>
-              </tr></tfoot>
-            </table>
+              </tr></tfoot>}
+            />
           </div>
         </Card>
       ))}
@@ -81,14 +96,16 @@ export default async function CtaChargesPage() {
       {pendingCount > 0 && (
         <Card title={`Pending settlement — booked, not yet charged to the CTA (${pendingCount})`}>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              {HEAD}
-              <tbody><ChargeRows rows={pending} pending /></tbody>
-              <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
+            <SortableTable
+              tableClassName="w-full text-sm"
+              initialSort={{ key: 'request', dir: 'asc' }}
+              columns={CTA_COLS}
+              rows={chargeSortRows(pending, true)}
+              foot={<tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
                 <td className="td" colSpan={10}>Total pending settlement</td>
                 <td className="td text-right">{fmtSgd(totalPending)}</td>
-              </tr></tfoot>
-            </table>
+              </tr></tfoot>}
+            />
           </div>
           <p className="text-xs text-[var(--ecs-muted)] mt-2">These bookings are confirmed but the airfare/hotel has not yet posted to the CTA, so they are not yet on the provider statement. They move into their credit GL group once the feed reports them charged. The <strong>Credit GL</strong> shown is the account they will post to.</p>
         </Card>

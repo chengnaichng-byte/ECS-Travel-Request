@@ -6,6 +6,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity, EcsCharging, EcsReference } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, POLICY_OUTCOME } from '@/shared/enums';
 import { PageTitle, Card } from '@/components/ui';
+import { SortableTable } from '@/components/SortableTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -124,19 +125,27 @@ export default async function ReportsPage() {
 
       <Card title="Travel Risk — active travellers by location (§4.8)">
         <p className="text-xs text-[var(--ecs-muted)] mb-2">For emergency / crisis response: live travellers grouped by destination; high-risk destinations are flagged first.</p>
-        <table className="w-full text-sm">
-          <thead><tr><th className="th">Destination</th><th className="th text-right">Trips</th><th className="th text-right">Travellers</th><th className="th">Risk</th></tr></thead>
-          <tbody>
-            {locations.map((l) => (
-              <tr key={l.country} className={l.risk ? 'bg-red-50' : 'hover:bg-[var(--ecs-panel-2)]'}>
-                <td className="td font-medium">{l.country}</td>
-                <td className="td text-right">{l.trips}</td>
-                <td className="td text-right">{l.travellers}</td>
-                <td className="td">{l.risk ? <span className="pill-exc">{l.risk}</span> : <span className="text-[var(--ecs-muted)]">—</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <SortableTable
+          tableClassName="w-full text-sm"
+          initialSort={{ key: 'risk', dir: 'asc' }}
+          columns={[
+            { key: 'destination', label: 'Destination' },
+            { key: 'trips', label: 'Trips', align: 'right' },
+            { key: 'travellers', label: 'Travellers', align: 'right' },
+            { key: 'risk', label: 'Risk' },
+          ]}
+          rows={locations.map((l) => ({
+            key: l.country,
+            className: l.risk ? 'bg-red-50' : 'hover:bg-[var(--ecs-panel-2)]',
+            sort: { destination: l.country, trips: l.trips, travellers: l.travellers, risk: l.risk || null },
+            cells: (<>
+              <td className="td font-medium">{l.country}</td>
+              <td className="td text-right">{l.trips}</td>
+              <td className="td text-right">{l.travellers}</td>
+              <td className="td">{l.risk ? <span className="pill-exc">{l.risk}</span> : <span className="text-[var(--ecs-muted)]">—</span>}</td>
+            </>),
+          }))}
+        />
       </Card>
     </div>
   );

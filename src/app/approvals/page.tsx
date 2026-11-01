@@ -13,6 +13,7 @@ import { isApproverPersona } from '@/modules/pretrip/guards';
 import { travellerName } from '@/modules/pretrip/traveller';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { StatusPill } from '@/components/StatusPill';
+import { SortableTable } from '@/components/SortableTable';
 import { REQUEST_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
@@ -95,40 +96,56 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
             <Empty>Nothing pending your approval as {EcsIdentity.employee(persona)?.name}. Switch persona to an approver (e.g. Prof Ben Lim / Prof Carol Wong).</Empty>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr>
-                  <th className="th">Submitted</th><th className="th">Request</th><th className="th">Business area</th>
-                  <th className="th">Traveller(s)</th><th className="th">Requestor</th><th className="th">Purpose</th>
-                  <th className="th">Destination</th><th className="th">Dates</th><th className="th text-right">Est. NTU (SGD)</th>
-                  <th className="th">Exc.</th><th className="th">Status</th><th className="th"></th>
-                </tr></thead>
-                <tbody>
-                  {mine.map((r) => {
-                    const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
-                    const ba = EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—';
-                    const kind = r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND';
-                    const kindSub = kind === 'GRP' && r.groupType === 'STUDENT' ? 'Stu' : kind === 'GRP' && r.groupType === 'STAFF' ? 'Staff' : '';
-                    const kindTitle = kind === 'GRP' ? `${r.groupType === 'STUDENT' ? 'Student ' : r.groupType === 'STAFF' ? 'Staff ' : ''}group booking` : kind === 'GST' ? 'Guest booking' : 'Individual booking';
-                    const exc = r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length;
-                    return (
-                      <tr key={r.id} className={rowCls(exc > 0)}>
-                        <td className="td whitespace-nowrap">{fmtDate(r.versions.at(-1)?.createdAt ?? r.updatedAt)}</td>
-                        <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}{kindSub ? `·${kindSub}` : ''}</span></span></td>
-                        <td className="td">{ba}</td>
-                        <td className="td">{r.groupType === 'STUDENT' ? `${r.travellers.length} students` : travellerName(r) + (r.isGroup ? ` +${r.travellers.length - 1}` : '')}</td>
-                        <td className="td">{EcsIdentity.employee(r.requestorId)?.name}</td>
-                        <td className="td">{EcsReference.travelPurpose(r.purposeId ?? '')?.name}</td>
-                        <td className="td">{EcsReference.city(r.destCity ?? '')?.name}</td>
-                        <td className="td whitespace-nowrap">{fmtDate(r.startDate)} → {fmtDate(r.endDate)}</td>
-                        <td className="td text-right">{fmtSgd(summary.ntuFunded)}</td>
-                        <td className="td text-center">{exc > 0 ? <span className="pill-exc">⚠ {exc}</span> : '—'}</td>
-                        <td className="td"><StatusPill status={r.status} /></td>
-                        <td className="td"><Link href={`/requests/${r.id}`} className="btn-primary text-xs">Review →</Link></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <SortableTable
+                tableClassName="w-full text-sm"
+                initialSort={{ key: 'submitted', dir: 'desc' }}
+                columns={[
+                  { key: 'submitted', label: 'Submitted' },
+                  { key: 'request', label: 'Request' },
+                  { key: 'ba', label: 'Business area' },
+                  { key: 'travellers', label: 'Traveller(s)' },
+                  { key: 'requestor', label: 'Requestor' },
+                  { key: 'purpose', label: 'Purpose' },
+                  { key: 'destination', label: 'Destination' },
+                  { key: 'dates', label: 'Dates' },
+                  { key: 'ntu', label: 'Est. NTU (SGD)', align: 'right' },
+                  { key: 'exc', label: 'Exc.', align: 'center' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'action', label: '', sortable: false },
+                ]}
+                rows={mine.map((r) => {
+                  const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
+                  const ba = EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—';
+                  const kind = r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND';
+                  const kindSub = kind === 'GRP' && r.groupType === 'STUDENT' ? 'Stu' : kind === 'GRP' && r.groupType === 'STAFF' ? 'Staff' : '';
+                  const kindTitle = kind === 'GRP' ? `${r.groupType === 'STUDENT' ? 'Student ' : r.groupType === 'STAFF' ? 'Staff ' : ''}group booking` : kind === 'GST' ? 'Guest booking' : 'Individual booking';
+                  const exc = r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length;
+                  const submitted = r.versions.at(-1)?.createdAt ?? r.updatedAt;
+                  const travellers = r.groupType === 'STUDENT' ? `${r.travellers.length} students` : travellerName(r) + (r.isGroup ? ` +${r.travellers.length - 1}` : '');
+                  const requestor = EcsIdentity.employee(r.requestorId)?.name ?? '';
+                  const purpose = EcsReference.travelPurpose(r.purposeId ?? '')?.name ?? '';
+                  const dest = EcsReference.city(r.destCity ?? '')?.name ?? '';
+                  return {
+                    key: r.id,
+                    className: rowCls(exc > 0),
+                    sort: { submitted: submitted ? submitted.toISOString() : null, request: r.requestNumber, ba, travellers, requestor, purpose, destination: dest, dates: r.startDate ? r.startDate.toISOString() : null, ntu: summary.ntuFunded, exc, status: r.status },
+                    cells: (<>
+                      <td className="td whitespace-nowrap">{fmtDate(submitted)}</td>
+                      <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}{kindSub ? `·${kindSub}` : ''}</span></span></td>
+                      <td className="td">{ba}</td>
+                      <td className="td">{travellers}</td>
+                      <td className="td">{requestor}</td>
+                      <td className="td">{purpose}</td>
+                      <td className="td">{dest}</td>
+                      <td className="td whitespace-nowrap">{fmtDate(r.startDate)} → {fmtDate(r.endDate)}</td>
+                      <td className="td text-right">{fmtSgd(summary.ntuFunded)}</td>
+                      <td className="td text-center">{exc > 0 ? <span className="pill-exc">⚠ {exc}</span> : '—'}</td>
+                      <td className="td"><StatusPill status={r.status} /></td>
+                      <td className="td"><Link href={`/requests/${r.id}`} className="btn-primary text-xs">Review →</Link></td>
+                    </>),
+                  };
+                })}
+              />
               <p className="text-xs text-[var(--ecs-muted)] mt-3">Rows shaded amber carry a policy exception and require individual review. The bulk Approve action (not shown) excludes requests with exceptions and all group travel requests (§13.12).</p>
             </div>
           )}
@@ -139,36 +156,49 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
             <Empty>No expense claims pending your approval as {EcsIdentity.employee(persona)?.name}. Claims route Verifier → (Exception) → (RO) → DOA (§51).</Empty>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr>
-                  <th className="th">Updated</th><th className="th">Claim</th><th className="th">Claimant</th>
-                  <th className="th">From request</th><th className="th">Destination</th>
-                  <th className="th text-right">Claimed (SGD)</th><th className="th">Exc.</th><th className="th">Pending step</th><th className="th">Status</th><th className="th"></th>
-                </tr></thead>
-                <tbody>
-                  {myClaims.map((c) => {
-                    const gross = c.lines.reduce((s, l) => s + l.actualSgd, 0);
-                    const total = Math.max(gross - c.lessCorpCard - c.lessPersonal, 0);
-                    const step = c.approvalSteps.find((s) => s.status === 'Pending');
-                    const hasExc = c.approvalSteps.some((s) => s.roleType === 'EXCEPTION');
-                    const stepLabel: Record<string, string> = { VERIFIER: 'Verifier', EXCEPTION: 'Exception', RO: 'RO', DOA: 'DOA', RESEARCH_DOA: 'Research DOA' };
-                    return (
-                      <tr key={c.id} className={rowCls(hasExc)}>
-                        <td className="td whitespace-nowrap">{fmtDate(c.createdAt)}</td>
-                        <td className="td font-medium">{c.claimNumber}</td>
-                        <td className="td">{EcsIdentity.employee(c.claimantId)?.name ?? c.claimantId}</td>
-                        <td className="td">{c.request?.requestNumber ?? '—'}</td>
-                        <td className="td">{EcsReference.city(c.request?.destCity ?? '')?.name ?? '—'}</td>
-                        <td className="td text-right">{fmtSgd(total)}</td>
-                        <td className="td text-center">{hasExc ? <span className="pill-exc">⚠</span> : '—'}</td>
-                        <td className="td">{step ? (stepLabel[step.roleType] ?? step.roleType) : '—'}</td>
-                        <td className="td"><StatusPill status={c.status} /></td>
-                        <td className="td"><Link href={`/claims/${c.id}`} className="btn-primary text-xs">Review →</Link></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <SortableTable
+                tableClassName="w-full text-sm"
+                initialSort={{ key: 'updated', dir: 'desc' }}
+                columns={[
+                  { key: 'updated', label: 'Updated' },
+                  { key: 'claim', label: 'Claim' },
+                  { key: 'claimant', label: 'Claimant' },
+                  { key: 'fromRequest', label: 'From request' },
+                  { key: 'destination', label: 'Destination' },
+                  { key: 'claimed', label: 'Claimed (SGD)', align: 'right' },
+                  { key: 'exc', label: 'Exc.', align: 'center' },
+                  { key: 'step', label: 'Pending step' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'action', label: '', sortable: false },
+                ]}
+                rows={myClaims.map((c) => {
+                  const gross = c.lines.reduce((s, l) => s + l.actualSgd, 0);
+                  const total = Math.max(gross - c.lessCorpCard - c.lessPersonal, 0);
+                  const step = c.approvalSteps.find((s) => s.status === 'Pending');
+                  const hasExc = c.approvalSteps.some((s) => s.roleType === 'EXCEPTION');
+                  const stepLabel: Record<string, string> = { VERIFIER: 'Verifier', EXCEPTION: 'Exception', RO: 'RO', DOA: 'DOA', RESEARCH_DOA: 'Research DOA' };
+                  const claimant = EcsIdentity.employee(c.claimantId)?.name ?? c.claimantId;
+                  const dest = EcsReference.city(c.request?.destCity ?? '')?.name ?? '—';
+                  const stepName = step ? (stepLabel[step.roleType] ?? step.roleType) : '—';
+                  return {
+                    key: c.id,
+                    className: rowCls(hasExc),
+                    sort: { updated: c.createdAt ? c.createdAt.toISOString() : null, claim: c.claimNumber, claimant, fromRequest: c.request?.requestNumber ?? '', destination: dest, claimed: total, exc: hasExc ? 1 : 0, step: stepName, status: c.status },
+                    cells: (<>
+                      <td className="td whitespace-nowrap">{fmtDate(c.createdAt)}</td>
+                      <td className="td font-medium">{c.claimNumber}</td>
+                      <td className="td">{claimant}</td>
+                      <td className="td">{c.request?.requestNumber ?? '—'}</td>
+                      <td className="td">{dest}</td>
+                      <td className="td text-right">{fmtSgd(total)}</td>
+                      <td className="td text-center">{hasExc ? <span className="pill-exc">⚠</span> : '—'}</td>
+                      <td className="td">{stepName}</td>
+                      <td className="td"><StatusPill status={c.status} /></td>
+                      <td className="td"><Link href={`/claims/${c.id}`} className="btn-primary text-xs">Review →</Link></td>
+                    </>),
+                  };
+                })}
+              />
               <p className="text-xs text-[var(--ecs-muted)] mt-3">Rows shaded amber carry a new policy exception on the claim. &ldquo;Review →&rdquo; opens the one-page claim with its approval workflow (§51).</p>
             </div>
           )}

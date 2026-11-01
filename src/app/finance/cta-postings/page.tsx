@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { computeCtaPostings } from '@/modules/pretrip/ctaPosting';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { PageTitle, Card, Empty } from '@/components/ui';
+import { SortableTable } from '@/components/SortableTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,43 +93,63 @@ export default async function CtaPostingsPage({ searchParams }: { searchParams: 
       <Card title="Accounting entries (line items)">
         {rows.length === 0 ? <Empty>No CTA accounting entries match the filter.</Empty> : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm whitespace-nowrap">
-              <thead><tr>
-                <th className="th">Request</th><th className="th">TA</th><th className="th">Traveller</th><th className="th">PNR</th><th className="th">Invoice</th><th className="th">Type</th><th className="th">Basis</th><th className="th">Tax code</th><th className="th text-right">Ext. tax</th><th className="th">Charged</th><th className="th">CTA acct</th>
-                <th className="th">Posting date</th><th className="th">Status</th><th className="th">SAP doc</th>
-                <th className="th">Dr/Cr</th><th className="th">GL account</th><th className="th">Description</th><th className="th">Cost object</th><th className="th text-right">Share %</th><th className="th text-right">Amount (SGD)</th>
-              </tr></thead>
-              <tbody>
-                {rows.map(({ p, l }, i) => (
-                  <tr key={i} className="hover:bg-[var(--ecs-panel-2)]">
-                    <td className="td"><Link href={`/requests/${p.requestId}`} className="font-mono text-xs text-[var(--ecs-navy)] hover:underline">{p.requestNumber}</Link></td>
-                    <td className="td font-mono text-xs">{p.authorisationNo ?? '—'}</td>
-                    <td className="td">{p.travellerName}</td>
-                    <td className="td font-mono text-xs">{p.pnr ?? '—'}</td>
-                    <td className="td font-mono text-xs">{p.invoiceNo ?? '—'}</td>
-                    <td className="td">{p.chargeType}{p.crossCharge && <span title="Cross-charged across cost objects" className="pill-info ml-1 text-[10px]">cross-charge</span>}</td>
-                    <td className="td">{p.feedSourced ? <span className="pill-info" title="Posted from the TMC feed's own charge breakdown">Feed</span> : <span className="pill-warn" title="No feed charge rows — derived from fare/taxes/fees">Derived</span>}{p.gstMismatch && <span className="pill-stop ml-1" title={p.validationNote ?? 'Feed GST disagrees with ECS logic'}>⚠ GST</span>}</td>
-                    <td className="td font-mono text-xs">{p.gstCode}</td>
-                    <td className="td text-right">{p.taxSgd > 0 ? fmtSgd(p.taxSgd) : '—'}</td>
-                    <td className="td">{p.chargeDate ?? '—'}</td>
-                    <td className="td font-mono text-xs">{p.ctaAccountId ?? '—'}</td>
-                    <td className="td">{p.postingDate ?? '—'}</td>
-                    <td className="td"><span className={statusPill(p.postingStatus)}>{p.postingStatus}</span></td>
-                    <td className="td font-mono text-xs">{p.sapDocNo ?? '—'}</td>
-                    <td className="td"><span className={l.side === 'DR' ? 'pill-info' : 'pill-warn'}>{l.side}</span></td>
-                    <td className="td font-mono text-xs">{l.glAccount}</td>
-                    <td className="td whitespace-normal">{l.description}</td>
-                    <td className="td font-mono text-xs">{l.costObject ? `${l.costObject}${l.costObjectType ? ` (${l.costObjectType})` : ''}` : '—'}</td>
-                    <td className="td text-right">{l.percent != null ? `${l.percent}%` : ''}</td>
-                    <td className="td text-right">{fmtSgd(l.amountSgd)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
+            <SortableTable
+              tableClassName="w-full text-sm whitespace-nowrap"
+              initialSort={{ key: 'request', dir: 'asc' }}
+              columns={[
+                { key: 'request', label: 'Request' },
+                { key: 'ta', label: 'TA' },
+                { key: 'traveller', label: 'Traveller' },
+                { key: 'pnr', label: 'PNR', sortable: false },
+                { key: 'invoice', label: 'Invoice', sortable: false },
+                { key: 'type', label: 'Type' },
+                { key: 'basis', label: 'Basis', sortable: false },
+                { key: 'taxCode', label: 'Tax code' },
+                { key: 'extTax', label: 'Ext. tax', align: 'right' },
+                { key: 'charged', label: 'Charged' },
+                { key: 'ctaAcct', label: 'CTA acct' },
+                { key: 'postingDate', label: 'Posting date' },
+                { key: 'status', label: 'Status' },
+                { key: 'sapDoc', label: 'SAP doc', sortable: false },
+                { key: 'drcr', label: 'Dr/Cr' },
+                { key: 'gl', label: 'GL account' },
+                { key: 'description', label: 'Description', sortable: false },
+                { key: 'costObject', label: 'Cost object' },
+                { key: 'sharePct', label: 'Share %', align: 'right' },
+                { key: 'amount', label: 'Amount (SGD)', align: 'right' },
+              ]}
+              foot={<tfoot><tr className="border-t border-[var(--ecs-border)] font-semibold text-[var(--ecs-navy)]">
                 <td className="td" colSpan={19}>Total · Dr {fmtSgd(totalDr)} = Cr {fmtSgd(totalCr)} {balanced ? '· balanced' : '· OUT OF BALANCE'}</td>
                 <td className="td text-right">{fmtSgd(totalDr)}</td>
-              </tr></tfoot>
-            </table>
+              </tr></tfoot>}
+              rows={rows.map(({ p, l }, i) => ({
+                key: String(i),
+                className: 'hover:bg-[var(--ecs-panel-2)]',
+                sort: { request: p.requestNumber, ta: p.authorisationNo ?? '', traveller: p.travellerName, type: p.chargeType, taxCode: p.gstCode, extTax: p.taxSgd, charged: p.chargeDate ?? null, ctaAcct: p.ctaAccountId ?? '', postingDate: p.postingDate ?? null, status: p.postingStatus, drcr: l.side, gl: l.glAccount, costObject: l.costObject ?? '', sharePct: l.percent ?? null, amount: l.amountSgd },
+                cells: (<>
+                  <td className="td"><Link href={`/requests/${p.requestId}`} className="font-mono text-xs text-[var(--ecs-navy)] hover:underline">{p.requestNumber}</Link></td>
+                  <td className="td font-mono text-xs">{p.authorisationNo ?? '—'}</td>
+                  <td className="td">{p.travellerName}</td>
+                  <td className="td font-mono text-xs">{p.pnr ?? '—'}</td>
+                  <td className="td font-mono text-xs">{p.invoiceNo ?? '—'}</td>
+                  <td className="td">{p.chargeType}{p.crossCharge && <span title="Cross-charged across cost objects" className="pill-info ml-1 text-[10px]">cross-charge</span>}</td>
+                  <td className="td">{p.feedSourced ? <span className="pill-info" title="Posted from the TMC feed's own charge breakdown">Feed</span> : <span className="pill-warn" title="No feed charge rows — derived from fare/taxes/fees">Derived</span>}{p.gstMismatch && <span className="pill-stop ml-1" title={p.validationNote ?? 'Feed GST disagrees with ECS logic'}>⚠ GST</span>}</td>
+                  <td className="td font-mono text-xs">{p.gstCode}</td>
+                  <td className="td text-right">{p.taxSgd > 0 ? fmtSgd(p.taxSgd) : '—'}</td>
+                  <td className="td">{p.chargeDate ?? '—'}</td>
+                  <td className="td font-mono text-xs">{p.ctaAccountId ?? '—'}</td>
+                  <td className="td">{p.postingDate ?? '—'}</td>
+                  <td className="td"><span className={statusPill(p.postingStatus)}>{p.postingStatus}</span></td>
+                  <td className="td font-mono text-xs">{p.sapDocNo ?? '—'}</td>
+                  <td className="td"><span className={l.side === 'DR' ? 'pill-info' : 'pill-warn'}>{l.side}</span></td>
+                  <td className="td font-mono text-xs">{l.glAccount}</td>
+                  <td className="td whitespace-normal">{l.description}</td>
+                  <td className="td font-mono text-xs">{l.costObject ? `${l.costObject}${l.costObjectType ? ` (${l.costObjectType})` : ''}` : '—'}</td>
+                  <td className="td text-right">{l.percent != null ? `${l.percent}%` : ''}</td>
+                  <td className="td text-right">{fmtSgd(l.amountSgd)}</td>
+                </>),
+              }))}
+            />
           </div>
         )}
       </Card>
