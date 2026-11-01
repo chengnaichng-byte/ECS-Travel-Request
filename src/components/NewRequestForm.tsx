@@ -18,6 +18,18 @@ type GroupKind = 'staff' | 'student';
 type MemberTab = 'search' | 'bulk';
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 
+/** A read-only, ECS/HR-derived field (RO) — styled like the "Requestor (you)" box so it reads as
+ *  derived, not an input. Muted text aligns with the provenance language (derived = muted). */
+function DerivedField({ label, value, hint, muted, info }: { label: string; value: React.ReactNode; hint?: string; muted?: boolean; info?: boolean }) {
+  return (
+    <div>
+      <label className="label inline-flex items-center gap-1">{label}{info && <InfoIcon />}</label>
+      <div className={`text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] ${muted ? 'text-[var(--ecs-muted)]' : ''}`}>{value}</div>
+      {hint && <p className="text-xs text-[var(--ecs-muted)] mt-1">{hint}</p>}
+    </div>
+  );
+}
+
 const InfoIcon = () => (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--prov-default)" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5v.5" /></svg>
 );
@@ -37,10 +49,10 @@ const ModeIcon = ({ m }: { m: Mode }) => {
 /** Travel Classification — read-only, derived from the selected charging account's isResearch flag.
  *  Research (research WBS) → flask, green; otherwise → building, neutral. The same flag governs
  *  research approval routing and non-term research eligibility downstream. */
-function TravelClassification({ isResearch, standalone }: { isResearch: boolean; standalone?: boolean }) {
+function TravelClassification({ isResearch }: { isResearch: boolean }) {
   const green = '#1f7a4d';
   return (
-    <div className={`rounded-md border p-3 ${standalone ? '' : 'mt-4'} ${isResearch ? 'border-[#bfe3cc] bg-[#eef7f1]' : 'border-[var(--ecs-border)] bg-[var(--ecs-panel-2)]'}`}>
+    <div className={`rounded-md border p-3 mt-4 ${isResearch ? 'border-[#bfe3cc] bg-[#eef7f1]' : 'border-[var(--ecs-border)] bg-[var(--ecs-panel-2)]'}`}>
       <div className="label inline-flex items-center gap-1 mb-2" style={isResearch ? { color: green } : undefined}>Travel Classification <InfoIcon /></div>
       <div className="flex items-center gap-3">
         <span className={`inline-flex items-center justify-center w-10 h-10 rounded-md ${isResearch ? 'bg-[#d8eede]' : 'bg-[var(--ecs-panel)]'}`}>
@@ -218,31 +230,21 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
     XLSX.writeFile(wb, 'student-group-template.xlsx');
   };
 
-  // Shared placeable fields (so the two-column layout can arrange them per tab).
-  const RequestorBox = ({ label }: { label: string }) => (
-    <div>
-      <label className="label">{label}</label>
-      <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
-    </div>
-  );
-  const ROField = ({ value, hint }: { value: React.ReactNode; hint: string }) => (
-    <div>
-      <label className="label inline-flex items-center gap-1">Reporting Officer (RO)<InfoIcon /></label>
-      <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] text-[var(--ecs-muted)] flex items-center justify-between gap-2">
-        <span>{value}</span>
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" className="opacity-50 shrink-0" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+  // Shared: RO (read-only) + Charging Account (editable dropdown) + Travel Classification badge.
+  const ChargingBlock = ({ roValue, roHint }: { roValue: React.ReactNode; roHint: string }) => (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <DerivedField label="Reporting Officer (RO)" info muted value={roValue} hint={roHint} />
+        <div>
+          <label className="label inline-flex items-center gap-1">Charging Account <span className="text-[var(--ecs-red)]">*</span><InfoIcon /></label>
+          <select name="chargingCode" value={chargingCode} onChange={(e) => setChargingCode(e.target.value)} className="field txt-default" required>
+            {chargingAccounts.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+          </select>
+          <p className="text-xs text-[var(--ecs-muted)] mt-1">Defaulted from Profile. You may change the charging account if required.</p>
+        </div>
       </div>
-      <p className="text-xs text-[var(--ecs-muted)] mt-1">{hint}</p>
-    </div>
-  );
-  const ChargingField = () => (
-    <div>
-      <label className="label inline-flex items-center gap-1">Charging Account <span className="text-[var(--ecs-red)]">*</span><InfoIcon /></label>
-      <select name="chargingCode" value={chargingCode} onChange={(e) => setChargingCode(e.target.value)} className="field txt-default" required>
-        {chargingAccounts.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
-      </select>
-      <p className="text-xs text-[var(--ecs-muted)] mt-1">Defaulted from Profile. You may change the charging account if required.</p>
-    </div>
+      <TravelClassification isResearch={researchOf(chargingCode)} />
+    </>
   );
 
   const Upload = ({ onPick, onTemplate, inputRef, onChange }: { onPick: () => void; onTemplate: () => void; inputRef: React.RefObject<HTMLInputElement | null>; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) => (
@@ -271,11 +273,11 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
 
   return (
     <div>
-      {/* Request-type tabs (icon cards) — content-sized, left-aligned. */}
-      <div className="card p-1.5 mb-4 inline-flex gap-1">
+      {/* Request-type tabs (icon cards) */}
+      <div className="card p-1.5 mb-4 flex gap-1">
         {modes.map((m) => (
           <button key={m} type="button" onClick={() => switchMode(m)}
-            className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
+            className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
             <ModeIcon m={m} /> {MODE_LABEL[m]}
           </button>
         ))}
@@ -283,62 +285,52 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
 
       {mode === 'guest' ? (
         <form action={createGuestDraft}>
-          <div className="grid lg:grid-cols-2 gap-5">
-            <div className="card">
-              <div className="card-head">Host &amp; Charging</div>
-              <div className="p-4 space-y-4">
-                <RequestorBox label="Host / Requestor (you)" />
-                <div className="grid md:grid-cols-2 gap-4">
-                  <ROField value="Not Applicable — guest travel has no traveller RO" hint="Determined by the configured guest approval workflow." />
-                  <ChargingField />
-                </div>
-                <TravelClassification isResearch={researchOf(chargingCode)} />
+          <div className="card">
+            <div className="card-head">Guest / Non-Employee Traveller</div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="label">Host / Requestor (you)</label>
+                <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
               </div>
-            </div>
-            <div className="card">
-              <div className="card-head">Guest Details</div>
-              <div className="p-4 space-y-4">
-                <div>
-                  <label className="label" htmlFor="guestName">Guest name <span className="text-[var(--ecs-red)]">*</span></label>
-                  <input id="guestName" name="guestName" required className="field" placeholder="e.g. Prof Maria Santos" />
-                </div>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div><label className="label" htmlFor="guestEmail">Guest email <span className="text-[var(--ecs-red)]">*</span></label><input id="guestEmail" name="guestEmail" type="email" required className="field" placeholder="e.g. maria.santos@example.edu" /></div>
-                  <div><label className="label" htmlFor="guestOrg">Home organisation <span className="text-[var(--ecs-red)]">*</span></label><input id="guestOrg" name="guestOrg" required className="field" placeholder="e.g. MIT" /></div>
-                </div>
-                <p className="text-xs text-[var(--ecs-muted)]">Guest travel is charged to the selected account. Economy class applies unless an exception is approved (§8, AC7).</p>
-              </div>
+              <ChargingBlock roValue="Not Applicable — guest travel has no traveller RO" roHint="Determined by the configured guest approval workflow." />
             </div>
           </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <a href="/dashboard" className="btn-secondary">Cancel</a>
-            <button className="btn-primary">Create guest draft →</button>
+          <div className="card mt-4">
+            <div className="card-head">Guest Details</div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="label" htmlFor="guestName">Guest name <span className="text-[var(--ecs-red)]">*</span></label>
+                <input id="guestName" name="guestName" required className="field" placeholder="e.g. Prof Maria Santos" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="label" htmlFor="guestEmail">Guest email <span className="text-[var(--ecs-red)]">*</span></label><input id="guestEmail" name="guestEmail" type="email" required className="field" placeholder="e.g. maria.santos@example.edu" /></div>
+                <div><label className="label" htmlFor="guestOrg">Home organisation <span className="text-[var(--ecs-red)]">*</span></label><input id="guestOrg" name="guestOrg" required className="field" placeholder="e.g. MIT" /></div>
+              </div>
+              <p className="text-xs text-[var(--ecs-muted)]">Guest travel is charged to the selected account. Economy class applies unless an exception is approved (§8, AC7).</p>
+            </div>
           </div>
+          <div className="mt-4 flex justify-end"><button className="btn-primary">Create guest draft →</button></div>
         </form>
       ) : mode === 'individual' ? (
         <form action={createDraft}>
-          <div className="grid lg:grid-cols-3 gap-5 items-start">
-            <div className="card lg:col-span-2">
-              <div className="card-head">Traveller &amp; Approval</div>
-              <div className="p-4 grid md:grid-cols-2 gap-4">
-                <RequestorBox label="Requestor (you)" />
-                <ROField value={selectedTraveller?.roName ?? '— none on file —'} hint="Automatically derived from Workday." />
-                <div>
-                  <label className="label" htmlFor="travellerId">Traveller <span className="text-[var(--ecs-red)]">*</span></label>
-                  <select id="travellerId" name="travellerId" className="field" value={travellerId} onChange={(e) => onTraveller(e.target.value)}>
-                    {options.map((e) => <option key={e.id} value={e.id}>{e.name} — {e.title} ({e.dept}){e.delegated ? ' · Delegated' : ''}</option>)}
-                  </select>
-                  {isRequestor && <p className="text-xs text-[var(--ecs-muted)] mt-1">You are creating this request on behalf of the selected traveller. Travel entitlements and approval routing will follow the traveller.</p>}
-                </div>
-                <ChargingField />
+          <div className="card">
+            <div className="card-head">Traveller</div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="label">Requestor (you)</label>
+                <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
               </div>
+              <div>
+                <label className="label" htmlFor="travellerId">Traveller <span className="text-[var(--ecs-red)]">*</span></label>
+                <select id="travellerId" name="travellerId" className="field" value={travellerId} onChange={(e) => onTraveller(e.target.value)}>
+                  {options.map((e) => <option key={e.id} value={e.id}>{e.name} — {e.title} ({e.dept}){e.delegated ? ' · Delegated' : ''}</option>)}
+                </select>
+                {isRequestor && <p className="text-xs text-[var(--ecs-muted)] mt-1">You are creating this request on behalf of the selected traveller. Travel entitlements and approval routing will follow the traveller.</p>}
+              </div>
+              <ChargingBlock roValue={selectedTraveller?.roName ?? '— none on file —'} roHint="Automatically derived from Workday." />
             </div>
-            <TravelClassification isResearch={researchOf(chargingCode)} standalone />
           </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <a href="/dashboard" className="btn-secondary">Cancel</a>
-            <button className="btn-primary">Create draft →</button>
-          </div>
+          <div className="mt-4 flex justify-end"><button className="btn-primary">Create draft →</button></div>
         </form>
       ) : (
         <>
@@ -353,20 +345,18 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
             <form action={createGroupDraft}>
               <input type="hidden" name="groupType" value="STUDENT" />
               <input type="hidden" name="studentsJson" value={JSON.stringify(namedStudents.map((s) => ({ name: s.name.trim(), email: s.email.trim(), studentId: s.studentId.trim(), programme: s.programme.trim() })))} />
-              <div className="grid lg:grid-cols-2 gap-5">
               <div className="card">
                 <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${studentOver ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{studentTotal} of {groupMax} travellers</span></div>
                 <div className="p-4 space-y-4">
-                  <RequestorBox label="Requestor / Coordinator (you)" />
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <ROField value="Not Applicable — RO approval not required for group travel" hint="Determined by the configured group approval workflow." />
-                    <ChargingField />
+                  <div>
+                    <label className="label">Requestor / Coordinator (you)</label>
+                    <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
                   </div>
-                  <TravelClassification isResearch={researchOf(chargingCode)} />
+                  <ChargingBlock roValue="Not Applicable — RO approval not required for group travel" roHint="Determined by the configured group approval workflow." />
                 </div>
               </div>
 
-              <div className="card">
+              <div className="card mt-4">
                 <div className="card-head flex items-center justify-between"><span>Add Group Members</span><span className="text-xs font-normal text-[var(--ecs-muted)]">Minimum 2 · Maximum {groupMax} travellers</span></div>
                 <div className="p-4">
                   <div className="flex gap-5 border-b border-[var(--ecs-border)] mb-4">
@@ -408,10 +398,8 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                   {studentOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {studentTotal - groupMax} student{studentTotal - groupMax > 1 ? 's' : ''}.</p>}
                 </div>
               </div>
-              </div>
               <div className="mt-4 flex items-center justify-end gap-3">
                 {studentTooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 students to continue.</span>}
-                <a href="/dashboard" className="btn-secondary">Cancel</a>
                 <button className="btn-primary" disabled={studentOver || studentTooFew}>Create student group draft →</button>
               </div>
             </form>
@@ -419,20 +407,18 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
             <form action={createGroupDraft}>
               <input type="hidden" name="groupType" value="STAFF" />
               {[...selected].map((id) => <input key={id} type="hidden" name="travellerIds" value={id} />)}
-              <div className="grid lg:grid-cols-2 gap-5">
               <div className="card">
                 <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${over ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{total} of {groupMax} travellers</span></div>
                 <div className="p-4 space-y-4">
-                  <RequestorBox label="Requestor (you)" />
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <ROField value="Not Applicable — RO approval not required for group travel" hint="Determined by the configured group approval workflow." />
-                    <ChargingField />
+                  <div>
+                    <label className="label">Requestor (you)</label>
+                    <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
                   </div>
-                  <TravelClassification isResearch={researchOf(chargingCode)} />
+                  <ChargingBlock roValue="Not Applicable — RO approval not required for group travel" roHint="Determined by the configured group approval workflow." />
                 </div>
               </div>
 
-              <div className="card">
+              <div className="card mt-4">
                 <div className="card-head flex items-center justify-between"><span>Add Group Members</span><span className="text-xs font-normal text-[var(--ecs-muted)]">Minimum 2 · Maximum {groupMax} travellers</span></div>
                 <div className="p-4">
                   <div className="flex gap-5 border-b border-[var(--ecs-border)] mb-4">
@@ -503,10 +489,8 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                   {over && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {total - groupMax} traveller{total - groupMax > 1 ? 's' : ''}.</p>}
                 </div>
               </div>
-              </div>
               <div className="mt-4 flex items-center justify-end gap-3">
                 {tooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 travellers to continue.</span>}
-                <a href="/dashboard" className="btn-secondary">Cancel</a>
                 <button className="btn-primary" disabled={over || tooFew}>Create group draft →</button>
               </div>
             </form>
