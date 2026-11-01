@@ -5,7 +5,7 @@
 import { EcsIdentity, EcsReference, EcsCharging, EcsPolicy } from '@/shared/ecs/services';
 import { fmtSgd, computeOdaTiered, type CostSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNightsAtCity } from '@/modules/pretrip/group';
-import { guestSettlements } from '@/modules/pretrip/settlement';
+import { guestSettlements, guestSettlementLabel } from '@/modules/pretrip/settlement';
 import { isGuestRequest, travellerName, travellerTitle, travellerEmail, memberName, memberDeptName, isGuestMember, isStudentMember, isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { exceptionViews, daysToBook } from '@/modules/pretrip/exceptions';
 import { ntuUpgradeDeltaTotal, ntuUpgradeDeltaByAccount } from '@/modules/pretrip/upgrade';
@@ -533,12 +533,12 @@ export function GuestSettlementCard({ req, letter, className }: { req: FullReque
   const totalBilled = rows.reduce((s, r) => s + (r.billedSgd ?? 0), 0);
   const anyBilled = rows.some((r) => r.billedSgd != null);
   return (
-    <Card title={heading(letter, `Guest Settlement — host direct-billed (${rows.length})`)} className={className}>
+    <Card title={heading(letter, `Guest Settlement — ${guestSettlementLabel()} (${rows.length})`)} className={className}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr>
             <th className="th">Guest</th><th className="th">Organisation</th><th className="th">Cost object (host)</th>
-            <th className="th text-right">Estimate (SGD)</th><th className="th text-right">Direct-billed (SGD)</th><th className="th">Settlement</th>
+            <th className="th text-right">Estimate (SGD)</th><th className="th text-right">Settled (SGD)</th><th className="th">Settlement</th>
           </tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -554,7 +554,7 @@ export function GuestSettlementCard({ req, letter, className }: { req: FullReque
           </tbody>
           <tfoot>
             <tr className="font-semibold">
-              <td className="td" colSpan={3}>Total guest cost (host-settled)</td>
+              <td className="td" colSpan={3}>Total guest cost (centrally settled)</td>
               <td className="td text-right">{fmtSgd(totalEst)}</td>
               <td className="td text-right">{anyBilled ? fmtSgd(totalBilled) : '—'}</td>
               <td className="td"></td>
@@ -563,7 +563,7 @@ export function GuestSettlementCard({ req, letter, className }: { req: FullReque
         </table>
       </div>
       <p className="text-xs text-[var(--ecs-muted)] mt-2">
-        Guests have no ECS login and file <b>no TE claim</b> (§8). Their airfare and accommodation are <b>direct-billed by the TMC to the host department</b> cost object above; the actual is read from the guest&apos;s own booking in the group fan-out (§9.3). Guests carry <b>no share of any shared line</b> and no ODA is settled through this flow.
+        Guests have no ECS login and file <b>no TE claim</b> (§8). Their airfare and accommodation are settled centrally via the <b>configured guest-settlement channel</b> — currently a <b>{guestSettlementLabel()}</b> (a central travel account), which clears to the host department cost object above; the actual is read from the guest&apos;s own booking (§9.3). Guests carry <b>no share of any shared line</b> and no ODA is settled through this flow.
       </p>
       {/* §8 / DD-21 PDPA — ECS never holds guest sensitive data; the TMC collects it. */}
       <div className="mt-3 rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 text-xs text-[var(--ecs-muted)]">

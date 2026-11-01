@@ -31,6 +31,19 @@ export type LineSettlement = 'CENTRAL' | 'EMPLOYEE';
 
 export const HOTEL_SETTLEMENT = { Cta: 'CTA', Individual: 'INDIVIDUAL' } as const;
 
+// §8 Guest settlement CHANNEL — configuration-driven, NOT hard-coded. Guests file no claim, so their
+// cost is settled CENTRALLY per the configured method. Currently a DESIGNATED CTA (central travel
+// account) bears the guest cost and clears to the host department cost object; switch the config value
+// to change the channel (e.g. host direct-bill) without touching the settlement UI.
+export const GUEST_SETTLEMENT = { Cta: 'CTA', HostDirectBill: 'HOST_DIRECT_BILL' } as const;
+export type GuestSettlementMethod = (typeof GUEST_SETTLEMENT)[keyof typeof GUEST_SETTLEMENT];
+export const guestSettlementMethod: GuestSettlementMethod = GUEST_SETTLEMENT.Cta;
+const GUEST_SETTLEMENT_LABEL: Record<GuestSettlementMethod, string> = {
+  CTA: 'Designated CTA',
+  HOST_DIRECT_BILL: 'Host direct-billed',
+};
+export function guestSettlementLabel(): string { return GUEST_SETTLEMENT_LABEL[guestSettlementMethod]; }
+
 /** Whether CTA (central) hotel settlement is offerable — only when the trip routes via a TMC
  *  (you cannot central-bill a room the traveller self-arranges). */
 export function hotelCtaAvailable(req: { bookingArrangement?: string | null }): boolean {
@@ -105,7 +118,7 @@ export function guestSettlements(req: FullRequest): GuestSettlementRow[] {
       estimatedSgd,
       billedSgd,
       source: billedSgd != null ? 'TMC_DIRECT_BILL' : 'ESTIMATE',
-      status: billedSgd != null ? 'Direct-billed to host' : 'Pending TMC booking',
+      status: billedSgd != null ? `Charged to ${guestSettlementLabel()}` : 'Pending TMC booking',
     }];
   }
   return req.travellers.filter(isNonEmployeeMember).map((t) => {
@@ -131,7 +144,7 @@ export function guestSettlements(req: FullRequest): GuestSettlementRow[] {
       estimatedSgd,
       billedSgd,
       source: billedSgd != null ? 'TMC_DIRECT_BILL' : 'ESTIMATE',
-      status: billedSgd != null ? 'Direct-billed to host' : 'Pending TMC booking',
+      status: billedSgd != null ? `Charged to ${guestSettlementLabel()}` : 'Pending TMC booking',
     };
   });
 }
