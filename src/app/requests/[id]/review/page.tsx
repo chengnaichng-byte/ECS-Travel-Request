@@ -13,7 +13,7 @@ import { REQUEST_STATUS, BOOKING_METHOD, BOOKING_METHOD_LABEL } from '@/shared/e
 import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
 import { EMERGENCY_APPROVAL_DOC, qualifiesForEmergency, urgentButNotBookAhead, leadTimeDays } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { travellerName } from '@/modules/pretrip/traveller';
+import { travellerName, isGuestRequest } from '@/modules/pretrip/traveller';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
 import { getActiveWorkflowScenario } from '@/modules/pretrip/workflowConfig';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
@@ -97,13 +97,21 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const highRisk = isHighRisk(req);
 
   // §21 dynamic approval-route preview — derived from the request's CURRENT charging, cost,
-  // exceptions and saved Additional Approver, so it reflects edits as the request changes.
+  // exceptions and saved Additional Approver, so it reflects edits as the request changes. Mirror
+  // submitRequest's guest-upgrade handling: the CLASS exception of a guest upgrade routes to the
+  // configured Provost (not the generic Exception step), so exclude it from hasException and supply
+  // the Provost from the module setting — otherwise the preview diverges from the actual route.
+  const previewTravellerIds = req.isGroup ? req.travellers.map((t) => t.employeeId) : [req.travellerId];
+  const previewGuestUpgrade = isGuestRequest(req) && !req.isGroup && exceptions.some((c) => c.code === 'CLASS');
+  const previewProvostId = settings.guestUpgradeProvostId && !previewTravellerIds.includes(settings.guestUpgradeProvostId) ? settings.guestUpgradeProvostId : null;
+  const previewHasException = (previewGuestUpgrade ? exceptions.filter((c) => c.code !== 'CLASS') : exceptions).some((c) => exceptionNeedsApproval(c.code));
   const previewSteps = buildRoute(req, {
     exceptionApproverRequired: settings.exceptionApproverRequired,
     sameRouteResearch: settings.sameRouteResearch,
     approvalAmount: summary.approvalAmount,
-    hasException: exceptions.some((c) => exceptionNeedsApproval(c.code)),
+    hasException: previewHasException,
     roRequirement: settings.roRequirement,
+    guestUpgradeProvostId: previewProvostId,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
     workflowScenario: await getActiveWorkflowScenario(),
