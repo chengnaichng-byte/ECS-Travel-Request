@@ -1,8 +1,10 @@
 'use client';
-// §13.x Non-term research travel — a research-gated dropdown (shown under Booking arrangement on the
-// Trip step) replacing the old collapsible card. Selectable only when the trip is research-funded; on
-// "Yes" it reveals the inline offline-approval email attach. The value posts as name="nonTerm" (value
-// "on") within the Trip form, so saveTrip stores it exactly as before.
+// §13.x Non-term research travel — a research-gated attestation checkbox (shown under Booking
+// arrangement on the Trip step). Ticking it attests BOTH that the trip is in non-term time AND that
+// the offline approval has been obtained, which is what lets the pre-trip be fast-tracked. Selectable
+// only when the trip is research-funded; on check it reveals the inline offline-approval email attach.
+// The checkbox posts name="nonTerm" value="on" within the Trip form, so saveTrip stores it exactly as
+// the old dropdown did.
 import { useState } from 'react';
 
 export function NonTermField({ eligible, declared, attachAction, approvals }: {
@@ -11,16 +13,20 @@ export function NonTermField({ eligible, declared, attachAction, approvals }: {
   attachAction: (fd: FormData) => Promise<void>;
   approvals: { id: string; fileName: string; sizeKb: number }[];
 }) {
-  const [val, setVal] = useState(declared ? 'on' : '');
-  const on = eligible && val === 'on';
+  const [checked, setChecked] = useState(declared);
+  const on = eligible && checked;
   return (
     <div className="md:col-span-3">
       <label className="label">Non-term research travel — offline approval (§13.x)</label>
-      <select name="nonTerm" value={eligible ? val : ''} disabled={!eligible} onChange={(e) => setVal(e.target.value)}
-        className={`field max-w-xl ${!eligible ? 'bg-[var(--ecs-panel)] text-[var(--ecs-muted)] cursor-not-allowed' : ''}`}>
-        <option value="">{eligible ? 'Not applicable' : 'Not available — research-funded travel only'}</option>
-        {eligible && <option value="on">Yes — this trip is in non-term time and the offline approval has been obtained</option>}
-      </select>
+      <label className={`flex items-start gap-2 max-w-xl ${eligible ? 'cursor-pointer' : 'cursor-not-allowed text-[var(--ecs-muted)]'}`}>
+        <input type="checkbox" name="nonTerm" value="on" checked={on} disabled={!eligible}
+          onChange={(e) => setChecked(e.target.checked)} className="mt-0.5" />
+        <span className="text-sm">
+          {eligible
+            ? 'This research trip is in non-term time and the offline approval has been obtained'
+            : 'Not available — research-funded travel only'}
+        </span>
+      </label>
       <p className="text-xs text-[var(--ecs-muted)] mt-1">A research-funded trip in <b>non-term time</b> already carries an offline approval, so the pre-trip can be fast-tracked where the workflow allows it. Available only for research-funded travel (the Is-Research flag follows the charging account).</p>
       {on && (
         <div className="mt-2 max-w-xl">
