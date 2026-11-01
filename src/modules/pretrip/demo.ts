@@ -560,6 +560,46 @@ export async function demoEmergencyDraft() {
   redirect(`/requests/${id}/review`);
 }
 
+/** M6 entitlement-split TR — pre-filled draft as Dr Alice Tan (Requestor). §13.19: Alice is policy
+ *  group C20 (Appointment Holders), entitled to Premium Economy on flights ≥ 6h, and C20 is the only
+ *  group that attracts M6 — so her long-haul fare splits into an Economy BASE (charged to the cost
+ *  centre) + an M6 DIFFERENTIAL (Economy→Premium Economy, funded from the BA's M6 account). Tokyo is
+ *  a 7h leg so the entitlement applies. Not submitted; opens at Review (the M6 differential account is
+ *  shown/selectable on the Charging step). Uses the real m6LineFields split, same as live capture. */
+export async function demoM6Draft() {
+  const TAG = '[demo:m6]';
+  await clearDemoDrafts(TAG);
+  const off = 66;
+  const settings = await getSettings();
+  const start = demoDay(off), end = demoDay(off + 4);
+  const requestNumber = await nextRequestNumber(YEAR);
+  const req = await prisma.travelRequest.create({ data: {
+    requestNumber, requestorId: 'E-TRAV', travellerId: 'E-TRAV',
+    entityId: EcsIdentity.entity().id, departmentId: 'SCH-CS', isResearch: false,
+    status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+    purposeId: 'TP-TC-ACAD', description: `M6 entitlement split — Premium Economy long-haul (Tokyo) ${TAG}`,
+    tripType: 'ROUND_TRIP', destCountry: 'JP', destCity: 'TYO', startDate: day(start), endDate: day(end),
+    travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', classBasis: 'Register C20 — Premium Economy for flights ≥ 6h',
+    bookingArrangement: 'AUTO', bookingMethod: BOOKING_METHOD.TMCOnline,
+  } });
+  const id = req.id;
+  await audit(id, 'E-TRAV', 'CREATE', `M6 draft ${requestNumber} created`);
+  const legs = [
+    { seq: 1, o: 'SIN', d: 'HND', dep: start, dur: 7, nights: 4 },   // Tokyo (long-haul → PEY entitlement)
+    { seq: 2, o: 'HND', d: 'SIN', dep: end, dur: 7, nights: 0 },
+  ];
+  for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', chosenClassId: 'TC-PEY' } });
+  await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400, ...(await m6LineFields(3400, 'E-TRAV', 'TC-PEY', 'BA-CS', day(start))) } });
+  const c = computeAccommodation({ cityCode: 'TYO', nights: 4, personalNights: 0, quotedNightly: 300, basis: settings.hotelEstimateBasis });
+  const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
+  await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 4, personalNights: 0, quotedNightly: 300, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
+  const master = EcsCharging.code('CC-1000');
+  await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
+  await backfillHotelDates(id); await rebuildOda(id);
+  await switchPersona('E-TRAV', 'REQUESTOR');
+  redirect(`/requests/${id}/review`);
+}
+
 /** DOA review & approval — opens an already-SUBMITTED request sitting at Pending DOA, acting as the
  *  assigned DOA (a draft cannot be approved, so this scenario necessarily uses a submitted request). */
 export async function demoDoaReview() {
