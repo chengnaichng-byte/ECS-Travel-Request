@@ -71,7 +71,6 @@ export default async function Dashboard() {
         actions={
           <>
             {requests.length === 0 && <form action={seedDemoScenarios}><button className="btn-secondary">Load demonstration scenarios</button></form>}
-            {requests.length > 0 && <form action={seedNonTermResearchDemo}><button className="btn-secondary" title="Seed a non-term research draft (Dr Henry Ong) and open it at Submit, ready to demonstrate the auto-approve branch.">▶ Non-term research demo</button></form>}
             {canCreate && <Link href="/requests/new" className="btn-primary">＋ Create Travel Request</Link>}
           </>
         } />
@@ -88,6 +87,7 @@ export default async function Dashboard() {
             <form action={demoGuestDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled guest draft and act as the host PA.">▶ Guest TR · as Priya Nair (PA)</button></form>
             <form action={demoEmergencyDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled, urgent agent-assisted draft (qualifies for the emergency lane on submit) and act as the traveller.">▶ Emergency TR · as Dr Alice Tan</button></form>
             <form action={demoM6Draft}><button className="btn-secondary text-xs" title="Seed a pre-filled Premium Economy long-haul draft (Dr Alice Tan, policy group C20) — the fare splits into an Economy base plus an M6 differential funded from the BA's M6 account. Act as the traveller.">▶ M6 upgrade TR · as Dr Alice Tan</button></form>
+            <form action={seedNonTermResearchDemo}><button className="btn-secondary text-xs" title="Seed a non-term research draft (Dr Henry Ong) with the offline-approval attestation and email attached, and open it at Submit — ready to demonstrate the auto-approve branch.">▶ Non-term research TR · as Dr Henry Ong</button></form>
             <form action={demoDoaReview}><button className="btn-secondary text-xs" title="Open a submitted request at Pending DOA, acting as the assigned DOA, ready to review and approve.">▶ DOA review &amp; approval · as DOA</button></form>
           </div>
         </div>
