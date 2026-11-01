@@ -53,7 +53,7 @@ interface ScenarioInput {
   destCountry: string; destCity: string; destAirport: string; start: string; end: string;
   personalStart?: string; personalEnd?: string; travelClassId: string; bookingMethod: string;
   airfare: { amount: number; currency: string; classId: string; sponsorship?: number };
-  hotel?: { city: string; nights: number; personalNights?: number; quotedNightly: number; note?: string };
+  hotel?: { city: string; nights: number; personalNights?: number; quotedNightly?: number; note?: string };
   oda?: { country: string; city: string; arrive: string; depart: string; personalDays?: number };
   conference?: { amount: number };
   charging: Charge[];
@@ -96,11 +96,13 @@ async function buildDraft(s: ScenarioInput): Promise<string> {
       originCode: 'SIN', destCode: s.destAirport, proposedClassId: s.airfare.classId, fareCeiling: airSgd, handoffStatus: 'Pending',
     },
   });
-  // Accommodation
+  // Accommodation — the nightly rate PRE-FILLS at the city cap (budget at cap) unless the scenario
+  // deliberately overrides it (e.g. an above-cap exception demo).
   if (s.hotel) {
-    const calc = computeAccommodation({ cityCode: s.hotel.city, nights: s.hotel.nights, personalNights: s.hotel.personalNights ?? 0, quotedNightly: s.hotel.quotedNightly, basis: settings.hotelEstimateBasis });
+    const hotelRate = s.hotel.quotedNightly ?? (EcsPolicy.hotelCap(s.hotel.city) ?? 0);
+    const calc = computeAccommodation({ cityCode: s.hotel.city, nights: s.hotel.nights, personalNights: s.hotel.personalNights ?? 0, quotedNightly: hotelRate, basis: settings.hotelEstimateBasis });
     const exp = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: calc.sgdAmount, sgdAmount: calc.sgdAmount, estimateBasis: settings.hotelEstimateBasis, notes: s.hotel.note ?? null } });
-    await prisma.accommodationEstimate.create({ data: { expenseId: exp.id, city: s.hotel.city, nights: s.hotel.nights, personalNights: s.hotel.personalNights ?? 0, quotedNightly: s.hotel.quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome } });
+    await prisma.accommodationEstimate.create({ data: { expenseId: exp.id, city: s.hotel.city, nights: s.hotel.nights, personalNights: s.hotel.personalNights ?? 0, quotedNightly: hotelRate, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome } });
   }
   // ODA
   if (s.oda) {
@@ -505,7 +507,7 @@ export async function demoIndividualDraft() {
     requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-TC-ACAD', isResearch: false,
     destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: demoDay(off), end: demoDay(off + 4),
     travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
-    airfare: { amount: 1200, currency: 'SGD', classId: 'TC-ECO' }, hotel: { city: 'TYO', nights: 4, quotedNightly: 300 },
+    airfare: { amount: 1200, currency: 'SGD', classId: 'TC-ECO' }, hotel: { city: 'TYO', nights: 4 },
     oda: { country: 'JP', city: 'TYO', arrive: demoDay(off), depart: demoDay(off + 4) }, conference: { amount: 800 },
     charging: [{ code: 'CC-1000', pct: 100 }],
   });
@@ -534,7 +536,7 @@ export async function demoGuestDraft() {
   const id = await seedGuestRequest({
     guestName: 'Prof Maria Santos', guestEmail: 'maria.santos@mit.edu', guestOrg: 'MIT', purposeId: 'TP-TC-ACAD',
     destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: demoDay(off), end: demoDay(off + 4),
-    nights: 4, durationHours: 6, airfare: 1450, nightly: 240, descr: `Guest keynote — Seoul ${TAG}`,
+    nights: 4, durationHours: 6, airfare: 1450, descr: `Guest keynote — Seoul ${TAG}`,
   });
   await backfillHotelDates(id); await rebuildOda(id);
   await switchPersona('E-PA', 'PA');
@@ -551,7 +553,7 @@ export async function demoEmergencyDraft() {
     requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-OB-ACAD', isResearch: false,
     destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: demoDay(off), end: demoDay(off + 3),
     travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.AgentAssisted,
-    airfare: { amount: 1400, currency: 'SGD', classId: 'TC-ECO' }, hotel: { city: 'SEL', nights: 3, quotedNightly: 260 },
+    airfare: { amount: 1400, currency: 'SGD', classId: 'TC-ECO' }, hotel: { city: 'SEL', nights: 3 },
     oda: { country: 'KR', city: 'SEL', arrive: demoDay(off), depart: demoDay(off + 3) },
     charging: [{ code: 'CC-1000', pct: 100 }],
   });
@@ -591,9 +593,10 @@ export async function demoM6Draft() {
   ];
   for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-PEY', entitledClassId: 'TC-PEY', chosenClassId: 'TC-PEY' } });
   await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 3400, sgdAmount: 3400, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-PEY', fareCeiling: 3400, ...(await m6LineFields(3400, 'E-TRAV', 'TC-PEY', 'BA-CS', day(start))) } });
-  const c = computeAccommodation({ cityCode: 'TYO', nights: 4, personalNights: 0, quotedNightly: 300, basis: settings.hotelEstimateBasis });
+  const m6Rate = EcsPolicy.hotelCap('TYO') ?? 0;
+  const c = computeAccommodation({ cityCode: 'TYO', nights: 4, personalNights: 0, quotedNightly: m6Rate, basis: settings.hotelEstimateBasis });
   const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
-  await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 4, personalNights: 0, quotedNightly: 300, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
+  await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city: 'TYO', nights: 4, personalNights: 0, quotedNightly: m6Rate, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
   const master = EcsCharging.code('CC-1000');
   await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
   await backfillHotelDates(id); await rebuildOda(id);
@@ -629,7 +632,8 @@ export async function demoMultiCityDraft() {
   ];
   for (const l of legs) await prisma.itineraryLeg.create({ data: { requestId: id, seq: l.seq, originCode: l.o, destCode: l.d, departDate: day(l.dep), arriveDate: day(l.dep), transportMode: 'AIR', durationHours: l.dur, nights: l.nights, travelClassId: 'TC-ECO', entitledClassId: 'TC-ECO', chosenClassId: 'TC-ECO' } });
   await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 2200, sgdAmount: 2200, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-ECO', fareCeiling: 2200, handoffStatus: 'Pending' } });
-  for (const [city, nights, rate] of [['TYO', 2, 300], ['OSA', 2, 300], ['SEL', 2, 240]] as [string, number, number][]) {
+  for (const [city, nights] of [['TYO', 2], ['OSA', 2], ['SEL', 2]] as [string, number][]) {
+    const rate = EcsPolicy.hotelCap(city) ?? 0;   // pre-fill each stop at the city cap
     const c = computeAccommodation({ cityCode: city, nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
     const e = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: c.sgdAmount, sgdAmount: c.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
     await prisma.accommodationEstimate.create({ data: { expenseId: e.id, city, nights, personalNights: 0, quotedNightly: rate, capNightly: c.capNightly, budgetedNightly: c.budgetedNightly, capVariance: c.capVariance, exceptionOutcome: c.outcome } });
@@ -667,7 +671,7 @@ export async function demoGuestUpgradeDraft() {
   const id = await seedGuestRequest({
     guestName: 'Prof Daniel Weiss', guestEmail: 'd.weiss@ethz.ch', guestOrg: 'ETH Zürich', purposeId: 'TP-TC-ACAD',
     destCountry: 'GB', destCity: 'LON', destAirport: 'LHR', start: demoDay(off), end: demoDay(off + 4),
-    nights: 4, durationHours: 13, airfare: 5200, nightly: 260, descr: `Guest keynote — London · Business-class upgrade ${TAG}`,
+    nights: 4, durationHours: 13, airfare: 5200, descr: `Guest keynote — London · Business-class upgrade ${TAG}`,
   });
   // Upgrade to Business, pre-fill the justification and host-school Provost so the only open item is the
   // CLASS exception (which routes Provost → DOA). The itinerary legs and airfare line follow the class.
@@ -901,7 +905,7 @@ async function buildGuestPendingS21() {
 /** Build a SINGLE-guest travel request (§8: one guest per booking; a guest is never part of a
  *  group — groups are employees-only). Guest estimate is airfare + accommodation only (no ODA —
  *  guests file no claim). Returns the request id (unsubmitted). */
-async function seedGuestRequest(o: { guestName: string; guestEmail: string; guestOrg: string; purposeId: string; destCountry: string; destCity: string; destAirport: string; start: string; end: string; nights: number; durationHours: number; airfare: number; nightly: number; descr: string }): Promise<string> {
+async function seedGuestRequest(o: { guestName: string; guestEmail: string; guestOrg: string; purposeId: string; destCountry: string; destCity: string; destAirport: string; start: string; end: string; nights: number; durationHours: number; airfare: number; nightly?: number; descr: string }): Promise<string> {
   const settings = await getSettings();
   const requestNumber = await nextRequestNumber(YEAR);
   const req = await prisma.travelRequest.create({ data: {
@@ -918,9 +922,10 @@ async function seedGuestRequest(o: { guestName: string; guestEmail: string; gues
   await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: o.destAirport, departDate: day(o.start), durationHours: o.durationHours, travelClassId: 'TC-ECO' } });
   await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: o.destAirport, destCode: 'SIN', departDate: day(o.end), durationHours: 0, travelClassId: 'TC-ECO' } });
   await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: o.airfare, sgdAmount: o.airfare, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: o.destAirport, proposedClassId: 'TC-ECO', fareCeiling: o.airfare } });
-  const hcalc = computeAccommodation({ cityCode: o.destCity, nights: o.nights, personalNights: 0, quotedNightly: o.nightly, basis: settings.hotelEstimateBasis });
+  const guestRate = o.nightly ?? (EcsPolicy.hotelCap(o.destCity) ?? 0);
+  const hcalc = computeAccommodation({ cityCode: o.destCity, nights: o.nights, personalNights: 0, quotedNightly: guestRate, basis: settings.hotelEstimateBasis });
   const he = await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Accommodation, expenseTypeId: 'ET-ACC', currency: 'SGD', foreignAmount: hcalc.sgdAmount, sgdAmount: hcalc.sgdAmount, estimateBasis: settings.hotelEstimateBasis } });
-  await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: o.destCity, nights: o.nights, personalNights: 0, quotedNightly: o.nightly, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
+  await prisma.accommodationEstimate.create({ data: { expenseId: he.id, city: o.destCity, nights: o.nights, personalNights: 0, quotedNightly: guestRate, capNightly: hcalc.capNightly, budgetedNightly: hcalc.budgetedNightly, capVariance: hcalc.capVariance, exceptionOutcome: hcalc.outcome } });
   const master = EcsCharging.code('CC-1000');
   await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
   return id;
