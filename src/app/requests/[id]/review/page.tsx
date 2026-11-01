@@ -28,6 +28,7 @@ import { bookingSummaryText, isTmcArrangement } from '@/modules/pretrip/booking'
 import { CostItems, CostAllocationCard } from '@/components/ReviewSections';
 import { ReviewRoute } from '@/components/ReviewRoute';
 import { Card, KV, Stepper } from '@/components/ui';
+import { ProvenanceLegend } from '@/components/ProvenanceLegend';
 import { OutcomePill } from '@/components/StatusPill';
 import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
 
@@ -171,6 +172,8 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
       )}
       <HighRiskAdvisory req={req} />
 
+      <ProvenanceLegend className="mb-4" />
+
       {/* §6.3 Policy checks — re-run + resolve justifications inline (merged from the Policy Review step).
           These sit OUTSIDE the Submit form so they are not nested forms. */}
       <div className="flex justify-end mb-3">
@@ -222,10 +225,10 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           <div className="grid md:grid-cols-3 gap-x-8 gap-y-4">
             {/* Col 1 — traveller, purpose, destination */}
             <dl className="space-y-3">
-              <KV label="Booking type">{bookingType}</KV>
+              <KV label="Booking type"><span className="txt-derived">{bookingType}</span></KV>
               <KV label={req.isGroup ? 'Travellers' : 'Traveller'}>{travellerParty}</KV>
               <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
-              <KV label="Destination">{mainCityName ? `${mainCityName}, ${mainCountryName ?? ''}` : (mainCountryName ?? '—')}</KV>
+              <KV label="Destination"><span className="txt-derived">{mainCityName ? `${mainCityName}, ${mainCountryName ?? ''}` : (mainCountryName ?? '—')}</span></KV>
               {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
             </dl>
             {/* Col 2 — dates and class */}
@@ -244,7 +247,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             {/* Col 3 — booking, TMC, itinerary */}
             <dl className="space-y-3 md:border-l md:border-[var(--ecs-border)] md:pl-6">
               <KV label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</KV>
-              <KV label="TMC">{tmcText}</KV>
+              <KV label="TMC"><span className="txt-derived">{tmcText}</span></KV>
               {req.visaLetterRequired && <KV label="Visa letter">Required (§4.13)</KV>}
               <div>
                 <dt className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide">Itinerary</dt>
