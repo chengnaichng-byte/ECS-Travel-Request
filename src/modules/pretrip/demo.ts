@@ -123,16 +123,18 @@ async function buildDraft(s: ScenarioInput): Promise<string> {
   return id;
 }
 
-/** The scenario seed creates accommodation lines by city + nights without a check-in / check-out,
- *  so the review & approval "Stay dates" line would show "— → —". This backfills those dates from
- *  the request's itinerary legs (From = arrival at the city, To = the next leg's departure onward,
- *  last stop = trip end), the same basis the live auto-estimates use. Lines that already carry a
- *  check-in (manually entered or auto-derived) are left untouched. */
+/** Normalise a seeded request's per-stop hotel lines to match the live auto-estimates engine:
+ *  (1) backfill check-in/out from the itinerary legs (From = arrival at the city, To = the next
+ *  leg's departure onward, last stop = trip end) so "Stay dates" isn't "— → —"; and (2) mark each
+ *  hotel AUTO-DERIVED and key it to its leg, since a seeded per-stop hotel is itinerary-owned — so
+ *  the estimate editor locks its stay (rate-only edit) exactly like a real auto hotel. Existing
+ *  check-in dates are left untouched. */
 async function backfillHotelDates(id: string) {
   const req = await prisma.travelRequest.findUnique({ where: { id }, include: { legs: { orderBy: { seq: 'asc' } }, expenses: { include: { accommodation: true } } } });
   if (!req) return;
   const legs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   const span: Record<string, { from: Date; to: Date }> = {};
+  const legByCity: Record<string, number> = {};
   for (let i = 0; i < legs.length; i++) {
     const l = legs[i];
     const city = EcsReference.airport(l.destCode)?.cityCode ?? l.destCode;
@@ -140,10 +142,15 @@ async function backfillHotelDates(id: string) {
     const from = l.arriveDate ?? l.departDate;
     const to = legs[i + 1]?.departDate ?? legs[i + 1]?.arriveDate ?? req.endDate;
     if (from && to && !span[city]) span[city] = { from, to };
+    if (legByCity[city] == null) legByCity[city] = l.seq;
   }
   for (const e of req.expenses) {
     const a = e.accommodation;
-    if (!a || a.checkIn) continue;
+    if (!a) continue;
+    // Itinerary-owned stay: mark auto-derived and key to its leg (the editor then locks the stay).
+    if (!e.autoDerived) await prisma.estimatedExpense.update({ where: { id: e.id }, data: { autoDerived: true } });
+    if (a.legSeq == null && legByCity[a.city] != null) await prisma.accommodationEstimate.update({ where: { id: a.id }, data: { legSeq: legByCity[a.city] } });
+    if (a.checkIn) continue;
     const s = span[a.city];
     const from = s?.from ?? req.startDate;
     if (!from) continue;
