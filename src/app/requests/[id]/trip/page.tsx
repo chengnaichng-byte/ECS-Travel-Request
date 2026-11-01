@@ -77,8 +77,6 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               <label className="label">TMC (resolved)</label>
               <div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{tmcText}<span className="ml-1 text-xs">· derived from the booking arrangement on save (§2.2)</span></div>
             </div>
-            {/* §13.x Non-term research — a research-gated dropdown under the booking arrangement. */}
-            <NonTermField eligible={nonTermEligible} declared={req.nonTermDeclared} approvals={nonTermApprovals} attachAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} />
             <div className="md:col-span-3">
               <label className="label">Description / justification</label>
               <textarea name="description" defaultValue={req.description ?? ''} rows={2} className="field" placeholder="e.g. Presenting a paper at IEEE conference" />
@@ -93,6 +91,8 @@ export default async function TripStep({ params, searchParams }: { params: Promi
                 <span>A <strong>visa letter</strong> is required for this trip (§4.13) — the immigration office is notified once the request is approved.</span>
               </label>
             </div>
+            {/* §13.x Non-term research — a research-gated attestation checkbox, below the visa-letter row. */}
+            <NonTermField eligible={nonTermEligible} declared={req.nonTermDeclared} approvals={nonTermApprovals} attachAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} />
           </div>
         </Card>
 
