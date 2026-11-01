@@ -70,7 +70,7 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
   const entityName = EcsIdentity.entity().name;
 
   return (
-    <div className="max-w-2xl">
+    <div className="w-full">
       <PageTitle id="TR-02" title="Create Travel Request"
         subtitle="Select the traveller (or travellers, for a group request). Traveller, entity, department, RO and Additional Approvers are derived from ECS/HR." />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
