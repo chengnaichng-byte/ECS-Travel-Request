@@ -13,7 +13,7 @@ import { hotelCaps } from '@/data/policyRates';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { makeEntitledClassFor } from '@/modules/pretrip/liveOutcome';
-import { isGuestRequest, memberName } from '@/modules/pretrip/traveller';
+import { memberName } from '@/modules/pretrip/traveller';
 import { updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
@@ -74,7 +74,6 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
     const entitledFor = makeEntitledClassFor(req);
     const entId = entitledFor(req.travellerId);
     // M6 (entitlement differential) is a Charging concern — intentionally not surfaced on the airfare card.
-    const guest = isGuestRequest(req);
     return (
       <Card title="Edit airfare line" className="mb-5" id="edit-line">
         <AirfareForm
@@ -101,7 +100,6 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
           }}
           entitledClassId={entId}
           entitledClassName={travelClasses.find((c) => c.id === entId)?.name ?? 'Economy'}
-          guest={guest}
         />
       </Card>
     );

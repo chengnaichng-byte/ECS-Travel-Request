@@ -10,7 +10,7 @@ import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, setHotelSettlement, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity, EcsPolicy } from '@/shared/ecs/services';
 import { CityCapHint } from '@/components/CityCapHint';
-import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
+import { memberName, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
 /** " · student" / " · guest" / "" — the non-employee label suffix for a member, with a chosen separator. */
 const memberTag = (t: TagRef, sep: string) => isStudentMember(t) ? `${sep}student` : (isNonEmployeeMember(t) ? `${sep}guest` : '');
@@ -119,9 +119,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     ['__ALL__', `All travellers (${req.travellers.length}) — one line each`],
     ...req.travellers.map((t) => [t.employeeId, memberName(t) + (isNonEmployeeMember(t) ? ` (${memberTag(t, '').trim()})` : '')] as [string, string]),
   ];
-  // §8 ODA is not a guest entitlement — a pure guest request hides the ODA card, and a group's
-  // ODA traveller picker offers employee members only (guests are also filtered server-side).
-  const guestRequest = isGuestRequest(req);
   // §4.5 hotel cap per city — the accommodation rate defaults to this (editable).
   const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
   // Resolved cap + name for every selectable city (city cap, else the country fallback) — the
@@ -231,7 +228,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             }}
             entitledClassId={indivEntitledId}
             entitledClassName={indivEntitledName}
-            guest={guestRequest}
           />
         ) },
 

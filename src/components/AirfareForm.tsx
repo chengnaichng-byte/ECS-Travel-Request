@@ -12,14 +12,13 @@ export function AirfareForm({
   action, submitLabel, editing, cancel, returnTo,
   originOpts, destOpts, classOpts, classRanks,
   defaults, entitledClassId, entitledClassName,
-  guest, multiCityNote, legAction, legs, multiCity,
+  multiCityNote, legAction, legs, multiCity,
 }: {
   action: (fd: FormData) => Promise<void>;
   submitLabel: string; editing: boolean; cancel?: React.ReactNode; returnTo?: string;
   originOpts: [string, string][]; destOpts: [string, string][]; classOpts: [string, string][];
   classRanks: Record<string, number>;
   defaults: Defaults; entitledClassId: string; entitledClassName: string;
-  guest: boolean;
   // §13.20 multi-city note — lists the full itinerary and explains the two ways to book the fare;
   // rendered above the fields. Null for single-destination trips.
   multiCityNote?: React.ReactNode;
@@ -91,13 +90,6 @@ export function AirfareForm({
           </div>
           <input type="hidden" name="currency" value="SGD" />
         </div>
-
-        {/* §8 / DD-25 Guest travel-class upgrade — routes to the Provost (configured in settings) ahead of the host DOA. */}
-        {guest && (
-          <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
-            <p className="text-xs text-[var(--ecs-muted)]">A guest flies <strong>Economy</strong> by default. Selecting a higher proposed class requires a <strong>justification</strong>; approval then routes to the <strong>Provost</strong> before the host DOA (§8 / DD-25). The Provost is a single configured authority (Pre-Trip settings), not chosen here.</p>
-          </div>
-        )}
 
         {needJustification && <p className="text-xs text-[var(--ecs-red)]">Add a justification for the class upgrade to enable Save.</p>}
       </form>
