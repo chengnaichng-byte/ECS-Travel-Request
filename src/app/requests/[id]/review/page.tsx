@@ -214,12 +214,12 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
               <KV label="Travel dates">{fmtDate(req.startDate)} – {fmtDate(req.endDate)}</KV>
               {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} – {fmtDate(req.eventEndDate)}</KV>}
               {req.isGroup ? (
-                <KV label="Travel class">Each traveller flies at their own class entitlement (§13.14) — per-traveller classes are shown in the cost items below.</KV>
+                <KV label="Entitled / Proposed travel class">Each traveller flies at their own class entitlement (§13.14) — per-traveller classes are shown in the cost items below.</KV>
               ) : (
-                <>
-                  <KV label="Travel class">{proposedClassName}{classException && <span className="pill-warn ml-1">above entitlement</span>}</KV>
-                  <KV label="Entitled class">{entitledClassName ?? '—'}{policyGroupCode ? <span className="text-[var(--ecs-muted)]"> · {policyGroupCode}</span> : ''}</KV>
-                </>
+                // Entitled / Proposed in one field (consistent with Full Details). Entitled falls back
+                // to the proposed class when no explicit entitlement is recorded (a standard trip at
+                // entitlement), so a plain Economy trip reads "Economy / Economy", not "— / Economy".
+                <KV label="Entitled / Proposed travel class">{entitledClassName ?? proposedClassName} / {proposedClassName}{classException && <span className="pill-warn ml-1">above entitlement</span>}{policyGroupCode ? <span className="text-[var(--ecs-muted)]"> · {policyGroupCode}</span> : ''}</KV>
               )}
             </dl>
             {/* Col 3 — booking, TMC, itinerary */}
