@@ -287,7 +287,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             {isGroup && !ac && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
             {isGroup && ac && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
             {isGroup && !ac && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
-            <p className="text-xs text-[var(--ecs-muted)]">The rate <b>defaults to the selected city&apos;s cap</b> and is editable; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</p>
+            <p className="text-xs text-[var(--ecs-muted)]">{autoStay
+              ? <>The cap for <b>{EcsReference.city(accRec?.city ?? '')?.name ?? accRec?.city}</b> is <b>{fmtSgd(accRec?.capNightly ?? 0)}/night</b>; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above it is capped and needs a justification, or the Conference-hotel tick).</>
+              : <>The rate <b>defaults to the selected city&apos;s cap</b> and is editable; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</>}</p>
           </form>
           </>
         ) },
