@@ -14,7 +14,7 @@ import { nextRequestNumber } from './numbering';
 import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } from './pricing';
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travellerIsEligibleDoa } from './route';
-import { hasNonTermApproval, nonTermResearchEligible } from './nonTerm';
+import { hasNonTermApproval, nonTermResearchEligible, NON_TERM_APPROVAL_DOC } from './nonTerm';
 import { exceptionNeedsApproval } from '@/config/policyThresholds';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { findBlockingDuplicates, findDuplicateRequests } from './duplicates';
@@ -1152,6 +1152,20 @@ export async function saveCharging(id: string, fd: FormData) {
   if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   revalidatePath(`/requests/${id}/charging`);
   redirect(`/requests/${id}/review`);
+}
+
+/** §13.x Proactive resolution for the research→non-research conflict: when the charging account change
+ *  makes the trip non-research but a non-term declaration still stands, the requestor is prompted and
+ *  confirms here. Clears the declaration flag AND detaches its offline-approval email, then re-runs
+ *  policy. (The submit-blocking validation in submitRequest remains the final backstop.) */
+export async function clearNonTermDeclaration(id: string) {
+  if (!(await requireEdit(id))) return;
+  await prisma.travelRequest.update({ where: { id }, data: { nonTermDeclared: false } });
+  await prisma.attachment.deleteMany({ where: { requestId: id, docType: NON_TERM_APPROVAL_DOC } });
+  await audit(id, 'AMEND', 'Non-term research declaration removed — trip is no longer research-funded');
+  await persistPolicy(id);
+  revalidatePath(`/requests/${id}/charging`);
+  revalidatePath(`/requests/${id}/review`);
 }
 
 /** #14 Set (or clear) the traveller-selected M6 account for an NTU-funded upgrade airfare line, from

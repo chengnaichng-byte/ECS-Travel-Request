@@ -27,6 +27,7 @@ import { ProvenanceLegend } from '@/components/ProvenanceLegend';
 import { UpgradeDeltaPicker, type UpgradePickLine } from '@/components/UpgradeDeltaPicker';
 import { Card, Stepper, Empty } from '@/components/ui';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
+import { NonTermConflictNotice } from '@/components/NonTermConflictNotice';
 
 export const dynamic = 'force-dynamic';
 
@@ -172,6 +173,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
       <Stepper id={id} active="charging" requestNumber={req.requestNumber} status={req.status} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s charging.</div>}
       <DuplicateWarning req={req} />
+      <NonTermConflictNotice req={req} />
       <ProvenanceLegend className="mb-4" />
 
       {upgradeLines.length > 0 && (
@@ -233,6 +235,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
         accounts={accounts}
         extraAccounts={m6Accounts}
         showProvenance
+        nonTermDeclared={req.nonTermDeclared}
         expenseTypes={etOpts}
         lines={lines}
         defaultAccount={defaultAccount}

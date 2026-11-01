@@ -29,6 +29,7 @@ import { CostItems, CostAllocationCard } from '@/components/ReviewSections';
 import { ReviewRoute } from '@/components/ReviewRoute';
 import { Card, KV, Stepper } from '@/components/ui';
 import { ProvenanceLegend } from '@/components/ProvenanceLegend';
+import { NonTermConflictNotice } from '@/components/NonTermConflictNotice';
 import { OutcomePill } from '@/components/StatusPill';
 import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
 
@@ -172,6 +173,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
       )}
       <HighRiskAdvisory req={req} />
 
+      <NonTermConflictNotice req={req} />
       <ProvenanceLegend className="mb-4" />
 
       {/* §6.3 Policy checks — re-run + resolve justifications inline (merged from the Policy Review step).

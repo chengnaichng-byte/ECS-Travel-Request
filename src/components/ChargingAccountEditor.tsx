@@ -47,7 +47,7 @@ function groupByCategory(lines: CostLineX[]): { category: string; typeName: stri
 export function ChargingAccountEditor({
   action, canEdit, total, companyCodes, businessAreas, accounts, extraAccounts, expenseTypes, lines,
   defaultAccount, initialMode, initialMain, initialRows, initialLineMap, submitLabel = 'Save & run policy review →',
-  entriesTitle = 'Accounting Entries', backHref, backLabel, showProvenance = false,
+  entriesTitle = 'Accounting Entries', backHref, backLabel, showProvenance = false, nonTermDeclared = false,
 }: {
   action: (fd: FormData) => void;
   canEdit: boolean;
@@ -71,6 +71,7 @@ export function ChargingAccountEditor({
   backHref?: string;           // when set, a Back link renders on the LEFT of the action row
   backLabel?: string;
   showProvenance?: boolean;    // field-provenance markers (pilot, TR charging step only)
+  nonTermDeclared?: boolean;   // true → warn live when the chosen charging turns the trip non-research
 }) {
   const acc = (c: string) => accounts.find((a) => a.code === c) ?? extraAccounts?.find((a) => a.code === c);
   const et = (id: string) => expenseTypes.find((e) => e.id === id);
@@ -191,6 +192,13 @@ export function ChargingAccountEditor({
           <h3 className="font-semibold text-[var(--ecs-navy)]">Charging account details</h3>
         </div>
         <p className="text-xs text-[var(--ecs-muted)] mb-4">Main charging account — defaults to the traveller’s profile cost object. Research WBS drives the research route; the highest-share department derives the DOA (§13.14).</p>
+        {/* Live hint: a declared non-term lane requires research funding — flag the conflict before save,
+            using the EFFECTIVE charged accounts (main in MAIN mode, the split rows otherwise). */}
+        {nonTermDeclared && effective.length > 0 && !effective.some((e) => acc(e.code)?.research) && (
+          <div className="rounded border border-amber-300 bg-amber-50 p-2.5 mb-4 text-xs text-amber-900">
+            <b>Heads up:</b> this charging has no research account, so saving makes the trip <b>Non-Research</b> — your non-term research declaration will no longer apply and you’ll be prompted to remove it.
+          </div>
+        )}
         <div className="grid md:grid-cols-4 gap-4">
           <div>
             <label className="label">Company Code</label>
