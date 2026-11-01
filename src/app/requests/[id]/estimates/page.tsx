@@ -8,7 +8,8 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, setHotelSettlement, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsPolicy } from '@/shared/ecs/services';
+import { CityCapHint } from '@/components/CityCapHint';
 import { memberName, isGuestRequest, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
 type TagRef = { travellerType?: string | null; employeeId: string };
 /** " · student" / " · guest" / "" — the non-employee label suffix for a member, with a chosen separator. */
@@ -129,6 +130,11 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const guestUpgrading = guestRequest && !!req.travelClassId && req.travelClassId !== economyId;
   // §4.5 hotel cap per city — the accommodation rate defaults to this (editable).
   const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
+  // Resolved cap + name for every selectable city (city cap, else the country fallback) — the
+  // accommodation form shows only the APPLICABLE city's cap, tracking the selected city.
+  const selectableCities = cities.filter((c) => c.code !== 'SIN');
+  const resolvedCaps: Record<string, number> = Object.fromEntries(selectableCities.map((c) => [c.code, EcsPolicy.hotelCap(c.code) ?? 0]));
+  const cityNames: Record<string, string> = Object.fromEntries(selectableCities.map((c) => [c.code, c.name]));
   // Label a traveller (or the requestor) for the group airfare/accommodation edit forms.
   const memberLabel = (key: string | null) => {
     const t = req.travellers.find((x) => x.employeeId === key);
@@ -275,21 +281,20 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 ? <ReadOnlyField label="Check-out" value={d(accRec?.checkOut ?? null) || '—'} />
                 : <Input name="checkOut" label="Check-out" type="date" defaultValue={accRec ? d(accRec.checkOut) : tripDefaults.end} />}
             </div>
-            {autoStay && <p className="text-xs text-[var(--ecs-muted)]">Stay dates are set by the itinerary — <Link href={`/requests/${id}/trip`} className="underline">edit them on the Trip step</Link>. Here you can change the <b>rate</b>, mark it a <b>conference hotel</b>, or add an above-cap justification.</p>}
-            {/* Conference-hotel tick (left) + above-cap justification (right) on one line. */}
-            <div className="flex items-end gap-4">
-              <label className="flex items-center gap-2 text-sm whitespace-nowrap shrink-0 pb-2"><input type="checkbox" name="conferenceHotel" defaultChecked={accRec?.conferenceHotel ?? false} /> Conference hotel</label>
-              <div className="flex-1 min-w-0">
-                <label className="label">Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)</label>
-                <input name="notes" defaultValue={ac ? (ac.notes ?? '') : undefined} className="field" />
-              </div>
+            {/* §4.5 Conference-hotel tick (left) + above-cap justification (right), boxed on one line.
+                The placeholder is the guidance — a conference hotel waives the written justification. */}
+            <div className="rounded border border-[var(--ecs-border)] p-3 flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm whitespace-nowrap shrink-0"><input type="checkbox" name="conferenceHotel" defaultChecked={accRec?.conferenceHotel ?? false} /> Conference hotel</label>
+              <input name="notes" defaultValue={ac ? (ac.notes ?? '') : undefined} className="field flex-1 min-w-0"
+                placeholder="If Conference hotel is not checked, please provide justification for budgeting above hotel cap" />
             </div>
             {isGroup && !ac && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
             {isGroup && ac && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
             {isGroup && !ac && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
-            <p className="text-xs text-[var(--ecs-muted)]">{autoStay
-              ? <>The cap for <b>{EcsReference.city(accRec?.city ?? '')?.name ?? accRec?.city}</b> is <b>{fmtSgd(accRec?.capNightly ?? 0)}/night</b>; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above it is capped and needs a justification, or the Conference-hotel tick).</>
-              : <>The rate <b>defaults to the selected city&apos;s cap</b> and is editable; the estimate budgets at the <b>lower of the quoted rate and the cap</b> (a rate above the cap is capped and needs a justification). Caps — {hotelCaps.filter((h) => h.cityCode !== 'SIN').map((h) => `${h.cityCode} ${fmtSgd(h.capNightlySgd)}`).join(', ')}.</>}</p>
+            <div className="text-xs text-[var(--ecs-muted)] space-y-1">
+              <p><b>Note:</b> {autoStay && <>Stay dates follow the itinerary and can be changed on the <Link href={`/requests/${id}/trip`} className="underline">Trip step</Link>. </>}Nightly rate defaults to the city cap and is editable. Rates above cap require justification.</p>
+              <CityCapHint caps={resolvedCaps} cityNames={cityNames} fixedCity={autoStay ? accRec?.city : undefined} fixedCap={autoStay ? accRec?.capNightly : undefined} />
+            </div>
           </form>
           </>
         ) },
