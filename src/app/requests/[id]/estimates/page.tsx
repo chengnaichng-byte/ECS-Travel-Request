@@ -16,6 +16,7 @@ const memberTag = (t: TagRef, sep: string) => isStudentMember(t) ? `${sep}studen
 import { isTmcArrangement } from '@/modules/pretrip/booking';
 import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
+import { HotelSaveButton } from '@/components/HotelSaveButton';
 import { EstimateCostAdd } from '@/components/EstimateCostAdd';
 import { AirfareForm } from '@/components/AirfareForm';
 import { CostItems } from '@/components/ReviewSections';
@@ -257,7 +258,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
           <form action={ac ? updateAccommodation.bind(null, id, ac.id) : addAccommodation.bind(null, id)} className="space-y-3">
             <FormBar title={ac ? 'Edit this accommodation line — change the values and save.' : 'Add an extra / manual stay (hotel lines are otherwise auto-derived per stop).'}>
               {cancelLink}
-              <button className="btn-primary">{ac ? 'Save accommodation changes' : 'Add accommodation estimate'}</button>
+              <HotelSaveButton caps={capByCity} fixedCap={autoStay ? accRec?.capNightly : undefined} label={ac ? 'Save accommodation changes' : 'Add accommodation estimate'} />
             </FormBar>
             <div className="grid grid-cols-2 gap-3">
               <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={accRec?.city ?? tripDefaults.destCity} defaultRate={accRec ? String(accRec.quotedNightly) : undefined} lockCity={autoStay} />
@@ -275,8 +276,14 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
                 : <Input name="checkOut" label="Check-out" type="date" defaultValue={accRec ? d(accRec.checkOut) : tripDefaults.end} />}
             </div>
             {autoStay && <p className="text-xs text-[var(--ecs-muted)]">Stay dates are set by the itinerary — <Link href={`/requests/${id}/trip`} className="underline">edit them on the Trip step</Link>. Here you can change the <b>rate</b>, mark it a <b>conference hotel</b>, or add an above-cap justification.</p>}
-            <Input name="notes" label="Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)" defaultValue={ac ? (ac.notes ?? '') : undefined} />
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" defaultChecked={accRec?.conferenceHotel ?? false} /> Conference hotel</label>
+            {/* Conference-hotel tick (left) + above-cap justification (right) on one line. */}
+            <div className="flex items-end gap-4">
+              <label className="flex items-center gap-2 text-sm whitespace-nowrap shrink-0 pb-2"><input type="checkbox" name="conferenceHotel" defaultChecked={accRec?.conferenceHotel ?? false} /> Conference hotel</label>
+              <div className="flex-1 min-w-0">
+                <label className="label">Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)</label>
+                <input name="notes" defaultValue={ac ? (ac.notes ?? '') : undefined} className="field" />
+              </div>
+            </div>
             {isGroup && !ac && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
             {isGroup && ac && <div><label className="label">Traveller</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{editTravellerLabel ?? '—'}</div></div>}
             {isGroup && !ac && <p className="text-xs text-[var(--ecs-muted)]">Each traveller books, pays and claims their own room — one line per traveller (choose All travellers to add for everyone).</p>}
