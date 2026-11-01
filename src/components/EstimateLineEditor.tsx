@@ -12,7 +12,6 @@ import { travelClasses } from '@/data/travelClass';
 import { hotelCaps } from '@/data/policyRates';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EcsIdentity } from '@/shared/ecs/services';
-import { provostsForSchool } from '@/modules/pretrip/provost';
 import { makeEntitledClassFor } from '@/modules/pretrip/liveOutcome';
 import { isGuestRequest, memberName } from '@/modules/pretrip/traveller';
 import { updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
@@ -76,9 +75,6 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
     const entId = entitledFor(req.travellerId);
     // M6 (entitlement differential) is a Charging concern — intentionally not surfaced on the airfare card.
     const guest = isGuestRequest(req);
-    const hostSchoolId = req.departmentId ?? EcsIdentity.employee(req.requestorId)?.departmentId ?? null;
-    const provostOptions = guest ? await provostsForSchool(hostSchoolId) : [];
-    const economyId = travelClasses.find((c) => /eco/i.test(c.name))?.id ?? 'TC-ECO';
     return (
       <Card title="Edit airfare line" className="mb-5" id="edit-line">
         <AirfareForm
@@ -106,9 +102,6 @@ export async function EstimateLineEditor({ req, editExp, id, returnTo }: {
           entitledClassId={entId}
           entitledClassName={travelClasses.find((c) => c.id === entId)?.name ?? 'Economy'}
           guest={guest}
-          provostOpts={provostOptions.map((p) => ({ approverId: p.approverId, name: p.name, title: p.title, dept: EcsIdentity.department(p.schoolId)?.name ?? p.schoolId }))}
-          provostDefault={req.provostId ?? ''}
-          guestUpgrading={guest && !!req.travelClassId && req.travelClassId !== economyId}
         />
       </Card>
     );

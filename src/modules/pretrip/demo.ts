@@ -29,7 +29,6 @@ import { assignGroupLineNos } from './groupLines';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
 import { NON_TERM_APPROVAL_DOC } from './nonTerm';
-import { ensureProvostSeed } from './provost';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
 
 const YEAR = 2026;
@@ -673,19 +672,17 @@ async function persistDraftChecks(id: string) {
 export async function demoGuestUpgradeDraft() {
   const TAG = '[demo:guest-upgrade]';
   await clearDemoDrafts(TAG);
-  await ensureProvostSeed();
   const off = 72;
   const id = await seedGuestRequest({
     guestName: 'Prof Daniel Weiss', guestEmail: 'd.weiss@ethz.ch', guestOrg: 'ETH Zürich', purposeId: 'TP-TC-ACAD',
     destCountry: 'GB', destCity: 'LON', destAirport: 'LHR', start: demoDay(off), end: demoDay(off + 4),
     nights: 4, durationHours: 13, airfare: 5200, descr: `Guest keynote — London · Business-class upgrade ${TAG}`,
   });
-  // Upgrade to Business, pre-fill the justification and host-school Provost so the only open item is the
-  // CLASS exception (which routes Provost → DOA). The itinerary legs and airfare line follow the class.
+  // Upgrade to Business, pre-fill the justification so the only open item is the CLASS exception (which
+  // routes to the configured Provost → DOA). The itinerary legs and airfare line follow the class.
   await prisma.travelRequest.update({ where: { id }, data: {
     travelClassId: 'TC-BIZ', classBasis: 'Guest default — Economy (§8); above-entitlement upgrade requested',
     classJustification: 'Distinguished keynote speaker on a >12h long-haul sector — Business class per the host invitation terms.',
-    provostId: 'E-PROVOST',
   } });
   await prisma.itineraryLeg.updateMany({ where: { requestId: id }, data: { travelClassId: 'TC-BIZ' } });
   await prisma.estimatedExpense.updateMany({ where: { requestId: id, category: EXPENSE_CATEGORY.Airfare }, data: { proposedClassId: 'TC-BIZ' } });

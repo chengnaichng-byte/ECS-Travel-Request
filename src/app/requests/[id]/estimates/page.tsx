@@ -15,7 +15,6 @@ type TagRef = { travellerType?: string | null; employeeId: string };
 /** " · student" / " · guest" / "" — the non-employee label suffix for a member, with a chosen separator. */
 const memberTag = (t: TagRef, sep: string) => isStudentMember(t) ? `${sep}student` : (isNonEmployeeMember(t) ? `${sep}guest` : '');
 import { isTmcArrangement } from '@/modules/pretrip/booking';
-import { provostsForSchool } from '@/modules/pretrip/provost';
 import { AccommodationCityRate } from '@/components/AccommodationCityRate';
 import { HotelSaveButton } from '@/components/HotelSaveButton';
 import { EstimateCostAdd } from '@/components/EstimateCostAdd';
@@ -123,11 +122,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // §8 ODA is not a guest entitlement — a pure guest request hides the ODA card, and a group's
   // ODA traveller picker offers employee members only (guests are also filtered server-side).
   const guestRequest = isGuestRequest(req);
-  // §8 / DD-25 host-school Provost list for a guest travel-class upgrade (above Economy).
-  const hostSchoolId = req.departmentId ?? EcsIdentity.employee(req.requestorId)?.departmentId ?? null;
-  const provostOptions = guestRequest ? await provostsForSchool(hostSchoolId) : [];
-  const economyId = travelClasses.find((c) => /eco/i.test(c.name))?.id ?? 'TC-ECO';
-  const guestUpgrading = guestRequest && !!req.travelClassId && req.travelClassId !== economyId;
   // §4.5 hotel cap per city — the accommodation rate defaults to this (editable).
   const capByCity: Record<string, number> = Object.fromEntries(hotelCaps.map((h) => [h.cityCode, h.capNightlySgd]));
   // Resolved cap + name for every selectable city (city cap, else the country fallback) — the
@@ -238,9 +232,6 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
             entitledClassId={indivEntitledId}
             entitledClassName={indivEntitledName}
             guest={guestRequest}
-            provostOpts={provostOptions.map((p) => ({ approverId: p.approverId, name: p.name, title: p.title, dept: EcsIdentity.department(p.schoolId)?.name ?? p.schoolId }))}
-            provostDefault={req.provostId ?? ''}
-            guestUpgrading={guestUpgrading}
           />
         ) },
 

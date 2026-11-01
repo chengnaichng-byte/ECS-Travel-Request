@@ -36,6 +36,7 @@ model ModuleSettings {
   // §43 Settings breadth
   selfApprovalLimitSgd   Int     @default(0)      // approval amount at/below which a traveller-approver self-approves (0 = never)
   researchPiSelfApproval Boolean @default(true)   // #1 research-WBS trip raised for a PI traveller, within selfApprovalLimitSgd, is self-approved (PI is the DOA)
+  guestUpgradeProvostId  String  @default("E-PROVOST") // §8/DD-25 WHO the Provost is for a guest travel-class upgrade (single NTU Provost; WHETHER it is required lives in the workflow config)
   nonTermAutoApprove     Boolean @default(false)  // §13.x research-WBS trip in non-term time (attested + approval e-mail attached) → auto-approved (zero approval steps); offline approval already exists
   upgradeDeltaRoutingEnabled Boolean @default(true)    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account (off = keep it on the original allocation)
   upgradeDeltaSelectionRequired Boolean @default(false) // #14 false = default to the BA's default/first M6 account and allow re-select; true = force a pick when the BA has >1 (hard stop until set); a single-account BA always auto-selects
@@ -203,17 +204,6 @@ model CtaAccount {
   createdAt         DateTime @default(now())
 }
 
-model Provost {
-  id         String   @id @default(cuid())
-  schoolId   String                                  // department / school this provost authorises for
-  approverId String                                  // employee id who approves (resolves name/title)
-  name       String                                  // display snapshot
-  title      String                                  // display snapshot
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  @@unique([schoolId, approverId])
-  @@index([schoolId])
-}
 
 /// §13.14 group travellers — one request, many travellers
 model TravelRequestTraveller {

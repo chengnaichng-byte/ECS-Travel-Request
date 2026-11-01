@@ -6,21 +6,20 @@
 // group airfare form has no class choice and uses the server-rendered form instead.)
 import { useState } from 'react';
 
-interface ProvostOpt { approverId: string; name: string; title: string; dept: string }
 interface Defaults { origin: string; dest: string; proposedClassId: string; expectedDate: string; currency: string; amount: string; sponsorship: string; classJustification: string; upgradeFunding: string }
 
 export function AirfareForm({
   action, submitLabel, editing, cancel, returnTo,
   originOpts, destOpts, classOpts, classRanks,
   defaults, entitledClassId, entitledClassName,
-  guest, provostOpts, provostDefault, guestUpgrading, multiCityNote, legAction, legs, multiCity,
+  guest, multiCityNote, legAction, legs, multiCity,
 }: {
   action: (fd: FormData) => Promise<void>;
   submitLabel: string; editing: boolean; cancel?: React.ReactNode; returnTo?: string;
   originOpts: [string, string][]; destOpts: [string, string][]; classOpts: [string, string][];
   classRanks: Record<string, number>;
   defaults: Defaults; entitledClassId: string; entitledClassName: string;
-  guest: boolean; provostOpts: ProvostOpt[]; provostDefault: string; guestUpgrading: boolean;
+  guest: boolean;
   // §13.20 multi-city note — lists the full itinerary and explains the two ways to book the fare;
   // rendered above the fields. Null for single-destination trips.
   multiCityNote?: React.ReactNode;
@@ -93,15 +92,10 @@ export function AirfareForm({
           <input type="hidden" name="currency" value="SGD" />
         </div>
 
-        {/* §8 / DD-25 Guest travel-class upgrade — a guest booked above Economy needs a host-school Provost. */}
+        {/* §8 / DD-25 Guest travel-class upgrade — routes to the Provost (configured in settings) ahead of the host DOA. */}
         {guest && (
           <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
-            <label className="label">Provost authorisation (required for a guest booked above Economy — §8 / DD-25)</label>
-            <select name="provostId" defaultValue={provostDefault} className="field">
-              <option value="">— No upgrade / Economy (no Provost needed) —</option>
-              {provostOpts.map((p) => <option key={p.approverId} value={p.approverId}>{p.name} · {p.title} ({p.dept})</option>)}
-            </select>
-            <p className="text-xs text-[var(--ecs-muted)] mt-1">A guest flies <strong>Economy</strong> by default. Selecting a higher proposed class requires a justification <em>and</em> a Provost from the host school&apos;s list; approval routes to the Provost before the host DOA.{guestUpgrading && !provostDefault && <span className="text-[var(--ecs-red)]"> This guest is above Economy — select a Provost.</span>}</p>
+            <p className="text-xs text-[var(--ecs-muted)]">A guest flies <strong>Economy</strong> by default. Selecting a higher proposed class requires a <strong>justification</strong>; approval then routes to the <strong>Provost</strong> before the host DOA (§8 / DD-25). The Provost is a single configured authority (Pre-Trip settings), not chosen here.</p>
           </div>
         )}
 

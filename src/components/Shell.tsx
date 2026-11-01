@@ -84,7 +84,6 @@ export async function Shell({ children }: { children: React.ReactNode }) {
               ...(isSysAdmin ? [{ href: '/settings', label: 'Pre-Trip Module Settings', icon: '⚙' }] : []),
               { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
               { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
-              { href: '/setup/provosts', label: 'Provost List (guest upgrades)', icon: '◈' },
               { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
               { href: '/setup/policy-groups', label: 'Travel Policy Groups (M6)', icon: '◎' },
               { href: '/setup/upgrade-accounts', label: 'M6 Differential Accounts', icon: '▲' },

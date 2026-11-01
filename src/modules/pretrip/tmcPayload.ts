@@ -13,7 +13,7 @@ import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShare
 import { isGuestRequest, travellerName, isGuestMember, isStudentMember, isNonEmployeeMember, memberName } from './traveller';
 import { hostCostObject, lineSettlement } from './settlement';
 import { isEmergencyBookFirst } from './emergency';
-import { EXPENSE_CATEGORY, POLICY_OUTCOME } from '@/shared/enums';
+import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import type { FullRequest } from './queries';
 
 function guestBlock(req: FullRequest) {
@@ -74,9 +74,10 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
     .reduce((s, e) => s + e.sgdAmount, 0);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception).map((c) => c.label);
   // §8 / DD-25 when a guest upgrade was Provost-authorised, carry that authority to the TMC so the
-  // agent may book the approved higher class against a named approver.
-  if (isGuestRequest(req) && req.provostId && req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception)) {
-    exceptions.push(`Guest travel-class upgrade — Provost-approved (${EcsIdentity.employee(req.provostId)?.name ?? req.provostId})`);
+  // agent may book the approved higher class against the named Provost (from the approval route).
+  const provostStep = req.approvalSteps.find((s) => s.roleType === APPROVER_ROLE.Provost);
+  if (isGuestRequest(req) && provostStep?.approverId && req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception)) {
+    exceptions.push(`Guest travel-class upgrade — Provost-approved (${EcsIdentity.employee(provostStep.approverId)?.name ?? provostStep.approverId})`);
   }
   const g = guestBlock(req);
   const emp = EcsIdentity.employee(req.travellerId);

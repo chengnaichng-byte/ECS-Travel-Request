@@ -114,8 +114,9 @@ export const TR_STANDARD_SCENARIO: WorkflowScenario = {
     // account resolved by the base BAND_DOA level) — NOT a separate approver.
     { seq: 4, label: 'Add the Exception Approver when a policy exception needs one', conditions: [{ fact: 'hasPolicyException', op: 'is', value: true }, { fact: 'exceptionApproverRequired', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Exception, resolver: 'ROLE', ref: 'EXCEPTION_APPROVER', resolverLabel: 'All users with Exception Approver role', order: 50 }] },
     // Provost = the exception approver for a travel-class upgrade. Guest-only for now (the isGuest
-    // condition); an administrator can remove that condition to extend it to employee upgrades.
-    { seq: 5, label: 'Add the Provost for a travel-class upgrade (guest)', conditions: [{ fact: 'isGuest', op: 'is', value: true }, { fact: 'travelClassUpgradeException', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Selected Provost (host school)', order: 60 }] },
+    // condition); an administrator can remove this whole rule to drop Provost approval, or relax the
+    // condition to extend it to employee upgrades. WHO the Provost is comes from the module setting.
+    { seq: 5, label: 'Add the Provost for a travel-class upgrade (guest)', conditions: [{ fact: 'isGuest', op: 'is', value: true }, { fact: 'travelClassUpgradeException', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Configured Provost (Pre-Trip settings)', order: 60 }] },
     { seq: 6, label: 'Replace the DOA with the traveller for research PI self-approval', conditions: PI_SELF_APPROVAL, actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.DOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)', note: 'Research PI self-approval' }] },
     // ---- ECS-mirrored decision points (from the Expense-Claim "Edit workflow rule" screen, mirrored to
     //      the Travel-Request equivalents; only the ECS rules relevant to TR, not the claim-specific

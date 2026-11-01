@@ -5,11 +5,14 @@ import { getSettings } from '@/modules/pretrip/settings';
 import { decisionCatalogue } from '@/config/decisions';
 import { saveModuleSettings } from '@/app/actions';
 import { PageTitle, Card } from '@/components/ui';
+import { employees } from '@/data/employees';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
   const s = (await getSettings()) as unknown as Record<string, unknown>;
+  // §8/DD-25 candidate Provosts — senior, non-traveller authorities (deans / directors / provost).
+  const provostCandidates = employees.filter((e) => !e.isTraveller && e.travelPolicyGroup === 'SENIOR');
 
   return (
     <div className="max-w-3xl">
@@ -41,6 +44,16 @@ export default async function SettingsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </Card>
+
+        <Card title="Guest travel-class upgrade — Provost (§8 / DD-25)" className="mt-5">
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">Defines <strong>who</strong> the Provost is when a guest is booked above Economy. There is a single NTU Provost, so it is configured here rather than selected per request. <strong>Whether</strong> the Provost step is required is a <strong>workflow decision</strong> — the rule &ldquo;Add the Provost for a travel-class upgrade (guest)&rdquo; in the <a href="/setup/workflow" className="underline">Workflow Configuration (TR)</a>, which an administrator can relax or remove.</p>
+          <div className="max-w-md">
+            <label className="label">Guest-upgrade Provost (approver)</label>
+            <select name="guestUpgradeProvostId" defaultValue={String(s.guestUpgradeProvostId ?? '')} className="field">
+              {provostCandidates.map((e) => <option key={e.id} value={e.id}>{e.name} — {e.title}</option>)}
+            </select>
           </div>
         </Card>
 

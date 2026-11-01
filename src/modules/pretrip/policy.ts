@@ -154,15 +154,9 @@ export function evaluatePolicies(req: FullRequest, approvalAmountBasis: string, 
           travellerId: req.isGroup ? t.employeeId : null,
         });
       }
-      // §8 / DD-25 a GUEST upgrade additionally requires a selected Provost (host-school list) to
-      // authorise the above-Economy class; the Provost step is inserted ahead of the host DOA.
-      if (!req.isGroup && isGuestRequest(req) && !req.provostId) {
-        checks.push({
-          code: 'CLASS_PROVOST', label: 'Provost authorisation required (guest upgrade)', outcome: POLICY_OUTCOME.HardStop,
-          detail: 'A guest booked above Economy must have a Provost selected to authorise the upgrade (§8 / DD-25).',
-          travellerId: null,
-        });
-      }
+      // §8 / DD-25 a GUEST upgrade routes to the Provost ahead of the host DOA. The Provost is a single
+      // configured authority (module setting), not a per-request selection, and whether the step is
+      // required is a workflow decision point — so there is no "select a Provost" hard stop here.
     }
   }
 

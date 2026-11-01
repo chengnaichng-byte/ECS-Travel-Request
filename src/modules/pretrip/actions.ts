@@ -656,8 +656,6 @@ export async function addAirfare(id: string, fd: FormData) {
       data: {
         ...(proposed ? { travelClassId: proposed } : {}),
         classJustification: str(fd, 'classJustification') || null,
-        // §8 / DD-25 guest airfare form carries the selected Provost for an above-Economy upgrade.
-        ...(fd.has('provostId') ? { provostId: str(fd, 'provostId') || null } : {}),
       },
     });
   }
@@ -1019,7 +1017,6 @@ export async function updateAirfare(id: string, expenseId: string, fd: FormData)
       data: {
         ...(proposed ? { travelClassId: proposed } : {}),
         classJustification: str(fd, 'classJustification') || null,
-        ...(fd.has('provostId') ? { provostId: str(fd, 'provostId') || null } : {}),
       },
     });
   }
@@ -1316,13 +1313,14 @@ export async function submitRequest(id: string, fd?: FormData) {
   const fresh = await loadRequest(id);
   if (!fresh) return;
   const summary = computeSummary(fresh.expenses, settings.approvalAmountBasis);
-  // §8 / DD-25 a GUEST travel-class upgrade routes to the selected host-school Provost ahead of
-  // the DOA; that upgrade is the Provost's to authorise, so it is excluded from the generic
-  // Exception step (other exceptions still insert one).
+  // §8 / DD-25 a GUEST travel-class upgrade routes to the Provost ahead of the DOA; that upgrade is
+  // the Provost's to authorise, so it is excluded from the generic Exception step (other exceptions
+  // still insert one). WHO the Provost is comes from the module setting (single NTU Provost); WHETHER
+  // the step is added is a workflow decision point (isGuest + travel-class upgrade).
   const exceptionsOnReq = fresh.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception);
   const travellerIds = fresh.isGroup ? fresh.travellers.map((t) => t.employeeId) : [fresh.travellerId];
   const guestUpgrade = isGuestRequest(fresh) && !fresh.isGroup && exceptionsOnReq.some((c) => c.code === 'CLASS');
-  const guestUpgradeProvostId = guestUpgrade && fresh.provostId && !travellerIds.includes(fresh.provostId) ? fresh.provostId : null;
+  const guestUpgradeProvostId = settings.guestUpgradeProvostId && !travellerIds.includes(settings.guestUpgradeProvostId) ? settings.guestUpgradeProvostId : null;
   // §6.2 only exceptions configured to need an exception approver drive the Exception step (others are
   // justification-only and route to the normal DOA with the justification on file).
   const routeHasException = (guestUpgrade ? exceptionsOnReq.filter((c) => c.code !== 'CLASS') : exceptionsOnReq).some((c) => exceptionNeedsApproval(c.code));

@@ -74,6 +74,8 @@ export async function saveModuleSettings(fd: FormData) {
   patch.emergencyEvidenceRequired = fd.get('emergencyEvidenceRequired') !== 'off';
   // §43 settings breadth
   patch.selfApprovalLimitSgd = parseInt(String(fd.get('selfApprovalLimitSgd') ?? '0'), 10) || 0;
+  patch.guestUpgradeProvostId = String(fd.get('guestUpgradeProvostId') ?? 'E-PROVOST') || 'E-PROVOST'; // §8/DD-25 who the Provost is
+
   patch.attachmentMaxMb = parseInt(String(fd.get('attachmentMaxMb') ?? '7'), 10) || 7;
   patch.chargingSplitMode = String(fd.get('chargingSplitMode') ?? 'PERCENT');
   patch.sftpConfig = String(fd.get('sftpConfig') ?? '');
