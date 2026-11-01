@@ -274,10 +274,10 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   return (
     <div>
       {/* Request-type tabs (icon cards) */}
-      <div className="card p-1.5 mb-4 flex gap-1">
+      <div className="card p-1.5 mb-4 inline-flex gap-1">
         {modes.map((m) => (
           <button key={m} type="button" onClick={() => switchMode(m)}
-            className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
+            className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
             <ModeIcon m={m} /> {MODE_LABEL[m]}
           </button>
         ))}
