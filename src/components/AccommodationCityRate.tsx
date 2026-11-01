@@ -23,7 +23,7 @@ export function AccommodationCityRate({ cities, caps, defaultCity, defaultRate }
       </div>
       <div>
         <label className="label">Quoted rate / night</label>
-        <input name="quotedNightly" type="number" step="any" value={rate} onChange={(e) => setRate(e.target.value)} className="field" />
+        <input name="quotedNightly" type="number" step="any" value={rate} onChange={(e) => setRate(e.target.value)} className="field txt-default" />
       </div>
     </>
   );

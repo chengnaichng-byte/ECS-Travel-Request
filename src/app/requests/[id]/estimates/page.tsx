@@ -27,6 +27,7 @@ import { hotelCaps } from '@/data/policyRates';
 import { expenseTypes } from '@/data/expenseTypes';
 import { EXPENSE_CATEGORY } from '@/shared/enums';
 import { Card, Stepper, Empty } from '@/components/ui';
+import { ProvenanceLegend } from '@/components/ProvenanceLegend';
 import { DuplicateWarning } from '@/components/DuplicateWarning';
 
 export const dynamic = 'force-dynamic';
@@ -154,6 +155,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
       <DuplicateWarning req={req} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request's estimates.</div>}
+      <ProvenanceLegend className="mb-4" />
 
       {/* §13.19 the class-upgrade justification is entered on the airfare form itself (gated there) and
           can be edited on the Policy Review step; no standalone card is shown here. */}

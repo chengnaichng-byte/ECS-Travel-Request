@@ -271,7 +271,7 @@ export function TripPlanner({
           <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] px-3 py-2 text-sm">
             <span className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mr-2">Main destination</span>
             {mainDest
-              ? <span><strong>{mainDest.city}, {mainDest.country}</strong> <span className="text-[var(--ecs-muted)]">· derived from the longest-stay country ({mainDest.country}{mainDest.nights ? `, ${mainDest.nights} night${mainDest.nights > 1 ? 's' : ''}` : ''})</span></span>
+              ? <span className="txt-derived"><strong>{mainDest.city}, {mainDest.country}</strong> <span className="text-[var(--ecs-muted)]">· derived from the longest-stay country ({mainDest.country}{mainDest.nights ? `, ${mainDest.nights} night${mainDest.nights > 1 ? 's' : ''}` : ''})</span></span>
               : <span className="text-[var(--ecs-muted)] italic">Select a destination in the legs below.</span>}
           </div>
 

@@ -62,7 +62,7 @@ export function AirfareForm({
         <div className="grid md:grid-cols-2 gap-x-4 gap-y-3 items-start">
           <div className="space-y-3">
             <div><label className="label">{multiCity ? 'Departure from' : 'Origin'}</label><select name="originCode" defaultValue={defaults.origin} className="field">{originOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-            <div><label className="label">Proposed class</label><select name="proposedClassId" value={proposed} onChange={(e) => setProposed(e.target.value)} className="field">{classOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div><label className="label">Proposed class</label><select name="proposedClassId" value={proposed} onChange={(e) => setProposed(e.target.value)} className="field txt-default">{classOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
             {/* §13.19 Justification sits directly under the class and is DISABLED unless the selected
                 class is above the traveller's entitlement; it then becomes required (gates Add). */}
             <div>

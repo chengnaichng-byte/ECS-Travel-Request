@@ -41,7 +41,7 @@ export function UpgradeDeltaPicker({ requestId, lines, pool, canEdit, govBAName,
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[var(--ecs-muted)] whitespace-nowrap">Charge differential to M6 account ({govBAName}):</span>
               <select
-                className="field w-auto"
+                className="field w-auto txt-default"
                 disabled={!canEdit || pending}
                 value={l.currentCode ?? ''}
                 onChange={(e) => start(() => action(requestId, l.expenseId, e.target.value))}

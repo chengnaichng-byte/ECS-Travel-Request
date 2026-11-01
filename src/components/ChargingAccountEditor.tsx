@@ -165,8 +165,8 @@ export function ChargingAccountEditor({
   const addRow = () => setRows((rs) => [...rs, { ba: baOptions[0]?.code ?? '', code: '', io: '', pct: '' }]);
   const delRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
 
-  const AccountSelect = ({ value, opts, onChange, name }: { value: string; opts: AccountOpt[]; onChange: (v: string) => void; name?: string }) => (
-    <select name={name} value={value} disabled={!canEdit} onChange={(e) => onChange(e.target.value)} className="field">
+  const AccountSelect = ({ value, opts, onChange, name, accent }: { value: string; opts: AccountOpt[]; onChange: (v: string) => void; name?: string; accent?: boolean }) => (
+    <select name={name} value={value} disabled={!canEdit} onChange={(e) => onChange(e.target.value)} className={`field${accent ? ' txt-default' : ''}`}>
       <option value="">Select…</option>
       {opts.map((a) => <option key={a.code} value={a.code} disabled={a.closed && value !== a.code}>({a.code}) {a.name}{a.research ? ' · research' : ''}{a.closed ? ' — CLOSED' : ''}</option>)}
     </select>
@@ -188,33 +188,33 @@ export function ChargingAccountEditor({
       {/* Main charging account — 4-level cascade */}
       <div className="card p-4">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="font-semibold text-[var(--ecs-navy)]">Charging account details{showProvenance && <span className="prov-tag prov-tag-resolved ml-2" title="Defaults to the traveller's Workday / profile cost object — you can override it">Default · from Workday/Profile</span>}</h3>
+          <h3 className="font-semibold text-[var(--ecs-navy)]">Charging account details</h3>
         </div>
         <p className="text-xs text-[var(--ecs-muted)] mb-4">Main charging account — defaults to the traveller’s profile cost object. Research WBS drives the research route; the highest-share department derives the DOA (§13.14).</p>
         <div className="grid md:grid-cols-4 gap-4">
           <div>
             <label className="label">Company Code</label>
-            <select className="field" disabled={!canEdit} value={main.company} onChange={(e) => setMain((m) => ({ ...m, company: e.target.value, ba: '', code: '' }))}>
+            <select className={`field${showProvenance ? ' txt-default' : ''}`} disabled={!canEdit} value={main.company} onChange={(e) => setMain((m) => ({ ...m, company: e.target.value, ba: '', code: '' }))}>
               {companyCodes.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
             </select>
           </div>
           <div>
             <label className="label">Business Area</label>
-            <select className="field" disabled={!canEdit} value={main.ba} onChange={(e) => setMain((m) => ({ ...m, ba: e.target.value, code: '' }))}>
+            <select className={`field${showProvenance ? ' txt-default' : ''}`} disabled={!canEdit} value={main.ba} onChange={(e) => setMain((m) => ({ ...m, ba: e.target.value, code: '' }))}>
               <option value="">Select…</option>
               {baOptions.map((b) => <option key={b.code} value={b.code}>({b.code}) {b.name}</option>)}
             </select>
           </div>
           <div>
             <label className="label">CC/WBS</label>
-            <select className="field" disabled={!canEdit} value={main.type} onChange={(e) => setMain((m) => ({ ...m, type: e.target.value, code: '' }))}>
+            <select className={`field${showProvenance ? ' txt-default' : ''}`} disabled={!canEdit} value={main.type} onChange={(e) => setMain((m) => ({ ...m, type: e.target.value, code: '' }))}>
               <option value="CC">(CC) Cost Center</option>
               <option value="WBS">(WBS) Work Breakdown</option>
             </select>
           </div>
           <div>
             <label className="label">CC/WBS Charging Account</label>
-            <AccountSelect value={main.code} opts={accForMain} onChange={(v) => setMain((m) => ({ ...m, code: v }))} />
+            <AccountSelect value={main.code} opts={accForMain} onChange={(v) => setMain((m) => ({ ...m, code: v }))} accent={showProvenance} />
           </div>
         </div>
 
@@ -316,7 +316,7 @@ export function ChargingAccountEditor({
         {/* Accounting Entries — collapsed by default (the GL-posting detail most travellers don't need). */}
         <details className="mt-5 border-t border-[var(--ecs-border)] pt-4 group">
           <summary className="text-sm font-semibold text-[var(--ecs-navy)] mb-2 cursor-pointer select-none list-none flex items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-            <span>{entriesTitle}{showProvenance && <span className="prov-tag prov-tag-derived ml-2" title="Rolled up automatically from the charging split and the M6 differential — not editable">Derived</span>}<span className="text-xs font-normal text-[var(--ecs-muted)]"> · {entries.length} line{entries.length === 1 ? '' : 's'} · {fmt(entriesTotal)}</span></span>
+            <span>{entriesTitle}<span className="text-xs font-normal text-[var(--ecs-muted)]"> · {entries.length} line{entries.length === 1 ? '' : 's'} · {fmt(entriesTotal)}</span></span>
             <span className="text-[var(--ecs-muted)] transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
           </summary>
           <div className="overflow-x-auto">
