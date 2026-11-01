@@ -63,6 +63,24 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const canResolve = canEdit && (needClassJustification || aboveCapHotels.length > 0);
   const entitledClassName = EcsReference.travelClass(req.entitledClassId ?? '')?.name ?? null;
   const policyGroupCode = !req.isGroup ? EcsTravelClassRegister.policyGroup(req.travellerId, req.startDate ?? new Date()) : null;
+  // §8 / §13.14 Party + booking-type summary for the Trip card. A group's Traveller field must reflect
+  // the whole party (not just the lead); the booking type frames the approval — a group is one shared
+  // TA with per-traveller classes, a guest is a non-employee. The full per-traveller roster still lives
+  // in the cost items below, so the header stays compact.
+  const groupSize = req.travellers.length;
+  const isStudentGroup = req.isGroup && req.groupType === 'STUDENT';
+  const travellerParty = req.travellerType === 'GUEST'
+    ? travellerName(req)
+    : isStudentGroup
+      ? `${groupSize} students`
+      : req.isGroup
+        ? `${travellerName(req)} + ${groupSize - 1} other${groupSize - 1 === 1 ? '' : 's'}`
+        : travellerName(req);
+  const bookingType = req.travellerType === 'GUEST'
+    ? 'Guest booking'
+    : req.isGroup
+      ? `Group booking · ${groupSize} ${isStudentGroup ? 'students' : 'travellers'}`
+      : 'Individual booking';
   // §13.x duplicate / overlap warning — a true duplicate (same destination) hard-blocks submit;
   // a date clash with a different destination is surfaced as a softer notice.
   const duplicates = await findDuplicateRequests(req);
@@ -204,7 +222,8 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           <div className="grid md:grid-cols-3 gap-x-8 gap-y-4">
             {/* Col 1 — traveller, purpose, destination */}
             <dl className="space-y-3">
-              <KV label="Traveller">{travellerName(req)}</KV>
+              <KV label="Booking type">{bookingType}</KV>
+              <KV label={req.isGroup ? 'Travellers' : 'Traveller'}>{travellerParty}</KV>
               <KV label="Purpose">{EcsReference.travelPurpose(req.purposeId ?? '')?.name}</KV>
               <KV label="Destination">{mainCityName ? `${mainCityName}, ${mainCountryName ?? ''}` : (mainCountryName ?? '—')}</KV>
               {req.invitationRef && <KV label="Invitation ref">{req.invitationRef}</KV>}
