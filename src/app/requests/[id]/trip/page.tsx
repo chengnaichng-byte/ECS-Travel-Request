@@ -88,7 +88,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
             <div className="md:col-span-3">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="visaLetterRequired" defaultChecked={req.visaLetterRequired} className="w-4 h-4" />
-                <span>A <strong>visa letter</strong> is required for this trip (§4.13) — the immigration office is notified once the request is approved.</span>
+                <span>A <strong>letter from HR</strong> is required for Visa application (§4.13).</span>
               </label>
             </div>
             {/* §13.x Non-term research — a research-gated attestation checkbox, below the visa-letter row. */}
