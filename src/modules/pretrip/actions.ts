@@ -192,9 +192,18 @@ export async function createDraft(fd: FormData) {
   // always has a charging line (editable on the Charging step). Without this, going straight to
   // Policy Review without opening the Charging step raises a "no charging allocation" hard stop even
   // though the Charging step shows a default account. A Charging-step save replaces this row.
-  await seedDefaultCharging(req.id, traveller?.defaultChargingCode);
+  await seedDefaultCharging(req.id, chosenCharging(fd, traveller?.defaultChargingCode));
   await audit(req.id, 'CREATE', `Draft ${requestNumber} created for ${traveller?.name ?? travellerId}`, requestorId !== travellerId ? travellerId : null);
   redirect(`/requests/${req.id}/trip`);
+}
+
+/** TR-02: the charging account chosen on the Create screen (`chargingCode`), validated against the
+ *  ACTIVE master. Falls back to the profile default when absent or invalid. The chosen account's
+ *  isResearch flag then drives the request's research classification, routing and non-term eligibility. */
+function chosenCharging(fd: FormData, fallback: string | null | undefined): string | null | undefined {
+  const code = str(fd, 'chargingCode');
+  const m = code ? EcsCharging.code(code) : undefined;
+  return m && m.active !== false ? code : fallback;
 }
 
 /** Create a 100% main charging allocation from a cost-object code, if one is given and not already
@@ -221,7 +230,13 @@ export async function createGuestDraft(fd: FormData) {
   // §13.13 / DD-24 separation of duties — an approver-only persona may not originate a request.
   if (!canCreateTravelRequest(requestorId)) return;
   const guestName = str(fd, 'guestName');
-  if (!guestName) return; // a guest must at least be named
+  const guestEmail = str(fd, 'guestEmail');
+  const guestOrg = str(fd, 'guestOrg');
+  // TR-02 guest: name, email and home organisation are all mandatory (a guest has no ECS profile,
+  // so these are the only identity we capture).
+  if (!guestName || !guestEmail || !guestOrg) {
+    redirect(`/requests/new?error=${encodeURIComponent('A guest traveller needs a name, email and home organisation.')}`);
+  }
   const requestNumber = await nextRequestNumber(yr());
   const req = await prisma.travelRequest.create({
     data: {
@@ -230,17 +245,17 @@ export async function createGuestDraft(fd: FormData) {
       travellerId: GUEST_TRAVELLER_ID,
       travellerType: 'GUEST',
       guestName,
-      guestEmail: str(fd, 'guestEmail') || null,
-      guestOrg: str(fd, 'guestOrg') || null,
+      guestEmail: guestEmail || null,
+      guestOrg: guestOrg || null,
       entityId: EcsIdentity.entity().id,
       departmentId: host?.departmentId,
       status: REQUEST_STATUS.Draft,
       bookingStatus: BOOKING_STATUS.NotSent,
     },
   });
-  // §8 a guest's trip is charged to the host's department cost object — seed it as the default.
-  await seedDefaultCharging(req.id, host?.defaultChargingCode);
-  await audit(req.id, 'CREATE', `Guest travel draft ${requestNumber} created for ${guestName}${str(fd, 'guestOrg') ? ` (${str(fd, 'guestOrg')})` : ''}`, null);
+  // §8 a guest's trip is charged to the account chosen on Create (defaulted to the host's cost object).
+  await seedDefaultCharging(req.id, chosenCharging(fd, host?.defaultChargingCode));
+  await audit(req.id, 'CREATE', `Guest travel draft ${requestNumber} created for ${guestName}${guestOrg ? ` (${guestOrg})` : ''}`, null);
   redirect(`/requests/${req.id}/trip`);
 }
 
@@ -1995,6 +2010,9 @@ export async function createGroupDraft(fd: FormData) {
       },
     },
   });
+  // TR-02: seed the group's main charging account from the one chosen on Create (defaulted to the
+  // requestor/host profile); per-member department allocation is applied on the Charging step.
+  await seedDefaultCharging(req.id, chosenCharging(fd, EcsIdentity.employee(requestorId)?.defaultChargingCode));
   await audit(req.id, 'CREATE', `Staff group draft ${requestNumber} created for ${total} travellers${guests.length ? ` (incl. ${guests.length} guest${guests.length > 1 ? 's' : ''})` : ''}`, requestorId);
   redirect(`/requests/${req.id}/trip`);
 }
@@ -2027,6 +2045,8 @@ async function createStudentGroupDraft(fd: FormData, requestorId: string) {
       travellers: { create: studentRows },
     },
   });
+  // TR-02: seed the group's main charging account from the one chosen on Create (host default).
+  await seedDefaultCharging(req.id, chosenCharging(fd, EcsIdentity.employee(requestorId)?.defaultChargingCode));
   await audit(req.id, 'CREATE', `Student group draft ${requestNumber} created for ${students.length} students (uploaded, not validated)`, requestorId);
   redirect(`/requests/${req.id}/trip`);
 }

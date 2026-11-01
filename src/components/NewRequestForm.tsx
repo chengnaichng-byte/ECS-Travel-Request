@@ -1,68 +1,108 @@
 'use client';
 // TR-02 create form — Individual / Group / Guest (§13.14, §8). A GROUP is either a STAFF group
-// (employee members from the ECS directory, optionally mixed with guests) or a STUDENT group
-// (members entirely from an uploaded list — name / email / student id / programme — that is NOT
-// validated; mechanically a guest-group booking). Members may be added by ticking the directory,
-// adding rows, or bulk-uploading an Excel/CSV list (§13.13 — a coordinator building a large party).
+// (employees from the ECS directory) or a STUDENT group (an uploaded, non-validated list — name /
+// email / student id / programme). Guests are NOT mixed into a group (policy): a guest travels on
+// its own Guest request. The charging account is chosen on THIS screen (defaulted from the profile,
+// overridable); its isResearch flag drives the Travel Classification badge and, downstream, research
+// routing and non-term eligibility.
 import { useState, useRef } from 'react';
 import { createDraft, createGroupDraft, createGuestDraft } from '@/modules/pretrip/actions';
 
 interface Charging { code: string; name: string; overridden?: boolean; workday?: string | null }
+interface Account { code: string; name: string; isResearch: boolean }
 interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean; roName?: string | null; charging?: Charging | null }
-interface GuestRow { name: string; email: string; org: string }
 interface StudentRow { name: string; email: string; studentId: string; programme: string }
 const MODE_LABEL = { individual: 'Individual request', group: 'Group request', guest: 'Guest / non-employee' } as const;
 type Mode = keyof typeof MODE_LABEL;
 type GroupKind = 'staff' | 'student';
+type MemberTab = 'search' | 'bulk';
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 
-const chargingText = (c?: Charging | null): string => (c ? `${c.code} — ${c.name}` : '— none on file —');
-
-// Charging defaults come from the ECS Staff Profile, which falls back to the Workday cost object unless
-// the staff overrode it. `subject` is whose profile it is ("the traveller's" / "your (host)" / …).
-const chargingHint = (c: Charging | null | undefined, subject: string): string =>
-  !c ? `No charging account on ${subject} ECS profile — add one on the Charging step.`
-    : c.overridden
-      ? `${subject} preferred account from the ECS profile — overrides the Workday default (${c.workday}). Editable on the Charging step.`
-      : `${subject} ECS profile default — the Workday cost object. Editable on the Charging step.`;
-
-/** A read-only, ECS/HR-derived field shown on the create form (RO, default charging) — styled like the
- *  "Requestor (you)" box, so it's clearly derived, not an input. */
-function DerivedField({ label, value, hint, muted }: { label: string; value: React.ReactNode; hint?: string; muted?: boolean }) {
+/** A read-only, ECS/HR-derived field (RO) — styled like the "Requestor (you)" box so it reads as
+ *  derived, not an input. Muted text aligns with the provenance language (derived = muted). */
+function DerivedField({ label, value, hint, muted, info }: { label: string; value: React.ReactNode; hint?: string; muted?: boolean; info?: boolean }) {
   return (
     <div>
-      <label className="label">{label}</label>
+      <label className="label inline-flex items-center gap-1">{label}{info && <InfoIcon />}</label>
       <div className={`text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] ${muted ? 'text-[var(--ecs-muted)]' : ''}`}>{value}</div>
       {hint && <p className="text-xs text-[var(--ecs-muted)] mt-1">{hint}</p>}
     </div>
   );
 }
 
-export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, guestMixAllowed, studentGroupEnabled, requestorCharging }: {
+const InfoIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="var(--prov-default)" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5v.5" /></svg>
+);
+const FlaskIcon = ({ color }: { color: string }) => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-4.5 8.2A2 2 0 0 0 7.3 20h9.4a2 2 0 0 0 1.8-2.8L14 9V3" /><path d="M8.2 14h7.6" /></svg>
+);
+const BuildingIcon = ({ color }: { color: string }) => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1" /><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2M10 21v-3h4v3" /></svg>
+);
+const ModeIcon = ({ m }: { m: Mode }) => {
+  const c = 'currentColor';
+  if (m === 'group') return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3.5 20a5.5 5.5 0 0 1 11 0" /><circle cx="17" cy="9" r="2.3" /><path d="M16 14.5a4.6 4.6 0 0 1 4.5 5.5" /></svg>;
+  if (m === 'guest') return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="10" cy="8" r="3.2" /><path d="M4 20a6 6 0 0 1 12 0" /><path d="M18 7v6M21 10h-6" /></svg>;
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.2" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg>;
+};
+
+/** Travel Classification — read-only, derived from the selected charging account's isResearch flag.
+ *  Research (research WBS) → flask, green; otherwise → building, neutral. The same flag governs
+ *  research approval routing and non-term research eligibility downstream. */
+function TravelClassification({ isResearch }: { isResearch: boolean }) {
+  const green = '#1f7a4d';
+  return (
+    <div className={`rounded-md border p-3 mt-4 ${isResearch ? 'border-[#bfe3cc] bg-[#eef7f1]' : 'border-[var(--ecs-border)] bg-[var(--ecs-panel-2)]'}`}>
+      <div className="label inline-flex items-center gap-1 mb-2" style={isResearch ? { color: green } : undefined}>Travel Classification <InfoIcon /></div>
+      <div className="flex items-center gap-3">
+        <span className={`inline-flex items-center justify-center w-10 h-10 rounded-md ${isResearch ? 'bg-[#d8eede]' : 'bg-[var(--ecs-panel)]'}`}>
+          {isResearch ? <FlaskIcon color={green} /> : <BuildingIcon color="var(--ecs-muted)" />}
+        </span>
+        <span className={isResearch ? 'pill-pass' : 'pill-info'}>{isResearch ? 'Research Travel' : 'Non-Research Travel'}</span>
+        <span className="border-l border-[var(--ecs-border)] pl-3 text-sm text-[var(--ecs-muted)]">Automatically derived from the selected charging account.</span>
+      </div>
+    </div>
+  );
+}
+
+export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, studentGroupEnabled, requestorCharging, chargingAccounts, entityName }: {
   persona: { name: string; title: string }; isRequestor: boolean;
-  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; guestMixAllowed: boolean; studentGroupEnabled: boolean;
-  requestorCharging?: Charging | null;
+  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; studentGroupEnabled: boolean;
+  requestorCharging?: Charging | null; chargingAccounts: Account[]; entityName: string;
 }) {
   const [mode, setMode] = useState<Mode>('individual');
   const defaultTraveller = options[0]?.id;
-  // Individual mode: track the selected traveller so the derived RO + default charging update live.
   const [travellerId, setTravellerId] = useState<string>(defaultTraveller ?? '');
   const selectedTraveller = options.find((o) => o.id === travellerId) ?? options[0];
   const modes: Mode[] = groupEnabled ? ['individual', 'group', 'guest'] : ['individual', 'guest'];
 
-  // Group sub-type: STAFF (employees + optional guests) vs STUDENT (uploaded students).
-  const [groupKind, setGroupKind] = useState<GroupKind>('staff');
+  const firstCode = chargingAccounts[0]?.code ?? '';
+  // Default charging codes per context (individual → traveller's profile account; group/guest →
+  // the requestor/host's). Fall back to the first active account when none is on the profile.
+  const indivDefaultCode = selectedTraveller?.charging?.code ?? firstCode;
+  const requestorDefaultCode = requestorCharging?.code ?? firstCode;
+  const [chargingCode, setChargingCode] = useState<string>(indivDefaultCode);
+  const researchOf = (code: string) => !!chargingAccounts.find((a) => a.code === code)?.isResearch;
 
-  // Group state (employee selection + guest members)
+  // Switching the traveller (individual) re-defaults the charging account to that traveller's profile.
+  const onTraveller = (id: string) => { setTravellerId(id); setChargingCode(options.find((o) => o.id === id)?.charging?.code ?? firstCode); };
+  // Switching mode re-defaults the charging account to that context's default.
+  const switchMode = (m: Mode) => { setMode(m); setChargingCode(m === 'individual' ? (selectedTraveller?.charging?.code ?? firstCode) : requestorDefaultCode); };
+
+  const [groupKind, setGroupKind] = useState<GroupKind>('staff');
+  const [memberTab, setMemberTab] = useState<MemberTab>('search');
+
+  // Staff-group employee selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [guests, setGuests] = useState<GuestRow[]>([]);
   const [importNote, setImportNote] = useState<string>('');
   const [importErrors, setImportErrors] = useState<string[]>([]);
-  const [query, setQuery] = useState('');          // directory type-ahead search
+  const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Student-group state (uploaded, non-validated student rows)
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [studentTab, setStudentTab] = useState<MemberTab>('search'); // 'search' == manual add
   const [studentNote, setStudentNote] = useState<string>('');
   const [studentErrors, setStudentErrors] = useState<string[]>([]);
   const studentFileRef = useRef<HTMLInputElement>(null);
@@ -73,16 +113,12 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const studentTotal = namedStudents.length;
   const studentOver = studentTotal > groupMax;
   const studentTooFew = studentTotal < 2;
+
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const setGuest = (i: number, p: Partial<GuestRow>) => setGuests((g) => g.map((r, j) => j === i ? { ...r, ...p } : r));
-  const addGuest = () => setGuests((g) => [...g, { name: '', email: '', org: '' }]);
-  const delGuest = (i: number) => setGuests((g) => g.filter((_, j) => j !== i));
-  const namedGuests = guests.filter((g) => g.name.trim());
-  const total = selected.size + namedGuests.length;
+  const total = selected.size;
   const over = total > groupMax;
   const tooFew = total < 2;
 
-  // Directory type-ahead (scales to a large AD — no full list rendered).
   const optById = new Map(groupOptions.map((o) => [o.id, o] as const));
   const q = query.trim().toLowerCase();
   const matchesAll = groupOptions.filter((o) => !selected.has(o.id)
@@ -91,7 +127,6 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const moreCount = matchesAll.length - matches.length;
   const addEmployee = (id: string) => { setSelected((s) => new Set(s).add(id)); setQuery(''); };
 
-  // Resolve an employee by id, email or name (case-insensitive) against the directory.
   const resolveEmp = (key: string): Opt | undefined => {
     const k = key.trim().toLowerCase();
     if (!k) return undefined;
@@ -100,97 +135,56 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
       ?? groupOptions.find((o) => o.name.toLowerCase() === k);
   };
 
-  // Bulk-import group members from an uploaded Excel/CSV file. Columns (case-insensitive):
-  // Type · Employee ID · Name · Email · Organisation. Employee rows resolve against the ECS
-  // directory; guest rows are captured verbatim. Merges into the current selection.
+  // Bulk-import EMPLOYEE members from Excel/CSV. Columns (case-insensitive): Employee ID · Name · Email.
+  // Guests are not mixed into a group, so non-matching rows are reported as errors.
   const onExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) await importMembers(file);
-    if (fileRef.current) fileRef.current.value = ''; // allow re-selecting the same file
+    if (fileRef.current) fileRef.current.value = '';
   };
-
   const importMembers = async (file: File) => {
     setImportNote(''); setImportErrors([]);
+    if (file.size > MAX_UPLOAD_BYTES) { setImportErrors([`File is too large (${(file.size / 1048576).toFixed(1)} MB). Maximum is 5 MB.`]); return; }
     try {
       const XLSX = await import('xlsx');
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-
-      const pick = (row: Record<string, string>, ...keys: string[]) => {
-        for (const k of keys) { const v = row[k]; if (v != null && String(v).trim()) return String(v).trim(); }
-        return '';
-      };
+      const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      const pick = (row: Record<string, string>, ...keys: string[]) => { for (const k of keys) { const v = row[k]; if (v != null && String(v).trim()) return String(v).trim(); } return ''; };
       const addEmp = new Set<string>(selected);
-      const addGuests: GuestRow[] = [...guests];
       const errs: string[] = [];
-      let nEmp = 0, nGuest = 0;
-
+      let nEmp = 0;
       rows.forEach((raw, i) => {
-        // normalise header keys to lowercase
         const row: Record<string, string> = {};
         for (const [k, v] of Object.entries(raw)) row[k.trim().toLowerCase()] = v == null ? '' : String(v);
-        const type = pick(row, 'type', 'member type').toLowerCase();
         const empId = pick(row, 'employee id', 'employeeid', 'staff id', 'id');
-        const name = pick(row, 'name', 'traveller', 'guest name', 'full name');
-        const email = pick(row, 'email', 'guest email', 'e-mail');
-        const org = pick(row, 'organisation', 'organization', 'org', 'home organisation', 'affiliation');
-        const rowNo = i + 2; // header is row 1
-
-        if (!type && !empId && !name && !email) return; // blank row
-
-        const asGuest = () => {
-          if (!guestMixAllowed) { errs.push(`Row ${rowNo}: guest "${name || email}" skipped — mixing guests into a group is disabled.`); return; }
-          if (!name) { errs.push(`Row ${rowNo}: guest needs a name.`); return; }
-          if (!addGuests.some((g) => g.name.trim().toLowerCase() === name.toLowerCase())) { addGuests.push({ name, email, org }); nGuest++; }
-        };
-
-        if (type.startsWith('guest')) { asGuest(); return; }
-        if (type.startsWith('emp') || empId) {
-          const emp = resolveEmp(empId || name || email);
-          if (emp) { if (!addEmp.has(emp.id)) { addEmp.add(emp.id); nEmp++; } }
-          else errs.push(`Row ${rowNo}: no employee matches "${empId || name || email}".`);
-          return;
-        }
-        // Untyped row: match an employee by name/email, else treat as a guest.
-        const emp = resolveEmp(name || email);
+        const name = pick(row, 'name', 'traveller', 'full name');
+        const email = pick(row, 'email', 'e-mail');
+        if (!empId && !name && !email) return; // blank row
+        const emp = resolveEmp(empId || name || email);
         if (emp) { if (!addEmp.has(emp.id)) { addEmp.add(emp.id); nEmp++; } }
-        else asGuest();
+        else errs.push(`Row ${i + 2}: no employee matches "${empId || name || email}".`);
       });
-
       setSelected(addEmp);
-      setGuests(addGuests);
       setImportErrors(errs);
-      const parts: string[] = [];
-      if (nEmp) parts.push(`${nEmp} employee${nEmp > 1 ? 's' : ''}`);
-      if (nGuest) parts.push(`${nGuest} guest${nGuest > 1 ? 's' : ''}`);
-      setImportNote(parts.length ? `Imported ${parts.join(' and ')} from ${file.name}.` : `No new members found in ${file.name}.`);
+      setImportNote(nEmp ? `Added ${nEmp} employee${nEmp > 1 ? 's' : ''} from ${file.name}.` : `No new employees found in ${file.name}.`);
     } catch (err) {
       setImportErrors([`Could not read the file — ${(err as Error).message}. Expected .xlsx, .xls or .csv.`]);
     }
   };
-
   const downloadTemplate = async () => {
     const XLSX = await import('xlsx');
-    const header = ['Type', 'Employee ID', 'Name', 'Email', 'Organisation'];
-    const sample = [
-      { Type: 'Employee', 'Employee ID': groupOptions[0]?.id ?? 'E-TRAV', Name: groupOptions[0]?.name ?? '', Email: '', Organisation: '' },
-      { Type: 'Guest', 'Employee ID': '', Name: 'Prof Maria Santos', Email: 'maria.santos@mit.edu', Organisation: 'MIT' },
-    ];
-    const ws = XLSX.utils.json_to_sheet(sample, { header });
-    ws['!cols'] = [{ wch: 10 }, { wch: 14 }, { wch: 26 }, { wch: 26 }, { wch: 22 }];
+    const ws = XLSX.utils.json_to_sheet([
+      { 'Employee ID': groupOptions[0]?.id ?? 'E-TRAV', Name: groupOptions[0]?.name ?? '', Email: groupOptions[0]?.email ?? '' },
+    ], { header: ['Employee ID', 'Name', 'Email'] });
+    ws['!cols'] = [{ wch: 14 }, { wch: 26 }, { wch: 28 }];
     const dir = groupOptions.map((o) => ({ 'Employee ID': o.id, Name: o.name, Department: o.dept, Email: o.email ?? '' }));
-    const ws2 = XLSX.utils.json_to_sheet(dir);
-    ws2['!cols'] = [{ wch: 14 }, { wch: 26 }, { wch: 40 }, { wch: 28 }];
+    const ws2 = XLSX.utils.json_to_sheet(dir); ws2['!cols'] = [{ wch: 14 }, { wch: 26 }, { wch: 40 }, { wch: 28 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Members');
     XLSX.utils.book_append_sheet(wb, ws2, 'Employee directory');
     XLSX.writeFile(wb, 'group-members-template.xlsx');
   };
 
-  // Bulk-import STUDENT members. Columns (case-insensitive): Name · Email · Student ID · Programme.
-  // Rows are captured verbatim — there is NO validation that a row is a genuine student.
   const onStudentExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) await importStudents(file);
@@ -198,14 +192,12 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   };
   const importStudents = async (file: File) => {
     setStudentNote(''); setStudentErrors([]);
+    if (file.size > MAX_UPLOAD_BYTES) { setStudentErrors([`File is too large (${(file.size / 1048576).toFixed(1)} MB). Maximum is 5 MB.`]); return; }
     try {
       const XLSX = await import('xlsx');
       const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-      const pick = (row: Record<string, string>, ...keys: string[]) => {
-        for (const k of keys) { const v = row[k]; if (v != null && String(v).trim()) return String(v).trim(); }
-        return '';
-      };
+      const pick = (row: Record<string, string>, ...keys: string[]) => { for (const k of keys) { const v = row[k]; if (v != null && String(v).trim()) return String(v).trim(); } return ''; };
       const next: StudentRow[] = [...students];
       const errs: string[] = [];
       let n = 0;
@@ -216,7 +208,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
         const email = pick(row, 'email', 'e-mail', 'student email');
         const studentId = pick(row, 'student id', 'studentid', 'matriculation', 'matric no', 'matric', 'id');
         const programme = pick(row, 'programme', 'program', 'school', 'course', 'faculty');
-        if (!name && !email && !studentId) return; // blank row
+        if (!name && !email && !studentId) return;
         if (!name) { errs.push(`Row ${i + 2}: a student needs a name.`); return; }
         if (!next.some((s) => s.name.trim().toLowerCase() === name.toLowerCase())) { next.push({ name, email, studentId, programme }); n++; }
       });
@@ -229,25 +221,64 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   };
   const downloadStudentTemplate = async () => {
     const XLSX = await import('xlsx');
-    const header = ['Name', 'Email', 'Student ID', 'Programme'];
-    const sample = [
+    const ws = XLSX.utils.json_to_sheet([
       { Name: 'Tan Wei Ming', Email: 'weiming.tan@e.ntu.edu.sg', 'Student ID': 'U2312345A', Programme: 'BEng Computer Science' },
-      { Name: 'Priya Kumar', Email: 'priya.kumar@e.ntu.edu.sg', 'Student ID': 'U2298765B', Programme: 'BEng Computer Science' },
-    ];
-    const ws = XLSX.utils.json_to_sheet(sample, { header });
+    ], { header: ['Name', 'Email', 'Student ID', 'Programme'] });
     ws['!cols'] = [{ wch: 24 }, { wch: 28 }, { wch: 14 }, { wch: 28 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
     XLSX.writeFile(wb, 'student-group-template.xlsx');
   };
 
+  // Shared: RO (read-only) + Charging Account (editable dropdown) + Travel Classification badge.
+  const ChargingBlock = ({ roValue, roHint }: { roValue: React.ReactNode; roHint: string }) => (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <DerivedField label="Reporting Officer (RO)" info muted value={roValue} hint={roHint} />
+        <div>
+          <label className="label inline-flex items-center gap-1">Charging Account <span className="text-[var(--ecs-red)]">*</span><InfoIcon /></label>
+          <select name="chargingCode" value={chargingCode} onChange={(e) => setChargingCode(e.target.value)} className="field txt-default" required>
+            {chargingAccounts.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+          </select>
+          <p className="text-xs text-[var(--ecs-muted)] mt-1">Defaulted from Profile. You may change the charging account if required.</p>
+        </div>
+      </div>
+      <TravelClassification isResearch={researchOf(chargingCode)} />
+    </>
+  );
+
+  const Upload = ({ onPick, onTemplate, inputRef, onChange }: { onPick: () => void; onTemplate: () => void; inputRef: React.RefObject<HTMLInputElement | null>; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void }) => (
+    <div className="rounded-md border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-4">
+      <div className="flex items-start gap-3">
+        <span className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-[var(--ecs-panel)] shrink-0 text-[var(--ecs-navy)]">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" /><path d="M14 3v5h5M9 13h6M9 16h6" /></svg>
+        </span>
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-[var(--ecs-navy)]">Upload an Excel or CSV file</div>
+          <div className="text-xs text-[var(--ecs-muted)] mt-0.5">Use the template to ensure the correct format. The file should contain the traveller details to add to this group request.</div>
+          <div className="flex items-center gap-2 mt-3">
+            <button type="button" className="btn-primary text-sm" onClick={onPick}>⬆ Upload Excel / CSV</button>
+            <button type="button" className="btn-secondary text-sm" onClick={onTemplate}>⬇ Download template</button>
+          </div>
+          <div className="text-xs text-[var(--ecs-muted)] mt-2">Accepted file types: .xlsx, .xls, .csv. Maximum file size: 5 MB.</div>
+        </div>
+      </div>
+      <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onChange} />
+    </div>
+  );
+
+  const SubTab = ({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) => (
+    <button type="button" onClick={onClick} className={`px-1 pb-2 text-sm font-medium border-b-2 -mb-px ${active ? 'border-[var(--ecs-navy)] text-[var(--ecs-navy)]' : 'border-transparent text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)]'}`}>{children}</button>
+  );
+
   return (
     <div>
-      <div className="card p-2 mb-4 inline-flex gap-1">
+      {/* Request-type tabs (icon cards) */}
+      <div className="card p-1.5 mb-4 flex gap-1">
         {modes.map((m) => (
-          <button key={m} type="button" onClick={() => setMode(m)}
-            className={mode === m ? 'btn-primary' : 'btn-ghost'}>
-            {MODE_LABEL[m]}
+          <button key={m} type="button" onClick={() => switchMode(m)}
+            className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
+            <ModeIcon m={m} /> {MODE_LABEL[m]}
           </button>
         ))}
       </div>
@@ -255,28 +286,27 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
       {mode === 'guest' ? (
         <form action={createGuestDraft}>
           <div className="card">
-            <div className="card-head">Guest / Non-Employee Traveller (§8)</div>
+            <div className="card-head">Guest / Non-Employee Traveller</div>
             <div className="p-4 space-y-4">
               <div>
                 <label className="label">Host / Requestor (you)</label>
-                <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}</div>
+                <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
               </div>
-              {/* A guest has no ECS reporting line → RO blank; charging defaults to the host's cost object. */}
-              <div className="grid grid-cols-2 gap-4">
-                <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a guest has no reporting officer" />
-                <DerivedField label="Default charging account" muted={!requestorCharging}
-                  value={chargingText(requestorCharging)}
-                  hint={`The guest's trip is charged to you. ${chargingHint(requestorCharging, 'Your (host)')}`} />
-              </div>
+              <ChargingBlock roValue="Not Applicable — guest travel has no traveller RO" roHint="Determined by the configured guest approval workflow." />
+            </div>
+          </div>
+          <div className="card mt-4">
+            <div className="card-head">Guest Details</div>
+            <div className="p-4 space-y-4">
               <div>
-                <label className="label" htmlFor="guestName">Guest name</label>
+                <label className="label" htmlFor="guestName">Guest name <span className="text-[var(--ecs-red)]">*</span></label>
                 <input id="guestName" name="guestName" required className="field" placeholder="e.g. Prof Maria Santos" />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="label" htmlFor="guestEmail">Guest email</label><input id="guestEmail" name="guestEmail" type="email" className="field" placeholder="maria.santos@example.edu" /></div>
-                <div><label className="label" htmlFor="guestOrg">Home organisation</label><input id="guestOrg" name="guestOrg" className="field" placeholder="e.g. MIT" /></div>
+                <div><label className="label" htmlFor="guestEmail">Guest email <span className="text-[var(--ecs-red)]">*</span></label><input id="guestEmail" name="guestEmail" type="email" required className="field" placeholder="e.g. maria.santos@example.edu" /></div>
+                <div><label className="label" htmlFor="guestOrg">Home organisation <span className="text-[var(--ecs-red)]">*</span></label><input id="guestOrg" name="guestOrg" required className="field" placeholder="e.g. MIT" /></div>
               </div>
-              <p className="text-xs text-[var(--ecs-muted)]">The guest has no ECS/HR profile; their identity is captured here and the trip is charged to your department. Entitlement defaults to Economy unless an exception is approved (§8, AC7).</p>
+              <p className="text-xs text-[var(--ecs-muted)]">Guest travel is charged to the selected account. Economy class applies unless an exception is approved (§8, AC7).</p>
             </div>
           </div>
           <div className="mt-4 flex justify-end"><button className="btn-primary">Create guest draft →</button></div>
@@ -288,24 +318,16 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
             <div className="p-4 space-y-4">
               <div>
                 <label className="label">Requestor (you)</label>
-                <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-navy ml-1">Travel Requestor</span>}</div>
+                <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
               </div>
               <div>
-                <label className="label" htmlFor="travellerId">Traveller</label>
-                <select id="travellerId" name="travellerId" className="field" value={travellerId} onChange={(e) => setTravellerId(e.target.value)}>
-                  {options.map((e) => <option key={e.id} value={e.id}>{e.name} — {e.title} ({e.dept}){e.delegated ? ' · delegated' : ''}</option>)}
+                <label className="label" htmlFor="travellerId">Traveller <span className="text-[var(--ecs-red)]">*</span></label>
+                <select id="travellerId" name="travellerId" className="field" value={travellerId} onChange={(e) => onTraveller(e.target.value)}>
+                  {options.map((e) => <option key={e.id} value={e.id}>{e.name} — {e.title} ({e.dept}){e.delegated ? ' · Delegated' : ''}</option>)}
                 </select>
-                {isRequestor && <p className="text-xs text-[var(--ecs-muted)] mt-1">Creating on behalf of a traveller; approval, entitlements and declarations derive from the traveller (§13.13).</p>}
+                {isRequestor && <p className="text-xs text-[var(--ecs-muted)] mt-1">You are creating this request on behalf of the selected traveller. Travel entitlements and approval routing will follow the traveller.</p>}
               </div>
-              {/* §13.13 / §7 RO and default charging are derived from the selected traveller (read-only here). */}
-              <div className="grid grid-cols-2 gap-4">
-                <DerivedField label="Reporting Officer (RO)" muted={!selectedTraveller?.roName}
-                  value={selectedTraveller?.roName ?? '— none on file —'}
-                  hint="Derived from the traveller's ECS/HR reporting line." />
-                <DerivedField label="Default charging account" muted={!selectedTraveller?.charging}
-                  value={chargingText(selectedTraveller?.charging)}
-                  hint={chargingHint(selectedTraveller?.charging, "The traveller's")} />
-              </div>
+              <ChargingBlock roValue={selectedTraveller?.roName ?? '— none on file —'} roHint="Automatically derived from Workday." />
             </div>
           </div>
           <div className="mt-4 flex justify-end"><button className="btn-primary">Create draft →</button></div>
@@ -313,205 +335,165 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
       ) : (
         <>
           {studentGroupEnabled && (
-            <div className="card p-2 mb-4 inline-flex gap-1">
-              <button type="button" onClick={() => setGroupKind('staff')} className={groupKind === 'staff' ? 'btn-primary' : 'btn-ghost'}>Staff group</button>
-              <button type="button" onClick={() => setGroupKind('student')} className={groupKind === 'student' ? 'btn-primary' : 'btn-ghost'}>Student group</button>
+            <div className="card p-1.5 mb-4 inline-flex gap-1">
+              <button type="button" onClick={() => setGroupKind('staff')} className={`px-4 py-2 rounded-md font-semibold text-sm ${groupKind === 'staff' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Staff group</button>
+              <button type="button" onClick={() => setGroupKind('student')} className={`px-4 py-2 rounded-md font-semibold text-sm ${groupKind === 'student' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Student group</button>
             </div>
           )}
 
           {groupKind === 'student' ? (
-        <form action={createGroupDraft}>
-          <input type="hidden" name="groupType" value="STUDENT" />
-          <input type="hidden" name="studentsJson" value={JSON.stringify(namedStudents.map((s) => ({ name: s.name.trim(), email: s.email.trim(), studentId: s.studentId.trim(), programme: s.programme.trim() })))} />
-          <div className="card">
-            <div className="card-head flex items-center justify-between">
-              <span>Student Travellers</span>
-              <span className={`text-xs font-normal ${studentOver ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{studentTotal} of max {groupMax}</span>
-            </div>
-            <div className="p-4">
-              <label className="label">Requestor / Coordinator (you)</label>
-              <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] mb-4">{persona.name} — {persona.title}{isRequestor && <span className="pill-navy ml-1">Travel Requestor</span>}</div>
-
-              {/* A student group has no single RO → blank; charging defaults to the requestor's cost object. */}
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a group has no single reporting officer" />
-                <DerivedField label="Default charging account" muted={!requestorCharging}
-                  value={chargingText(requestorCharging)}
-                  hint={`The group default. ${chargingHint(requestorCharging, 'Your (requestor)')}`} />
-              </div>
-
-              <div className="rounded border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 mb-4">
-                <div className="flex items-center justify-between flex-wrap gap-2">
+            <form action={createGroupDraft}>
+              <input type="hidden" name="groupType" value="STUDENT" />
+              <input type="hidden" name="studentsJson" value={JSON.stringify(namedStudents.map((s) => ({ name: s.name.trim(), email: s.email.trim(), studentId: s.studentId.trim(), programme: s.programme.trim() })))} />
+              <div className="card">
+                <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${studentOver ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{studentTotal} of {groupMax} travellers</span></div>
+                <div className="p-4 space-y-4">
                   <div>
-                    <div className="text-sm font-medium">Bulk-add students from Excel</div>
-                    <div className="text-xs text-[var(--ecs-muted)]">Columns: <code>Name</code>, <code>Email</code>, <code>Student ID</code>, <code>Programme</code>. Captured as provided — <strong>not validated</strong> against any student record.</div>
+                    <label className="label">Requestor / Coordinator (you)</label>
+                    <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button type="button" className="btn-secondary text-xs" onClick={() => studentFileRef.current?.click()}>⬆ Upload Excel / CSV</button>
-                    <button type="button" className="btn-ghost text-xs" onClick={downloadStudentTemplate}>Download template</button>
-                  </div>
+                  <ChargingBlock roValue="Not Applicable — RO approval not required for group travel" roHint="Determined by the configured group approval workflow." />
                 </div>
-                <input ref={studentFileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onStudentExcel} />
-                {studentNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{studentNote}</p>}
-                {studentErrors.length > 0 && (
-                  <details className="mt-1" open>
-                    <summary className="text-xs text-[var(--ecs-red)] cursor-pointer">{studentErrors.length} row{studentErrors.length > 1 ? 's' : ''} skipped</summary>
-                    <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{studentErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>
-                  </details>
-                )}
               </div>
 
-              <div className="flex items-center justify-between mb-1">
-                <label className="label mb-0">Students (uploaded details — not validated)</label>
-                <button type="button" className="btn-ghost text-xs" onClick={addStudent}>＋ Add student</button>
-              </div>
-              {students.length === 0 ? (
-                <p className="text-xs text-[var(--ecs-muted)]">Upload or add each student. A student flies Economy by default, is charged to your (host) department, and is settled centrally — students do not file their own claim.</p>
-              ) : (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-[1.4fr_1.6fr_1fr_1.4fr_auto] gap-2 text-xs text-[var(--ecs-muted)] px-1">
-                    <span>Name</span><span>Email</span><span>Student ID</span><span>Programme</span><span></span>
+              <div className="card mt-4">
+                <div className="card-head flex items-center justify-between"><span>Add Group Members</span><span className="text-xs font-normal text-[var(--ecs-muted)]">Minimum 2 · Maximum {groupMax} travellers</span></div>
+                <div className="p-4">
+                  <div className="flex gap-5 border-b border-[var(--ecs-border)] mb-4">
+                    <SubTab active={studentTab === 'search'} onClick={() => setStudentTab('search')}>Add manually</SubTab>
+                    <SubTab active={studentTab === 'bulk'} onClick={() => setStudentTab('bulk')}>Bulk add from Excel</SubTab>
                   </div>
-                  {students.map((s, i) => (
-                    <div key={i} className="grid grid-cols-[1.4fr_1.6fr_1fr_1.4fr_auto] gap-2 items-center">
-                      <input className="field" placeholder="Student name" value={s.name} onChange={(e) => setStudent(i, { name: e.target.value })} />
-                      <input className="field" placeholder="Email (optional)" value={s.email} onChange={(e) => setStudent(i, { email: e.target.value })} />
-                      <input className="field" placeholder="Matric no." value={s.studentId} onChange={(e) => setStudent(i, { studentId: e.target.value })} />
-                      <input className="field" placeholder="Programme / school" value={s.programme} onChange={(e) => setStudent(i, { programme: e.target.value })} />
-                      <button type="button" className="btn-ghost text-xs" onClick={() => delStudent(i)}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <p className="text-xs text-[var(--ecs-muted)] mt-3">Approved once on the group total; the DOA is derived from the host (requestor&apos;s) department. Students carry no individual cost share and file no claim (§13.14). A group booking is limited to <strong>{groupMax}</strong> travellers (TMC group limit).</p>
-              {studentOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {studentTotal - groupMax} student{studentTotal - groupMax > 1 ? 's' : ''}.</p>}
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-end gap-3">
-            {studentTooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 students to create a group — you have {studentTotal} with a name.</span>}
-            <button className="btn-primary" disabled={studentOver || studentTooFew}>Create student group draft →</button>
-          </div>
-        </form>
-          ) : (
-        <form action={createGroupDraft}>
-          <input type="hidden" name="groupType" value="STAFF" />
-          {[...selected].map((id) => <input key={id} type="hidden" name="travellerIds" value={id} />)}
-          <input type="hidden" name="guestsJson" value={JSON.stringify(guestMixAllowed ? namedGuests.map((g) => ({ name: g.name.trim(), email: g.email.trim(), org: g.org.trim() })) : [])} />
-          <div className="card">
-            <div className="card-head flex items-center justify-between">
-              <span>Group Travellers</span>
-              <span className={`text-xs font-normal ${over ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{total} of max {groupMax}</span>
-            </div>
-            <div className="p-4">
-              <label className="label">Requestor (you)</label>
-              <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)] mb-4">{persona.name} — {persona.title}{isRequestor && <span className="pill-navy ml-1">Travel Requestor</span>}</div>
-
-              {/* A group has no single RO → blank; charging defaults to the requestor's cost object. */}
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <DerivedField label="Reporting Officer (RO)" muted value="Not applicable — a group has no single reporting officer" />
-                <DerivedField label="Default charging account" muted={!requestorCharging}
-                  value={chargingText(requestorCharging)}
-                  hint={`The group default; per-member department allocation is applied on the Charging step. ${chargingHint(requestorCharging, 'Your (requestor)')}`} />
-              </div>
-
-              {/* Bulk import */}
-              <div className="rounded border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3 mb-4">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <div className="text-sm font-medium">Bulk-add members from Excel</div>
-                    <div className="text-xs text-[var(--ecs-muted)]">Columns: <code>Type</code>, <code>Employee ID</code>, <code>Name</code>, <code>Email</code>, <code>Organisation</code>. Employees resolve from the ECS directory; everything else is treated as a guest.</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button type="button" className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>⬆ Upload Excel / CSV</button>
-                    <button type="button" className="btn-ghost text-xs" onClick={downloadTemplate}>Download template</button>
-                  </div>
-                </div>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onExcel} />
-                {importNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{importNote}</p>}
-                {importErrors.length > 0 && (
-                  <details className="mt-1" open>
-                    <summary className="text-xs text-[var(--ecs-red)] cursor-pointer">{importErrors.length} row{importErrors.length > 1 ? 's' : ''} skipped</summary>
-                    <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{importErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>
-                  </details>
-                )}
-              </div>
-
-              <label className="label">Employee travellers (each confirms inclusion — §13.13)</label>
-              {selected.size > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {[...selected].map((id) => {
-                    const o = optById.get(id);
-                    return (
-                      <span key={id} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] text-sm">
-                        <span>{o?.name ?? id}</span>
-                        {o && <span className="text-xs text-[var(--ecs-muted)]">{o.dept}</span>}
-                        <button type="button" onClick={() => toggle(id)} aria-label={`Remove ${o?.name ?? id}`}
-                          className="text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] leading-none px-0.5">✕</button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="relative">
-                <input type="text" className="field" placeholder="Search the directory by name, department or ID…"
-                  value={query} onChange={(e) => setQuery(e.target.value)}
-                  onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 150)} />
-                {focused && (
-                  <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-[var(--ecs-border)] rounded-md shadow-lg max-h-64 overflow-y-auto">
-                    {matches.length === 0 ? (
-                      <div className="px-3 py-2 text-sm text-[var(--ecs-muted)]">{q ? 'No matching employees.' : 'All directory employees are already selected.'}</div>
-                    ) : (
-                      <>
-                        {matches.map((o) => (
-                          <button key={o.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => addEmployee(o.id)}
-                            className="w-full text-left px-3 py-2 hover:bg-[var(--ecs-panel-2)] border-b border-[var(--ecs-border)] last:border-0">
-                            <span className="text-sm">{o.name}</span>
-                            <span className="text-xs text-[var(--ecs-muted)]"> — {o.title} ({o.dept})</span>
-                          </button>
-                        ))}
-                        {moreCount > 0 && <div className="px-3 py-1.5 text-xs text-[var(--ecs-muted)] bg-[var(--ecs-panel-2)]">+{moreCount} more — refine your search</div>}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-[var(--ecs-muted)] mt-1">Type to search the directory, pick to add. {selected.size} employee{selected.size === 1 ? '' : 's'} selected.</p>
-
-              {guestMixAllowed ? (
-                <>
-                  <div className="flex items-center justify-between mt-4 mb-1">
-                    <label className="label mb-0">Guest members (non-employees, §8)</label>
-                    <button type="button" className="btn-ghost text-xs" onClick={addGuest}>＋ Add guest</button>
-                  </div>
-                  {guests.length === 0 ? (
-                    <p className="text-xs text-[var(--ecs-muted)]">Add external speakers or collaborators travelling with the group. A guest flies Economy by default, is charged to your (host) department, and is settled centrally — guests do not file their own claim.</p>
+                  {studentTab === 'bulk' ? (
+                    <>
+                      <Upload onPick={() => studentFileRef.current?.click()} onTemplate={downloadStudentTemplate} inputRef={studentFileRef} onChange={onStudentExcel} />
+                      {studentNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{studentNote}</p>}
+                      {studentErrors.length > 0 && <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{studentErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>}
+                    </>
                   ) : (
-                    <div className="space-y-2">
-                      {guests.map((g, i) => (
-                        <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
-                          <input className="field" placeholder="Guest name" value={g.name} onChange={(e) => setGuest(i, { name: e.target.value })} />
-                          <input className="field" placeholder="Email (optional)" value={g.email} onChange={(e) => setGuest(i, { email: e.target.value })} />
-                          <input className="field" placeholder="Organisation" value={g.org} onChange={(e) => setGuest(i, { org: e.target.value })} />
-                          <button type="button" className="btn-ghost text-xs" onClick={() => delGuest(i)}>✕</button>
-                        </div>
-                      ))}
+                    <button type="button" className="btn-secondary text-sm" onClick={addStudent}>＋ Add student</button>
+                  )}
+
+                  <div className="text-sm font-semibold text-[var(--ecs-navy)] mt-5 mb-2">Students — uploaded details, not validated ({studentTotal})</div>
+                  {students.length === 0 ? (
+                    <div className="rounded-md border border-[var(--ecs-border)] p-8 text-center text-sm text-[var(--ecs-muted)]">No students added yet. Add manually or use bulk add to build the party.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Student ID</th><th className="th">Programme</th><th className="th">Actions</th></tr></thead>
+                        <tbody>
+                          {students.map((s, i) => (
+                            <tr key={i}>
+                              <td className="td"><input className="field" placeholder="Student name" value={s.name} onChange={(e) => setStudent(i, { name: e.target.value })} /></td>
+                              <td className="td"><input className="field" placeholder="Email (optional)" value={s.email} onChange={(e) => setStudent(i, { email: e.target.value })} /></td>
+                              <td className="td"><input className="field" placeholder="Matric no." value={s.studentId} onChange={(e) => setStudent(i, { studentId: e.target.value })} /></td>
+                              <td className="td"><input className="field" placeholder="Programme" value={s.programme} onChange={(e) => setStudent(i, { programme: e.target.value })} /></td>
+                              <td className="td"><button type="button" className="btn-ghost text-xs" onClick={() => delStudent(i)} aria-label="Remove">✕</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
-                </>
-              ) : (
-                <p className="text-xs text-[var(--ecs-muted)] mt-4">Mixing guests into a group is disabled in configuration — this group is employees-only. Raise external guests on a separate <b>Guest / non-employee</b> request (§8).</p>
-              )}
+                  <p className="text-xs text-[var(--ecs-muted)] mt-3">Approved once on the group total; the DOA is derived from the host (requestor&apos;s) department. Students carry no individual cost share and file no claim (§13.14).</p>
+                  {studentOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {studentTotal - groupMax} student{studentTotal - groupMax > 1 ? 's' : ''}.</p>}
+                </div>
+              </div>
+              <div className="mt-4 flex items-center justify-end gap-3">
+                {studentTooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 students to continue.</span>}
+                <button className="btn-primary" disabled={studentOver || studentTooFew}>Create student group draft →</button>
+              </div>
+            </form>
+          ) : (
+            <form action={createGroupDraft}>
+              <input type="hidden" name="groupType" value="STAFF" />
+              {[...selected].map((id) => <input key={id} type="hidden" name="travellerIds" value={id} />)}
+              <div className="card">
+                <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${over ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{total} of {groupMax} travellers</span></div>
+                <div className="p-4 space-y-4">
+                  <div>
+                    <label className="label">Requestor (you)</label>
+                    <div className="text-sm px-3 py-2 bg-[var(--ecs-panel-2)] rounded border border-[var(--ecs-border)]">{persona.name} — {persona.title}{isRequestor && <span className="pill-info ml-2">Travel Requestor</span>}</div>
+                  </div>
+                  <ChargingBlock roValue="Not Applicable — RO approval not required for group travel" roHint="Determined by the configured group approval workflow." />
+                </div>
+              </div>
 
-              <p className="text-xs text-[var(--ecs-muted)] mt-3">Approved once on the group total; the DOA is derived from the highest charging department. The requestor holds no cost share (§13.14). A group booking is limited to <strong>{groupMax}</strong> travellers (TMC group limit).</p>
-              {over && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {total - groupMax} traveller{total - groupMax > 1 ? 's' : ''}.</p>}
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-end gap-3">
-            {tooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 members to create a group — you have {total}.</span>}
-            <button className="btn-primary" disabled={over || tooFew}>Create group draft →</button>
-          </div>
-        </form>
+              <div className="card mt-4">
+                <div className="card-head flex items-center justify-between"><span>Add Group Members</span><span className="text-xs font-normal text-[var(--ecs-muted)]">Minimum 2 · Maximum {groupMax} travellers</span></div>
+                <div className="p-4">
+                  <div className="flex gap-5 border-b border-[var(--ecs-border)] mb-4">
+                    <SubTab active={memberTab === 'search'} onClick={() => setMemberTab('search')}>Search and add</SubTab>
+                    <SubTab active={memberTab === 'bulk'} onClick={() => setMemberTab('bulk')}>Bulk add from Excel</SubTab>
+                  </div>
+
+                  {memberTab === 'bulk' ? (
+                    <>
+                      <Upload onPick={() => fileRef.current?.click()} onTemplate={downloadTemplate} inputRef={fileRef} onChange={onExcel} />
+                      {importNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{importNote}</p>}
+                      {importErrors.length > 0 && <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{importErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>}
+                    </>
+                  ) : (
+                    <div className="relative">
+                      <input type="text" className="field" placeholder="Search the directory by name, department or ID…"
+                        value={query} onChange={(e) => setQuery(e.target.value)}
+                        onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 150)} />
+                      {focused && (
+                        <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-[var(--ecs-border)] rounded-md shadow-lg max-h-64 overflow-y-auto">
+                          {matches.length === 0 ? (
+                            <div className="px-3 py-2 text-sm text-[var(--ecs-muted)]">{q ? 'No matching employees.' : 'All directory employees are already selected.'}</div>
+                          ) : (
+                            <>
+                              {matches.map((o) => (
+                                <button key={o.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => addEmployee(o.id)}
+                                  className="w-full text-left px-3 py-2 hover:bg-[var(--ecs-panel-2)] border-b border-[var(--ecs-border)] last:border-0">
+                                  <span className="text-sm">{o.name}</span><span className="text-xs text-[var(--ecs-muted)]"> — {o.title} ({o.dept})</span>
+                                </button>
+                              ))}
+                              {moreCount > 0 && <div className="px-3 py-1.5 text-xs text-[var(--ecs-muted)] bg-[var(--ecs-panel-2)]">+{moreCount} more — refine your search</div>}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="text-sm font-semibold text-[var(--ecs-navy)] mt-5 mb-2">Selected travellers ({total})</div>
+                  {selected.size === 0 ? (
+                    <div className="rounded-md border border-[var(--ecs-border)] p-8 text-center text-sm text-[var(--ecs-muted)]">
+                      <div className="flex justify-center mb-2 text-[var(--ecs-border)]"><ModeIcon m="group" /></div>
+                      No travellers added yet. Search above or use bulk add to add travellers to the group.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr><th className="th">Name</th><th className="th">Employee ID</th><th className="th">Department</th><th className="th">Organisation</th><th className="th">Actions</th></tr></thead>
+                        <tbody>
+                          {[...selected].map((id) => {
+                            const o = optById.get(id);
+                            return (
+                              <tr key={id} className="hover:bg-[var(--ecs-panel-2)]">
+                                <td className="td font-medium">{o?.name ?? id}</td>
+                                <td className="td font-mono text-xs">{id}</td>
+                                <td className="td">{o?.dept ?? '—'}</td>
+                                <td className="td">{entityName}</td>
+                                <td className="td"><button type="button" className="btn-ghost text-xs" onClick={() => toggle(id)} aria-label={`Remove ${o?.name ?? id}`}>✕</button></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-[var(--ecs-muted)] mt-3">Each employee confirms their inclusion (§13.13). Approved once on the group total; the DOA is derived from the highest charging department. The requestor holds no cost share (§13.14). Guests are not added to a group — raise a separate <b>Guest / non-employee</b> request (§8).</p>
+                  {over && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {total - groupMax} traveller{total - groupMax > 1 ? 's' : ''}.</p>}
+                </div>
+              </div>
+              <div className="mt-4 flex items-center justify-end gap-3">
+                {tooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 travellers to continue.</span>}
+                <button className="btn-primary" disabled={over || tooFew}>Create group draft →</button>
+              </div>
+            </form>
           )}
         </>
       )}

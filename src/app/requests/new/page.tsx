@@ -6,6 +6,7 @@ import { currentPersona } from '@/shared/session';
 import { getSettings } from '@/modules/pretrip/settings';
 import { EcsIdentity, EcsDelegation, EcsCharging } from '@/shared/ecs/services';
 import { employees } from '@/data/employees';
+import { chargingCodes } from '@/data/charging';
 import { creatableTravellerIds } from '@/modules/pretrip/guards';
 import { ROLE } from '@/shared/enums';
 import { PageTitle, Card, Empty } from '@/components/ui';
@@ -62,6 +63,11 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
   // traveller (routing handles cross-department), so the group pool is the full traveller list.
   const options = (isRequestor ? employees.filter((e) => e.isTraveller) : employees.filter((e) => selectable.has(e.id))).map(toOpt);
   const groupOptions = employees.filter((e) => e.isTraveller).map(toOpt);
+  // TR-02: the charging account is chosen on this screen (defaulted from the profile, overridable).
+  // The account's isResearch flag drives the Travel Classification badge — and, downstream, research
+  // routing and non-term eligibility (which already key off the request's allocation).
+  const chargingAccounts = chargingCodes.filter((c) => c.active !== false).map((c) => ({ code: c.code, name: c.name, isResearch: c.isResearch }));
+  const entityName = EcsIdentity.entity().name;
 
   return (
     <div className="max-w-2xl">
@@ -75,9 +81,10 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
         groupOptions={groupOptions}
         groupMax={settings.groupMaxTravellers}
         groupEnabled={settings.groupTravelEnabled}
-        guestMixAllowed={settings.groupGuestMixAllowed}
         studentGroupEnabled={settings.studentGroupEnabled}
         requestorCharging={requestorCharging}
+        chargingAccounts={chargingAccounts}
+        entityName={entityName}
       />
     </div>
   );
