@@ -12,7 +12,7 @@ interface Charging { code: string; name: string; overridden?: boolean; workday?:
 interface Account { code: string; name: string; isResearch: boolean }
 interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean; roName?: string | null; charging?: Charging | null }
 interface StudentRow { name: string; email: string; studentId: string; programme: string }
-const MODE_LABEL = { individual: 'Individual', group: 'Group', guest: 'Guest / non-employee' } as const;
+const MODE_LABEL = { individual: 'Individual', group: 'Group', guest: 'Guest' } as const;
 type Mode = keyof typeof MODE_LABEL;
 type GroupKind = 'staff' | 'student';
 type MemberTab = 'search' | 'bulk';
@@ -277,7 +277,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
       <div className="card p-1.5 mb-4 flex w-fit gap-1">
         {modes.map((m) => (
           <button key={m} type="button" onClick={() => switchMode(m)}
-            className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
+            className={`w-40 inline-flex items-center justify-center gap-2 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
             <ModeIcon m={m} /> {MODE_LABEL[m]}
           </button>
         ))}
@@ -335,9 +335,9 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
       ) : (
         <>
           {studentGroupEnabled && (
-            <div className="card p-1.5 mb-4 flex w-[464px] max-w-full gap-1">
-              <button type="button" onClick={() => setGroupKind('staff')} className={`flex-1 px-4 py-3 rounded-md font-semibold text-sm ${groupKind === 'staff' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Staff group</button>
-              <button type="button" onClick={() => setGroupKind('student')} className={`flex-1 px-4 py-3 rounded-md font-semibold text-sm ${groupKind === 'student' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Student group</button>
+            <div className="card p-1.5 mb-4 flex w-fit gap-1">
+              <button type="button" onClick={() => setGroupKind('staff')} className={`w-40 py-3 rounded-md font-semibold text-sm ${groupKind === 'staff' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Staff group</button>
+              <button type="button" onClick={() => setGroupKind('student')} className={`w-40 py-3 rounded-md font-semibold text-sm ${groupKind === 'student' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Student group</button>
             </div>
           )}
 
