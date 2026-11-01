@@ -320,7 +320,9 @@ export function ChargingAccountEditor({
             <span className="text-[var(--ecs-muted)] transition-transform group-open:rotate-180" aria-hidden="true">▾</span>
           </summary>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
+            {/* The Allocation Outcome is a derived rollup (not editable) — muted on the TR charging step
+                via showProvenance; left baseline on the TE claim's Accounting Entries. */}
+            <table className={`w-full text-sm border-collapse${showProvenance ? ' txt-derived' : ''}`}>
               <thead><tr>
                 <th className="th">Company</th><th className="th">Business area</th><th className="th">CC/WBS charging account</th>
                 <th className="th">Internal Order</th><th className="th">GL account</th><th className="th">Expense type</th>
