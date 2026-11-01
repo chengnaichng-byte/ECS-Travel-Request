@@ -14,14 +14,17 @@ import { travellerName } from '@/modules/pretrip/traveller';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { StatusPill } from '@/components/StatusPill';
 import { SortableTable } from '@/components/SortableTable';
-import { REQUEST_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
 function fmtDate(d: Date | null) { return d ? d.toISOString().slice(0, 10) : '—'; }
 
-export default async function Approvals({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const { tab } = await searchParams;
+export default async function Approvals({ searchParams }: { searchParams: Promise<{ tab?: string; status?: string }> }) {
+  const { tab, status } = await searchParams;
   const activeTab = tab === 'claims' ? 'claims' : 'requests';
+  // Status filter on the Travel Requests tab — default is the actionable queue (pending my
+  // approval); the approver can widen it to what they have approved (incl. auto-granted) or to
+  // every request they are a named approver on.
+  const reqFilter: 'pending' | 'approved' | 'all' = status === 'approved' || status === 'all' ? status : 'pending';
 
   const persona = await currentPersonaId();
   const settings = await getSettings();
@@ -30,17 +33,35 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
   // is not an approver and sees no actionable queue here (oversight lives under Travel Admin).
   const isApprover = isApproverPersona(persona);
 
-  // --- Travel Requests pending the acting approver (incl. material-amendment reapprovals). ---
-  const pendingReqs = await prisma.travelRequest.findMany({
-    where: { OR: [{ status: { startsWith: 'Pending' } }, { status: REQUEST_STATUS.AmendmentInProgress }] },
+  // --- Travel Requests where the acting persona is a NAMED approver on the route (any step
+  // status). Separation of duties: an approver sees the requests they are/were an approver on —
+  // never the whole system. The status filter then narrows this scoped set. Drafts have no
+  // approval steps, so they are excluded. ---
+  const approverReqs = await prisma.travelRequest.findMany({
+    where: { approvalSteps: { some: { approverId: persona } } },
     include: fullInclude,
     orderBy: { updatedAt: 'desc' },
   });
-  const mine = pendingReqs.filter((r) => {
+  // Sequential routing → exactly one active Pending step; it is mine when that current step is mine.
+  const isMyPending = (r: typeof approverReqs[number]) => {
     const step = r.approvalSteps.find((s) => s.status === 'Pending');
-    return step && step.approverId === persona;
-  });
+    return !!step && step.approverId === persona;
+  };
+  const myDecidedStep = (r: typeof approverReqs[number]) => r.approvalSteps.find((s) => s.approverId === persona && s.status === 'Approved');
+  // A step auto-granted on submission (non-term research auto-grant, or PI self-approval) was never
+  // clicked — its comment carries the "self-approved on submission" marker stamped by submitRequest.
+  const wasAutoGranted = (r: typeof approverReqs[number]) => {
+    const s = myDecidedStep(r);
+    return !!s && (s.comments ?? '').includes('self-approved on submission');
+  };
+  const mine = approverReqs.filter(isMyPending);
+  const shown = reqFilter === 'approved' ? approverReqs.filter((r) => !!myDecidedStep(r))
+    : reqFilter === 'all' ? approverReqs
+    : mine;
   const sentBack = await prisma.travelRequest.count({ where: { status: 'Sent Back' } });
+  const reqCardTitle = reqFilter === 'approved' ? `Travel Requests approved by you (${shown.length})`
+    : reqFilter === 'all' ? `Travel Requests where you are an approver (${shown.length})`
+    : `Travel Requests pending your approval (${shown.length}) · Sent back (${sentBack})`;
 
   // --- Expense Claims pending the acting approver (Verifier / RO / DOA / Exception step). ---
   const pendingClaims = await prisma.travelExpenseClaim.findMany({
@@ -91,9 +112,24 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
       </div>
 
       {activeTab === 'requests' ? (
-        <Card title={`Travel Requests pending your approval (${mine.length}) · Sent back (${sentBack})`}>
-          {mine.length === 0 ? (
-            <Empty>Nothing pending your approval as {EcsIdentity.employee(persona)?.name}. Switch persona to an approver (e.g. Prof Ben Lim / Prof Carol Wong).</Empty>
+        <Card title={reqCardTitle}>
+          {/* Status filter — default "Pending my approval" keeps the actionable queue; the approver
+              can widen to what they approved (incl. auto-granted) or every request they approve. */}
+          <div className="flex items-center gap-2 mb-3 text-xs flex-wrap">
+            <span className="text-[var(--ecs-muted)]">Show:</span>
+            {([['pending', 'Pending my approval'], ['approved', 'Approved by me'], ['all', "All I'm an approver on"]] as const).map(([key, label]) => (
+              <Link key={key} href={`/approvals?tab=requests&status=${key}`}
+                className={`px-2.5 py-1 rounded border ${reqFilter === key ? 'bg-[var(--ecs-navy)] text-white border-[var(--ecs-navy)]' : 'border-[var(--ecs-border)] text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)]'}`}>
+                {label}
+              </Link>
+            ))}
+          </div>
+          {shown.length === 0 ? (
+            <Empty>{reqFilter === 'approved'
+              ? `No requests approved by you (as ${EcsIdentity.employee(persona)?.name}) yet.`
+              : reqFilter === 'all'
+              ? `No requests where you are a named approver (as ${EcsIdentity.employee(persona)?.name}).`
+              : <>Nothing pending your approval as {EcsIdentity.employee(persona)?.name}. Switch persona to an approver (e.g. Prof Ben Lim / Prof Carol Wong).</>}</Empty>
           ) : (
             <div className="overflow-x-auto">
               <SortableTable
@@ -113,7 +149,8 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                   { key: 'status', label: 'Status' },
                   { key: 'action', label: '', sortable: false },
                 ]}
-                rows={mine.map((r) => {
+                rows={shown.map((r) => {
+                  const autoGranted = wasAutoGranted(r);
                   const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
                   const ba = EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—';
                   const kind = r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND';
@@ -131,7 +168,7 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                     sort: { submitted: submitted ? submitted.toISOString() : null, request: r.requestNumber, ba, travellers, requestor, purpose, destination: dest, dates: r.startDate ? r.startDate.toISOString() : null, ntu: summary.ntuFunded, exc, status: r.status },
                     cells: (<>
                       <td className="td whitespace-nowrap">{fmtDate(submitted)}</td>
-                      <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}{kindSub ? `·${kindSub}` : ''}</span></span></td>
+                      <td className="td font-medium"><span className="inline-flex items-center gap-1 flex-wrap">{r.requestNumber}{r.isEmergency && <span className="pill-exc" title="Emergency — book first, raise later (DD-23)">E</span>}<span className="pill-navy" title={kindTitle}>{kind}{kindSub ? `·${kindSub}` : ''}</span>{autoGranted && <span className="pill-pass" title="Approved automatically on submission — auto-granted under your authority (never required a click)">Auto-granted</span>}</span></td>
                       <td className="td">{ba}</td>
                       <td className="td">{travellers}</td>
                       <td className="td">{requestor}</td>
@@ -146,7 +183,7 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                   };
                 })}
               />
-              <p className="text-xs text-[var(--ecs-muted)] mt-3">Rows shaded amber carry a policy exception and require individual review. The bulk Approve action (not shown) excludes requests with exceptions and all group travel requests (§13.12).</p>
+              <p className="text-xs text-[var(--ecs-muted)] mt-3">Rows shaded amber carry a policy exception and require individual review.{reqFilter === 'pending' && ' The bulk Approve action (not shown) excludes requests with exceptions and all group travel requests (§13.12).'}{reqFilter !== 'pending' && ' Rows flagged “Auto-granted” were approved automatically on submission under your authority.'}</p>
             </div>
           )}
         </Card>
