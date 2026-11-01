@@ -274,7 +274,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   return (
     <div>
       {/* Request-type tabs (icon cards) */}
-      <div className="card p-1.5 mb-4 inline-flex gap-1">
+      <div className="card p-1.5 mb-4 flex w-fit gap-1">
         {modes.map((m) => (
           <button key={m} type="button" onClick={() => switchMode(m)}
             className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-md font-semibold text-sm transition-colors ${mode === m ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>
@@ -335,7 +335,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
       ) : (
         <>
           {studentGroupEnabled && (
-            <div className="card p-1.5 mb-4 inline-flex gap-1">
+            <div className="card p-1.5 mb-4 flex w-fit gap-1">
               <button type="button" onClick={() => setGroupKind('staff')} className={`px-4 py-2 rounded-md font-semibold text-sm ${groupKind === 'staff' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Staff group</button>
               <button type="button" onClick={() => setGroupKind('student')} className={`px-4 py-2 rounded-md font-semibold text-sm ${groupKind === 'student' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Student group</button>
             </div>
