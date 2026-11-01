@@ -1058,9 +1058,15 @@ export async function updateAccommodation(id: string, expenseId: string, fd: For
   if (!exp || exp.requestId !== id || exp.category !== EXPENSE_CATEGORY.Accommodation || !exp.accommodation) return;
   const returnTo = str(fd, 'returnTo') || `/requests/${id}/estimates`;
   const settings = await getSettings();
-  const city = str(fd, 'city');
-  const nights = Math.round(num(fd, 'nights'));
-  const personalNights = Math.round(num(fd, 'personalNights'));
+  const a = exp.accommodation;
+  // An AUTO per-stop hotel's stay (city, nights, personal nights, dates) is owned by the itinerary and
+  // kept verbatim here — only the rate / conference-hotel / justification are editable. A manual line
+  // reads the full stay from the form.
+  const city = exp.autoDerived ? a.city : str(fd, 'city');
+  const nights = exp.autoDerived ? a.nights : Math.round(num(fd, 'nights'));
+  const personalNights = exp.autoDerived ? a.personalNights : Math.round(num(fd, 'personalNights'));
+  const checkIn = exp.autoDerived ? a.checkIn : dateOrNull(fd, 'checkIn');
+  const checkOut = exp.autoDerived ? a.checkOut : dateOrNull(fd, 'checkOut');
   const quotedNightly = num(fd, 'quotedNightly');
   if (!city || nights <= 0 || quotedNightly <= 0) redirect(`${returnTo}?edit=${expenseId}&error=${encodeURIComponent('Accommodation needs a city, nights > 0 and a nightly rate > 0.')}`);
   const calc = computeAccommodation({ cityCode: city, nights, personalNights, quotedNightly, basis: settings.hotelEstimateBasis });
@@ -1070,11 +1076,11 @@ export async function updateAccommodation(id: string, expenseId: string, fd: For
     const where = EcsReference.city(city)?.name ?? city;
     redirect(`${returnTo}?edit=${expenseId}&error=${encodeURIComponent(`The nightly rate for ${where} is above the city cap — enter a justification, or tick “Conference hotel”, before saving this accommodation.`)}`);
   }
-  await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, expectedDate: dateOrNull(fd, 'checkIn'), notes: str(fd, 'notes') } });
+  await prisma.estimatedExpense.update({ where: { id: expenseId }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, expectedDate: checkIn, notes: str(fd, 'notes') } });
   await prisma.accommodationEstimate.update({
     where: { expenseId },
     data: {
-      city, checkIn: dateOrNull(fd, 'checkIn'), checkOut: dateOrNull(fd, 'checkOut'),
+      city, checkIn, checkOut,
       nights, personalNights, quotedNightly, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly,
       capVariance: calc.capVariance, conferenceHotel, exceptionOutcome: calc.outcome,
     },

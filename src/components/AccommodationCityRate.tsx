@@ -4,8 +4,8 @@
 // enter an actual quote. Keeps the two fields together so the rate can track the city.
 import { useState } from 'react';
 
-export function AccommodationCityRate({ cities, caps, defaultCity, defaultRate }: {
-  cities: [string, string][]; caps: Record<string, number>; defaultCity: string; defaultRate?: string;
+export function AccommodationCityRate({ cities, caps, defaultCity, defaultRate, lockCity }: {
+  cities: [string, string][]; caps: Record<string, number>; defaultCity: string; defaultRate?: string; lockCity?: boolean;
 }) {
   const first = defaultCity || cities[0]?.[0] || '';
   const capStr = (c: string) => (caps[c] != null ? String(caps[c]) : '');
@@ -17,9 +17,14 @@ export function AccommodationCityRate({ cities, caps, defaultCity, defaultRate }
     <>
       <div>
         <label className="label">City</label>
-        <select name="city" value={city} onChange={(e) => onCity(e.target.value)} className="field">
-          {cities.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
+        {lockCity ? (
+          // Auto per-stop hotel — the city comes from the itinerary, shown read-only.
+          <div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{cities.find(([v]) => v === city)?.[1] ?? city}</div>
+        ) : (
+          <select name="city" value={city} onChange={(e) => onCity(e.target.value)} className="field">
+            {cities.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        )}
       </div>
       <div>
         <label className="label">Quoted rate / night</label>

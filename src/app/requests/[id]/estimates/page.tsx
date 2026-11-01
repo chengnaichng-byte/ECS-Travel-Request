@@ -142,6 +142,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   const af = editKind === 'airfare' ? editExp! : null;
   const ac = editKind === 'accommodation' ? editExp! : null;
   const accRec = ac?.accommodation ?? null;
+  // An AUTO per-stop hotel takes its stay (city, nights, dates) from the itinerary — those fields are
+  // read-only here; only the rate / conference-hotel / justification are editable. A manual stay edits in full.
+  const autoStay = !!ac && ac.autoDerived;
   const ot = editKind === 'other' ? editExp! : null;
   const editTravellerLabel = editExp && editExp.travellerId ? memberLabel(editExp.travellerId) : null;
   // Cancel on any add/edit form: returns to the clean estimates page, which collapses the form
@@ -237,7 +240,7 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
         // Accommodation (TR-07) — auto per stop; a manual extra line can still be added.
         { key: 'accommodation', label: 'Accommodation', node: (
           <>
-          <p className="text-xs text-[var(--ecs-muted)] mb-2">{ac ? <>Editing this accommodation line{editTravellerLabel ? <> for <b>{editTravellerLabel}</b></> : null} — change the values and save.</> : <>A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</>}</p>
+          <p className="text-xs text-[var(--ecs-muted)] mb-2">{ac ? <>Editing this accommodation line{editTravellerLabel ? <> for <b>{editTravellerLabel}</b></> : null} — {autoStay ? <>change the <b>rate</b> (the stay is set by the itinerary).</> : <>change the values and save.</>}</> : <>A hotel line is <b>added automatically for each overnight stop</b> at the city&apos;s cap (editable rate, locked stay) and re-derives if you change the dates. Add a line below only for an extra/manual stay.</>}</p>
           {/* DD-19 hotel payment channel — CTA (central) only when the trip is a TMC arrangement. */}
           <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-2.5 mb-3">
             <form action={setHotelSettlement.bind(null, id)} className="flex flex-wrap items-center gap-2 text-sm">
@@ -257,12 +260,21 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
               <button className="btn-primary">{ac ? 'Save accommodation changes' : 'Add accommodation estimate'}</button>
             </FormBar>
             <div className="grid grid-cols-2 gap-3">
-              <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={accRec?.city ?? tripDefaults.destCity} defaultRate={accRec ? String(accRec.quotedNightly) : undefined} />
-              <Input name="nights" label="Nights" type="number" defaultValue={accRec ? String(accRec.nights) : tripDefaults.nights} />
-              <Input name="personalNights" label="Personal nights" type="number" defaultValue={accRec ? String(accRec.personalNights) : '0'} />
-              <Input name="checkIn" label="Check-in" type="date" defaultValue={accRec ? d(accRec.checkIn) : tripDefaults.start} />
-              <Input name="checkOut" label="Check-out" type="date" defaultValue={accRec ? d(accRec.checkOut) : tripDefaults.end} />
+              <AccommodationCityRate cities={cities.filter((c) => c.code !== 'SIN').map((c) => [c.code, c.name])} caps={capByCity} defaultCity={accRec?.city ?? tripDefaults.destCity} defaultRate={accRec ? String(accRec.quotedNightly) : undefined} lockCity={autoStay} />
+              {autoStay
+                ? <ReadOnlyField label="Nights" value={`${accRec?.nights ?? ''}`} />
+                : <Input name="nights" label="Nights" type="number" defaultValue={accRec ? String(accRec.nights) : tripDefaults.nights} />}
+              {autoStay
+                ? <ReadOnlyField label="Personal nights" value={`${accRec?.personalNights ?? 0}`} />
+                : <Input name="personalNights" label="Personal nights" type="number" defaultValue={accRec ? String(accRec.personalNights) : '0'} />}
+              {autoStay
+                ? <ReadOnlyField label="Check-in" value={d(accRec?.checkIn ?? null) || '—'} />
+                : <Input name="checkIn" label="Check-in" type="date" defaultValue={accRec ? d(accRec.checkIn) : tripDefaults.start} />}
+              {autoStay
+                ? <ReadOnlyField label="Check-out" value={d(accRec?.checkOut ?? null) || '—'} />
+                : <Input name="checkOut" label="Check-out" type="date" defaultValue={accRec ? d(accRec.checkOut) : tripDefaults.end} />}
             </div>
+            {autoStay && <p className="text-xs text-[var(--ecs-muted)]">Stay dates are set by the itinerary — <Link href={`/requests/${id}/trip`} className="underline">edit them on the Trip step</Link>. Here you can change the <b>rate</b>, mark it a <b>conference hotel</b>, or add an above-cap justification.</p>}
             <Input name="notes" label="Justification / note — explain here if the nightly rate is above the city cap (shown to the approver)" defaultValue={ac ? (ac.notes ?? '') : undefined} />
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="conferenceHotel" defaultChecked={accRec?.conferenceHotel ?? false} /> Conference hotel</label>
             {isGroup && !ac && <Select name="travellerId" label="Traveller" opts={gTravellers} />}
@@ -324,6 +336,11 @@ function FormBar({ title, children }: { title: React.ReactNode; children: React.
 }
 function Input({ name, label, type = 'text', defaultValue }: { name: string; label: string; type?: string; defaultValue?: string }) {
   return <div><label className="label">{label}</label><input name={name} type={type} step="any" defaultValue={defaultValue} className="field" /></div>;
+}
+// A read-only field display — used for an auto hotel's itinerary-derived stay (city/nights/dates),
+// which cannot be edited on the estimate (no name, so nothing is submitted; the server keeps the stored stay).
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return <div><label className="label">{label}</label><div className="field bg-[var(--ecs-panel)] text-[var(--ecs-muted)]">{value}</div></div>;
 }
 function Select({ name, label, opts, defaultValue }: { name: string; label: string; opts: [string, string][]; defaultValue?: string }) {
   return (
