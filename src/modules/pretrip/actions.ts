@@ -1922,6 +1922,22 @@ export async function attachNamedFile(id: string, fieldName: string, docType: st
   revalidatePath(`/requests/${id}`);
 }
 
+/** Remove a single evidence attachment by id (the ✕ on an uploaded-file chip, e.g. the non-term
+ *  offline-approval e-mail). Scoped to the request so it can only delete an attachment that belongs
+ *  to it. Does NOT touch the declaration flag — re-uploading stays possible. Invoked directly as a
+ *  server action with the attachment id bound (not via a form field, which a server-action submit
+ *  button would overwrite with its own action-ref name). */
+export async function removeNamedAttachment(id: string, attachmentId: string) {
+  if (!(await requireEdit(id))) return;
+  if (!attachmentId) return;
+  const att = await prisma.attachment.findFirst({ where: { id: attachmentId, requestId: id }, select: { fileName: true } });
+  if (!att) return;
+  await prisma.attachment.deleteMany({ where: { id: attachmentId, requestId: id } });
+  await audit(id, 'AMEND', `Attachment removed: ${att.fileName}`);
+  revalidatePath(`/requests/${id}/trip`);
+  revalidatePath(`/requests/${id}`);
+}
+
 // §DD-23 Inline booking-method switch on Review & Submit — when the system re-evaluates an urgent
 // request and finds a TMC-online (not book-ahead) channel, the requestor can switch to an agent-assisted
 // or offline method here without going back to the Trip step. Scoped: TMC arrangement only, and only the

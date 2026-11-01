@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { saveTrip, attachNamedFile } from '@/modules/pretrip/actions';
+import { saveTrip, attachNamedFile, removeNamedAttachment } from '@/modules/pretrip/actions';
 import { NON_TERM_APPROVAL_DOC, nonTermResearchEligible } from '@/modules/pretrip/nonTerm';
 import { NonTermField } from '@/components/NonTermField';
 import Link from 'next/link';
@@ -92,7 +92,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               </label>
             </div>
             {/* §13.x Non-term research — a research-gated attestation checkbox, below the visa-letter row. */}
-            <NonTermField eligible={nonTermEligible} declared={req.nonTermDeclared} approvals={nonTermApprovals} attachAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} />
+            <NonTermField eligible={nonTermEligible} declared={req.nonTermDeclared} approvals={nonTermApprovals} attachAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} removeAction={removeNamedAttachment.bind(null, id)} />
           </div>
         </Card>
 
