@@ -45,7 +45,7 @@ function groupByCategory(lines: CostLineX[]): { category: string; typeName: stri
 }
 
 export function ChargingAccountEditor({
-  action, canEdit, total, companyCodes, businessAreas, accounts, expenseTypes, lines,
+  action, canEdit, total, companyCodes, businessAreas, accounts, extraAccounts, expenseTypes, lines,
   defaultAccount, initialMode, initialMain, initialRows, initialLineMap, submitLabel = 'Save & run policy review →',
   entriesTitle = 'Accounting Entries', backHref, backLabel,
 }: {
@@ -55,6 +55,10 @@ export function ChargingAccountEditor({
   companyCodes: CompanyOpt[];
   businessAreas: BAOpt[];
   accounts: AccountOpt[];
+  // Lookup-only accounts (e.g. the M6 differential accounts) — resolved for the Allocation Outcome's
+  // company / business-area / GST metadata, but deliberately kept OUT of the selectable `accounts`
+  // so they never appear in the main-account or cross-charge dropdowns.
+  extraAccounts?: AccountOpt[];
   expenseTypes: ExpenseTypeOpt[];
   lines: CostLineX[];
   defaultAccount: string;
@@ -67,7 +71,7 @@ export function ChargingAccountEditor({
   backHref?: string;           // when set, a Back link renders on the LEFT of the action row
   backLabel?: string;
 }) {
-  const acc = (c: string) => accounts.find((a) => a.code === c);
+  const acc = (c: string) => accounts.find((a) => a.code === c) ?? extraAccounts?.find((a) => a.code === c);
   const et = (id: string) => expenseTypes.find((e) => e.id === id);
   const mainCode0 = initialMain || defaultAccount || accounts[0]?.code || '';
   const main0 = acc(mainCode0);

@@ -76,6 +76,13 @@ export default async function ChargingStep({ params, searchParams }: { params: P
     code: c.code, name: c.name, type: c.type, companyCode: c.companyCode, businessArea: c.businessArea,
     research: c.isResearch, crossCharge: !!c.crossCharge, closed: c.active === false,
   }));
+  // §13.19 The M6 differential accounts aren't selectable cost objects, but the Allocation Outcome's
+  // M6 line still needs their company + business area (both derived from the traveller's Workday org —
+  // the governing BA of their main charging account). Pass them as lookup-only `extraAccounts`.
+  const m6Accounts: AccountOpt[] = upgradeAccounts.map((a) => ({
+    code: a.code, name: a.name, type: 'CC', companyCode: a.companyCode, businessArea: a.businessArea,
+    research: false, crossCharge: false, closed: !a.active,
+  }));
   const etOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gl: e.glAccount, gst: e.gstCode }));
   // §17 auto-by-department preset for a line: map each attributed traveller's share to their
   // home-department (Workday) default cost centre, aggregated by account.
@@ -222,6 +229,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
         companyCodes={companyCodes.map((c) => ({ code: c.code, name: c.name }))}
         businessAreas={businessAreas.map((b) => ({ code: b.code, name: b.name, companyCode: b.companyCode }))}
         accounts={accounts}
+        extraAccounts={m6Accounts}
         expenseTypes={etOpts}
         lines={lines}
         defaultAccount={defaultAccount}
