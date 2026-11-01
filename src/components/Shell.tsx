@@ -77,11 +77,11 @@ export async function Shell({ children }: { children: React.ReactNode }) {
         <aside className="w-60 shrink-0 bg-white border-r border-[var(--ecs-border)] hidden md:flex md:flex-col">
           <nav className="p-2 space-y-0.5">
             <NavLinks items={nav} />
-            {isSysAdmin && <NavLinks items={[{ href: '/settings', label: 'Pre-Trip Module Settings', icon: '⚙' }]} />}
           </nav>
           <div className="px-3 pt-4 pb-2 mt-2 border-t border-[var(--ecs-border)]">
             <p className="text-[10px] uppercase tracking-wide text-[var(--ecs-muted)] mb-1">Setup &amp; Maintenance</p>
             <div className="mb-1"><NavLinks items={[
+              ...(isSysAdmin ? [{ href: '/settings', label: 'Pre-Trip Module Settings', icon: '⚙' }] : []),
               { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
               { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
               { href: '/setup/provosts', label: 'Provost List (guest upgrades)', icon: '◈' },
