@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoDoaReview } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoDoaReview } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
@@ -88,6 +88,8 @@ export default async function Dashboard() {
             <form action={demoMultiCityDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled multi-city individual draft (Dr Jason Lee, Economy) routed SIN → Tokyo → Osaka → Seoul → SIN, with a hotel per stop and ODA per country. Act as the traveller.">▶ Multi-city TR · as Dr Jason Lee</button></form>
             <form action={demoGroupDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled group draft and act as the PA.">▶ Group TR · as Priya Nair (PA)</button></form>
             <form action={demoGuestDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled guest draft and act as the host PA.">▶ Guest TR · as Priya Nair (PA)</button></form>
+            <form action={demoGuestUpgradeDraft}><button className="btn-secondary text-xs" title="Seed a guest draft (Prof Daniel Weiss, ETH Zürich) booked in Business above the guest's Economy entitlement — the travel-class upgrade routes to the host-school Provost ahead of the DOA (§8/DD-25). Provost and justification pre-filled. Act as the host PA.">▶ Guest class-upgrade TR · as Priya Nair (PA)</button></form>
+            <form action={demoClassHotelExceptionDraft}><button className="btn-secondary text-xs" title="Seed an individual draft (Dr Grace Ho) with TWO exceptions — Business class above her Economy entitlement AND an above-cap hotel flagged as the conference hotel (self-justifying, §4.5). Opens at Review showing both. Act as the traveller.">▶ Class + conference-hotel exceptions · as Dr Grace Ho</button></form>
             <form action={demoEmergencyDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled, urgent agent-assisted draft (qualifies for the emergency lane on submit) and act as the traveller.">▶ Emergency TR · as Dr Alice Tan</button></form>
             <form action={demoM6Draft}><button className="btn-secondary text-xs" title="Seed a pre-filled Premium Economy long-haul draft (Dr Alice Tan, policy group C20) — the fare splits into an Economy base plus an M6 differential funded from the BA's M6 account. Act as the traveller.">▶ M6 upgrade TR · as Dr Alice Tan</button></form>
             <form action={seedNonTermResearchDemo}><button className="btn-secondary text-xs" title="Seed a non-term research draft (Dr Henry Ong) with the offline-approval attestation and email attached, and open it at Submit — ready to demonstrate the auto-approve branch.">▶ Non-term research TR · as Dr Henry Ong</button></form>

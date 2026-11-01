@@ -29,6 +29,7 @@ import { assignGroupLineNos } from './groupLines';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
 import { NON_TERM_APPROVAL_DOC } from './nonTerm';
+import { ensureProvostSeed } from './provost';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
 
 const YEAR = 2026;
@@ -637,6 +638,80 @@ export async function demoMultiCityDraft() {
   await prisma.chargingAllocation.create({ data: { requestId: id, chargingCode: 'CC-1000', percent: 100, chargingType: master?.type ?? 'CC', companyCode: master?.companyCode, businessArea: master?.businessArea, isResearch: false, isMain: true } });
   await backfillHotelDates(id); await rebuildOda(id);
   await switchPersona('E-TRAV4', 'REQUESTOR');
+  redirect(`/requests/${id}/review`);
+}
+
+/** Evaluate and PERSIST the policy checks for a draft, so a scenario that opens at Review shows its
+ *  exceptions (travel class / hotel cap) without being submitted. Mirrors the submit() check pass but
+ *  leaves status/routing untouched. */
+async function persistDraftChecks(id: string) {
+  const settings = await getSettings();
+  const req = await loadRequest(id);
+  if (!req) return;
+  const checks = evaluatePolicies(req, settings.approvalAmountBasis, await upgradeCheckCtx(settings)).filter((c) => c.code !== 'DATE_PAST');
+  checks.push(...(await evaluateConfiguredPolicies(req, settings.approvalAmountBasis)).checks);
+  await prisma.policyCheck.deleteMany({ where: { requestId: id } });
+  for (const c of checks) await prisma.policyCheck.create({ data: { requestId: id, code: c.code, label: c.label, outcome: c.outcome, detail: c.detail, travellerId: c.travellerId ?? null } });
+}
+
+/** Guest TR with a travel-class UPGRADE — a visiting keynote (Prof Daniel Weiss, ETH Zürich) booked in
+ *  Business on a long-haul sector, above the guest's Economy entitlement (§8). The upgrade raises a
+ *  CLASS exception that routes to the host-school Provost ahead of the host DOA (DD-25). The Provost
+ *  (Prof Quek Li Mei) and a justification are pre-filled so the only outstanding item is the exception.
+ *  As the host PA (Priya Nair). Not submitted; opens at Review. */
+export async function demoGuestUpgradeDraft() {
+  const TAG = '[demo:guest-upgrade]';
+  await clearDemoDrafts(TAG);
+  await ensureProvostSeed();
+  const off = 72;
+  const id = await seedGuestRequest({
+    guestName: 'Prof Daniel Weiss', guestEmail: 'd.weiss@ethz.ch', guestOrg: 'ETH Zürich', purposeId: 'TP-TC-ACAD',
+    destCountry: 'GB', destCity: 'LON', destAirport: 'LHR', start: demoDay(off), end: demoDay(off + 4),
+    nights: 4, durationHours: 13, airfare: 5200, nightly: 260, descr: `Guest keynote — London · Business-class upgrade ${TAG}`,
+  });
+  // Upgrade to Business, pre-fill the justification and host-school Provost so the only open item is the
+  // CLASS exception (which routes Provost → DOA). The itinerary legs and airfare line follow the class.
+  await prisma.travelRequest.update({ where: { id }, data: {
+    travelClassId: 'TC-BIZ', classBasis: 'Guest default — Economy (§8); above-entitlement upgrade requested',
+    classJustification: 'Distinguished keynote speaker on a >12h long-haul sector — Business class per the host invitation terms.',
+    provostId: 'E-PROVOST',
+  } });
+  await prisma.itineraryLeg.updateMany({ where: { requestId: id }, data: { travelClassId: 'TC-BIZ' } });
+  await prisma.estimatedExpense.updateMany({ where: { requestId: id, category: EXPENSE_CATEGORY.Airfare }, data: { proposedClassId: 'TC-BIZ' } });
+  await backfillHotelDates(id);
+  await persistDraftChecks(id);
+  await switchPersona('E-PA', 'PA');
+  redirect(`/requests/${id}/review`);
+}
+
+/** Individual TR with TWO policy exceptions — a travel-class upgrade (Business, above Dr Grace Ho's
+ *  Economy entitlement) AND an above-cap hotel flagged as the CONFERENCE HOTEL (self-justifying under
+ *  §4.5, so the venue designation is the justification). Opens at Review showing both exceptions side
+ *  by side. As Dr Grace Ho (Requestor). Not submitted. */
+export async function demoClassHotelExceptionDraft() {
+  const TAG = '[demo:class-hotel]';
+  await clearDemoDrafts(TAG);
+  const off = 74;
+  const id = await buildDraft({
+    requestorId: 'E-TRAV2', travellerId: 'E-TRAV2', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: demoDay(off), end: demoDay(off + 4),
+    travelClassId: 'TC-BIZ', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 4200, currency: 'SGD', classId: 'TC-BIZ' },
+    hotel: { city: 'TYO', nights: 4, quotedNightly: 560, note: 'Official conference hotel (IEEE delegate block rate)' },
+    oda: { country: 'JP', city: 'TYO', arrive: demoDay(off), depart: demoDay(off + 4) }, conference: { amount: 900 },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: {
+    description: `Conference — Tokyo · Business + conference-hotel exceptions ${TAG}`,
+    classJustification: 'Overnight red-eye arriving straight into the opening session; Business booked for the long-haul sector per the department upgrade approval.',
+  } });
+  // Flag the above-cap hotel as the conference hotel — self-justifying (§4.5), so it routes as an
+  // exception for approval without needing a separate written justification.
+  const hotel = await prisma.estimatedExpense.findFirst({ where: { requestId: id, category: EXPENSE_CATEGORY.Accommodation }, include: { accommodation: true } });
+  if (hotel?.accommodation) await prisma.accommodationEstimate.update({ where: { id: hotel.accommodation.id }, data: { conferenceHotel: true } });
+  await backfillHotelDates(id); await rebuildOda(id);
+  await persistDraftChecks(id);
+  await switchPersona('E-TRAV2', 'REQUESTOR');
   redirect(`/requests/${id}/review`);
 }
 
