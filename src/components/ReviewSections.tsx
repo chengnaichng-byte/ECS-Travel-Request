@@ -27,6 +27,9 @@ function durationDN(a: Date | null, b: Date | null) {
 }
 // Days-to-book pill colour — amber once there is no runway left (0 days or overdue), green otherwise.
 const daysPill = (days: number) => (days <= 0 ? 'pill-warn' : 'pill-pass');
+// Booking-deadline urgency — escalates as the window to book closes so the DOA feels the pressure:
+// green with runway, amber inside a week, strong red at ≤3 days or already overdue.
+const bookUrgencyPill = (days: number) => (days <= 3 ? 'pill-exc' : days <= 7 ? 'pill-warn' : 'pill-pass');
 
 // §13.19 Entitled / Proposed travel class — the traveller's entitlement and the class they propose,
 // shown together so an approver sees any upgrade at a glance. An "above entitlement" pill flags a
@@ -157,7 +160,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
     : (req.personalStart ? `${fmtPretty(req.personalStart)} – ${fmtPretty(req.personalEnd)}` : 'None');
 
   const { days } = daysToBook(req, bookingDeadlineDays);
-  const validityEnd = req.authorisationExpiry ?? (req.startDate ? new Date(req.startDate.getTime() - bookingDeadlineDays * 86400000) : null);
+  const daysToTrip = req.startDate ? Math.max(0, Math.round((req.startDate.getTime() - Date.now()) / 86400000)) : null;
 
   const allocs = [...req.allocations].sort((a, b) => b.percent - a.percent);
   const primary = allocs[0];
@@ -238,9 +241,11 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
         <SumTile title="Travel Arrangement" href={`${detailsHref}#sec-trip`}>
           <TileRow label="Entitled / Proposed travel class">{req.isGroup ? 'Per traveller (see roster)' : entitledProposedClass(req)}</TileRow>
           <TileRow label="Booking arrangement">{bookingSummaryText(req.bookingArrangement, req.bookingMethod)}</TileRow>
-          <TileRow label="Authorisation validity">
-            {fmtPretty(req.createdAt)} – {fmtPretty(validityEnd)}
-            <div className="mt-1"><span className={daysPill(days)}>{days} days to book</span></div>
+          <TileRow label="Timeline">
+            {/* Lead with departure (intuitive urgency) and keep the booking deadline as the
+                action-forcing number — the DOA must clear approval before the window closes. */}
+            <div>Departs in <strong>{daysToTrip ?? '—'}</strong> {daysToTrip === 1 ? 'day' : 'days'} · {fmtPretty(req.startDate)}</div>
+            <div className="mt-1"><span className={bookUrgencyPill(days)}>book within {days} {days === 1 ? 'day' : 'days'}</span></div>
           </TileRow>
         </SumTile>
 
