@@ -48,13 +48,13 @@ export function CostItemsTable({ rows, group, summaryRows = [] }: { rows: CostRo
                     <div className="grid gap-3 py-1">
                       {r.breakdown.map((b, j) => (
                         <div key={j} className="bg-white border border-[var(--ecs-border)] rounded-lg p-3.5">
-                          {/* header — who/where on the left, the line total on the right */}
+                          {/* header — who/where + the line total on the left; actions (if any) on the right */}
                           <div className="flex items-center justify-between gap-3 border-b border-[var(--ecs-border)] pb-2 mb-2.5">
-                            <span className="text-sm font-semibold text-[var(--ecs-navy)]">{b.heading}</span>
-                            <div className="flex items-center gap-3">
-                              {b.actions}
+                            <div className="flex items-baseline gap-3 min-w-0">
+                              <span className="text-sm font-semibold text-[var(--ecs-navy)]">{b.heading}</span>
                               {b.total != null && <span className="text-sm font-semibold text-[var(--ecs-navy)] whitespace-nowrap">{fmtSgd(b.total)}</span>}
                             </div>
+                            {b.actions && <div className="flex items-center gap-2 shrink-0">{b.actions}</div>}
                           </div>
                           {/* two labelled groups — e.g. Stay | Rate */}
                           <div className="grid sm:grid-cols-2 gap-x-10 gap-y-3">

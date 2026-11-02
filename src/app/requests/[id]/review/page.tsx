@@ -290,9 +290,9 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           )}
         </Card>
         {/* §13.19 Policy Exceptions — hotel-cap and travel-class exceptions only (the justification is
-            not repeated here; it lives on the airfare form and the Policy Review step). Emphasised
-            (amber border + tint) when there are exceptions, so it stands out from the Trip card. */}
-        <Card title="Policy Exceptions" className={exceptions.length > 0 ? '!border-2 !border-[#ea580c] !bg-[#fff7ed]' : ''}>
+            not repeated here; it lives on the airfare form and the Policy Review step). Emphasis is
+            carried by the solid-red "Exception" pills, not a card border. */}
+        <Card title="Policy Exceptions">
           {exceptions.length > 0 ? (
             <ul className="space-y-2">
               {exceptions.map((c) => (

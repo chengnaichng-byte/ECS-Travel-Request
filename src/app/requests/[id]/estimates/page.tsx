@@ -105,8 +105,8 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     if (!canEdit || e.category === EXPENSE_CATEGORY.ODA) return null;
     return (
       <span className="inline-flex items-center gap-1">
-        <Link href={editLink(e.id)} className="btn-ghost text-xs">Edit</Link>
-        <form action={deleteExpense.bind(null, id, e.id)}><button className="btn-ghost text-xs">Remove</button></form>
+        <Link href={editLink(e.id)} className="btn-primary text-xs">Edit</Link>
+        <form action={deleteExpense.bind(null, id, e.id)}><button className="btn text-xs text-white bg-[var(--ecs-red)] border-[var(--ecs-red)] hover:bg-[var(--ecs-red-dark)]">Remove</button></form>
       </span>
     );
   };

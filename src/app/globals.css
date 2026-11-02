@@ -91,7 +91,7 @@ body { background: var(--background); color: var(--foreground); font-family: var
 .pill-pass { background: #d8f6e6; color: #0a6b3b; }   /* green chip (Figure D2) */
 .pill-pass::before { content: ""; width: .45rem; height: .45rem; border-radius: 9999px; background: #16a34a; }
 .pill-warn { background: #ffe9cf; color: #8a4b00; }
-.pill-exc  { background: #ffe0cc; color: #9a3412; }
+.pill-exc  { background: var(--ecs-red); color: #fff; }
 .pill-stop { background: #fde0e5; color: var(--ecs-red-dark); }
 .pill-info { background: #e6e8ef; color: #3a3f52; }
 .pill-navy { background: var(--ecs-panel); color: var(--ecs-navy); }
