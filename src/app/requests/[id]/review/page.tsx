@@ -60,7 +60,10 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const className = (cid?: string | null) => travelClasses.find((c) => c.id === cid)?.name ?? cid ?? '';
   const cityName = (code: string) => EcsReference.city(code)?.name ?? code;
   const needClassJustification = req.policyChecks.some((c) => c.code === 'CLASS_JUSTIFY');
-  const aboveCapHotels = req.expenses.filter((e) => e.accommodation && e.accommodation.exceptionOutcome === POLICY_OUTCOME.Exception && !(e.notes ?? '').trim());
+  // A conference hotel is self-justifying (§4.5) — the venue designation stands in for a written
+  // justification, so it raises no HOTEL_JUSTIFY hard stop and must NOT appear in the resolve panel.
+  // Mirror the policy engine (policy.ts) and the estimate-page save gate (HotelSaveButton): exclude it.
+  const aboveCapHotels = req.expenses.filter((e) => e.accommodation && e.accommodation.exceptionOutcome === POLICY_OUTCOME.Exception && !e.accommodation.conferenceHotel && !(e.notes ?? '').trim());
   const canResolve = canEdit && (needClassJustification || aboveCapHotels.length > 0);
   // Entitled class is DERIVED from the register (not the proposed class), so an upgrade shows the real
   // entitlement (e.g. Economy) rather than mirroring the chosen class.
