@@ -716,7 +716,9 @@ export async function demoClassHotelExceptionDraft() {
     destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: demoDay(off), end: demoDay(off + 4),
     travelClassId: 'TC-BIZ', bookingMethod: BOOKING_METHOD.TMCOnline,
     airfare: { amount: 4200, currency: 'SGD', classId: 'TC-BIZ' },
-    hotel: { city: 'TYO', nights: 4, quotedNightly: 560, note: 'Official conference hotel (IEEE delegate block rate)' },
+    // No written note — a conference hotel is self-justifying (§4.5), so the venue designation alone
+    // is the justification. This exercises the conference-hotel exemption in the Review resolve panel.
+    hotel: { city: 'TYO', nights: 4, quotedNightly: 560 },
     oda: { country: 'JP', city: 'TYO', arrive: demoDay(off), depart: demoDay(off + 4) }, conference: { amount: 900 },
     charging: [{ code: 'CC-1000', pct: 100 }],
   });
