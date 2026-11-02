@@ -32,7 +32,7 @@ export function NonTermField({ eligible, declared, attachAction, removeAction, a
           title={eligible ? undefined : 'Research-funded travel only'}>
           <input type="checkbox" name="nonTerm" value="on" checked={on} disabled={!eligible}
             onChange={(e) => setChecked(e.target.checked)} className="w-4 h-4" />
-          <span>This is a <strong>non-term research trip</strong></span>
+          <span>This is a <strong>non-term time research trip</strong></span>
         </label>
 
         {on && (
