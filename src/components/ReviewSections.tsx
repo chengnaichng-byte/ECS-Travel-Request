@@ -272,11 +272,12 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
               ))}
               {allocs.map((a, i) => (
                 <li key={a.id} className="flex items-start justify-between gap-2">
-                  {/* Only the account name truncates — the cross-charge / research tags stay visible
-                      (shrink-0) so a long account name never hides them. */}
+                  {/* Only the account name truncates — the Main / research tags stay visible
+                      (shrink-0) so a long account name never hides them. The highest-share account
+                      (allocs is sorted desc by %) carries the Main tag; the rest are cross-charges. */}
                   <div className="min-w-0 flex items-center gap-1 text-[13px]">
                     <span className="truncate">{a.chargingCode} · {EcsCharging.code(a.chargingCode)?.name ?? ''}</span>
-                    {i > 0 && <span className="pill-warn shrink-0">cross-charge</span>}
+                    {i === 0 && <span className="pill-navy shrink-0">Main</span>}
                     {EcsCharging.code(a.chargingCode)?.isResearch && <span className="pill-info shrink-0">research</span>}
                   </div>
                   <div className="text-[13px] font-medium whitespace-nowrap">{amountFor(a.percent)}</div>
@@ -291,35 +292,36 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
       {/* Policy exceptions + approval-requested */}
       <div className="grid md:grid-cols-2 gap-3 mt-3">
         {exViews.length > 0 ? (
-          <div className="rounded-md border border-[#f97316] bg-[#fff3e8] p-3">
+          <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-[#c2410c]"><span className="text-[#ea580c]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length}){exApproved && <span className="font-normal"> – Previously Approved</span>}</div>
-              <a href={`${detailsHref}#sec-exceptions`} className="text-[#ea580c] hover:text-[#c2410c] text-sm" title="Jump to full details">›</a>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span className="text-[var(--ecs-red)]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length}){exApproved && <span className="font-normal text-[var(--ecs-muted)]"> – Previously Approved</span>}</div>
+              <a href={`${detailsHref}#sec-exceptions`} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
             </div>
             <ol className="space-y-3 text-sm">
               {exViews.map((e, i) => (
                 <li key={i}>
-                  <div className="flex items-center gap-2"><span className="font-medium text-[#7c2d12]">{exViews.length > 1 ? `${i + 1}. ` : ''}{e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span>{e.travellerName && <span className="text-xs text-[#9a3412]/80">· {e.travellerName}</span>}</div>
+                  {/* The exception itself carries the emphasis — a solid red pill — so the card can stay white. */}
+                  <div className="flex items-center gap-2">{exViews.length > 1 && <span className="font-semibold text-[var(--ecs-navy)]">{i + 1}.</span>}<span className="pill-exc">{e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span>{e.travellerName && <span className="text-xs text-[var(--ecs-muted)]">· {e.travellerName}</span>}</div>
                   {e.breakdown ? (
                     <div className="grid grid-cols-3 gap-2 mt-1.5">
-                      <div><div className="text-[11px] text-[#9a3412]/80">{e.breakdown.leftLabel}</div><div className="text-[13px] font-medium text-[#7c2d12]">{e.breakdown.leftValue}</div></div>
-                      <div><div className="text-[11px] text-[#9a3412]/80">{e.breakdown.rightLabel}</div><div className="text-[13px] font-medium text-[#7c2d12]">{e.breakdown.rightValue}</div></div>
-                      <div><div className="text-[11px] text-[#9a3412]/80">Incremental impact</div><div className="text-[13px] font-semibold text-[#5a1e0a] tabular-nums">{fmtSgd(e.impactSgd)}</div></div>
+                      <div><div className="text-[11px] text-[var(--ecs-muted)]">{e.breakdown.leftLabel}</div><div className="text-[13px] font-medium text-[var(--ecs-text)]">{e.breakdown.leftValue}</div></div>
+                      <div><div className="text-[11px] text-[var(--ecs-muted)]">{e.breakdown.rightLabel}</div><div className="text-[13px] font-medium text-[var(--ecs-text)]">{e.breakdown.rightValue}</div></div>
+                      <div><div className="text-[11px] text-[var(--ecs-muted)]">Incremental impact</div><div className="text-[13px] font-semibold text-[var(--ecs-navy)] tabular-nums">{fmtSgd(e.impactSgd)}</div></div>
                     </div>
                   ) : (
                     <>
-                      {e.detail && <div className="text-xs text-[#9a3412]/80 mt-0.5">{e.detail}</div>}
-                      {e.impactSgd > 0 && <div className="text-xs text-[#7c2d12] mt-0.5">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
+                      {e.detail && <div className="text-xs text-[var(--ecs-muted)] mt-0.5">{e.detail}</div>}
+                      {e.impactSgd > 0 && <div className="text-xs text-[var(--ecs-text)] mt-0.5">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
                     </>
                   )}
-                  <div className="text-xs text-[#7c2d12] mt-1.5"><span className="font-medium">Justification:</span> {e.justification ? <span className="italic">&ldquo;{e.justification}&rdquo;</span> : <span className="text-[#9a3412]/70">— none provided</span>}</div>
+                  <div className="text-xs text-[var(--ecs-muted)] mt-1.5"><span className="font-medium text-[var(--ecs-text)]">Justification:</span> {e.justification ? <span className="italic">&ldquo;{e.justification}&rdquo;</span> : <span>— none provided</span>}</div>
                 </li>
               ))}
             </ol>
             {exApproved && (
-              <div className="mt-3 pt-2 border-t border-[#fbd7b8] flex items-center gap-2 text-sm">
+              <div className="mt-3 pt-2 border-t border-[var(--ecs-border)] flex items-center gap-2 text-sm">
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2f9e5f] text-white text-xs leading-none shrink-0">✓</span>
-                <span className="text-[#7c2d12]">Approved by <strong>{exApproverName}</strong> ({exApproverRole})</span>
+                <span className="text-[var(--ecs-text)]">Approved by <strong>{exApproverName}</strong> ({exApproverRole})</span>
               </div>
             )}
           </div>
