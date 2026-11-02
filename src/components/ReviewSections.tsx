@@ -176,7 +176,6 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   // §26/§DD-25 was the exception already approved upstream (Exception Approver / Provost)?
   const upstreamExStep = req.approvalSteps.find((s) => (s.roleType === APPROVER_ROLE.Exception || s.roleType === APPROVER_ROLE.Provost) && s.status === 'Approved');
   const exApproved = !!upstreamExStep;
-  const exApproverName = upstreamExStep ? (EcsIdentity.employee(upstreamExStep.approverId ?? '')?.name ?? '—') : '';
   const exApproverRole = upstreamExStep?.roleType === APPROVER_ROLE.Provost ? 'Provost' : 'Exception Approver';
 
   // "You are approving" charging phrase
@@ -295,11 +294,14 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
               <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span className="text-[var(--ecs-red)]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
               <a href={`${detailsHref}#sec-exceptions`} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
             </div>
-            <ol className="space-y-3 text-sm">
+            {/* At most two exceptions (accommodation + travel class) — lay them out in two columns
+                side by side on wider screens, stacking only when narrow. */}
+            <ol className={`grid gap-y-3 text-sm ${exViews.length > 1 ? 'sm:grid-cols-2' : ''}`}>
               {exViews.map((e, i) => (
-                <li key={i}>
-                  {/* The exception itself carries the emphasis — a solid red pill — so the card can stay white. */}
-                  <div className="flex items-center gap-2">{exViews.length > 1 && <span className="font-semibold text-[var(--ecs-navy)]">{i + 1}.</span>}<span className="pill-exc">{e.label}</span>{e.travellerName && <span className="text-xs text-[var(--ecs-muted)]">· {e.travellerName}</span>}</div>
+                <li key={i} className={i > 0 ? 'sm:border-l sm:border-[var(--ecs-border)] sm:pl-4' : exViews.length > 1 ? 'sm:pr-4' : ''}>
+                  {/* The exception itself carries the emphasis — a solid red pill (wraps in the narrow
+                      two-column layout so a long label is never clipped). */}
+                  <div className="flex items-start gap-2">{exViews.length > 1 && <span className="font-semibold text-[var(--ecs-navy)]">{i + 1}.</span>}<span className="pill-exc !whitespace-normal leading-tight">{e.label}</span>{e.travellerName && <span className="text-xs text-[var(--ecs-muted)]">· {e.travellerName}</span>}</div>
                   {/* Metrics collapse to one inline line (muted labels, arrow baseline → actual) so
                       only the justification needs its own full-width row below. */}
                   {e.breakdown ? (
@@ -315,12 +317,6 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
                 </li>
               ))}
             </ol>
-            {exApproved && (
-              <div className="mt-3 pt-2 border-t border-[var(--ecs-border)] flex items-center gap-2 text-sm">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#2f9e5f] text-white text-xs leading-none shrink-0">✓</span>
-                <span className="text-[var(--ecs-text)]">Approved by <strong>{exApproverName}</strong> ({exApproverRole})</span>
-              </div>
-            )}
           </div>
         ) : (
           <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
