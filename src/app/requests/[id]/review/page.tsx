@@ -25,7 +25,7 @@ import { findDuplicateRequests } from '@/modules/pretrip/duplicates';
 import { bookingsForAuthorisation } from '@/modules/pretrip/tmcRetrieval';
 import { mainDestination } from '@/modules/pretrip/destination';
 import { bookingSummaryText, isTmcArrangement } from '@/modules/pretrip/booking';
-import { CostItems, CostAllocationCard } from '@/components/ReviewSections';
+import { CostItems, CostAllocationCard, derivedEntitledClassId } from '@/components/ReviewSections';
 import { ReviewRoute } from '@/components/ReviewRoute';
 import { Card, KV, Stepper } from '@/components/ui';
 import { ProvenanceLegend } from '@/components/ProvenanceLegend';
@@ -63,7 +63,9 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const needClassJustification = req.policyChecks.some((c) => c.code === 'CLASS_JUSTIFY');
   const aboveCapHotels = req.expenses.filter((e) => e.accommodation && e.accommodation.exceptionOutcome === POLICY_OUTCOME.Exception && !(e.notes ?? '').trim());
   const canResolve = canEdit && (needClassJustification || aboveCapHotels.length > 0);
-  const entitledClassName = EcsReference.travelClass(req.entitledClassId ?? '')?.name ?? null;
+  // Entitled class is DERIVED from the register (not the proposed class), so an upgrade shows the real
+  // entitlement (e.g. Economy) rather than mirroring the chosen class.
+  const entitledClassName = req.isGroup ? null : (EcsReference.travelClass(derivedEntitledClassId(req))?.name ?? null);
   const policyGroupCode = !req.isGroup ? EcsTravelClassRegister.policyGroup(req.travellerId, req.startDate ?? new Date()) : null;
   // §8 / §13.14 Party + booking-type summary for the Trip card. A group's Traveller field must reflect
   // the whole party (not just the lead); the booking type frames the approval — a group is one shared

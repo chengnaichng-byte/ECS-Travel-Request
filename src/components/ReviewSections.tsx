@@ -2,7 +2,7 @@
 // individual / multi-leg / group travel requests. Section letters are assigned by the
 // page (dynamic, no gaps). Read-oriented; interactive group editing lives in
 // GroupTravellers (collapsible workbench on the detail page).
-import { EcsIdentity, EcsReference, EcsCharging, EcsPolicy } from '@/shared/ecs/services';
+import { EcsIdentity, EcsReference, EcsCharging, EcsPolicy, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { fmtSgd, computeOdaTiered, type CostSummary } from '@/modules/pretrip/pricing';
 import { sharedLegs, computeTravellerShares, hasPersonalExtension, travellerNightsAtCity } from '@/modules/pretrip/group';
 import { guestSettlements, guestSettlementLabel } from '@/modules/pretrip/settlement';
@@ -31,11 +31,18 @@ const daysPill = (days: number) => (days <= 0 ? 'pill-warn' : 'pill-pass');
 // §13.19 Entitled / Proposed travel class — the traveller's entitlement and the class they propose,
 // shown together so an approver sees any upgrade at a glance. An "above entitlement" pill flags a
 // proposed cabin ranked higher than the entitlement (a policy exception).
+/** §13.19 The traveller's ENTITLED class for an individual request — DERIVED from the Travel Class
+ *  register (the same basis the policy engine uses), never a mirror of the proposed class. For a
+ *  non-registered traveller this resolves to Economy; for a C20 register entry it can be Premium
+ *  Economy on a long-haul leg. Uses the stored entitledClassId when present. */
+export function derivedEntitledClassId(req: FullRequest): string {
+  return req.entitledClassId || EcsTravelClassRegister.entitledForItinerary(req.travellerId, sharedLegs(req), req.startDate ?? new Date()).classId;
+}
 function entitledProposedClass(req: FullRequest): React.ReactNode {
-  // Fall back entitled → proposed when the entitlement isn't recorded (e.g. a standard trip at
-  // entitlement), so we show "Economy / Economy" rather than "— / Economy". Only flag "above
-  // entitlement" when both classes resolve and the proposed cabin genuinely outranks the entitlement.
-  const ent = EcsReference.travelClass(req.entitledClassId || req.travelClassId || '');
+  // Entitled is the DERIVED entitlement (not the proposed class), so an upgrade reads "Economy /
+  // Business" rather than "Business / Business". Flag "above entitlement" when the proposed cabin
+  // genuinely outranks the entitlement.
+  const ent = EcsReference.travelClass(derivedEntitledClassId(req));
   const prop = EcsReference.travelClass(req.travelClassId ?? '');
   const above = !!ent && !!prop && prop.rank > ent.rank;
   return <>{ent?.name ?? '—'} / {prop?.name ?? '—'}{above && <span className="pill-warn ml-1">above entitlement</span>}</>;
