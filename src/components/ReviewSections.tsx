@@ -155,9 +155,11 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const foreignCountries = foreignCountryCount(req);
   const isMultiCity = req.tripType === 'MULTI_CITY';
   const dateText = `${fmtPretty(req.startDate)} – ${fmtPretty(req.endDate)}${durationDN(req.startDate, req.endDate) ? ` (${durationDN(req.startDate, req.endDate)})` : ''}`;
-  const personalText = req.isGroup
-    ? `${req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length} travellers`
-    : (req.personalStart ? `${fmtPretty(req.personalStart)} – ${fmtPretty(req.personalEnd)}` : 'None');
+  // Personal-extension note folded into the travel-dates row (null = no extension): the personal
+  // window for an individual, or the count of travellers with one for a group.
+  const personalExtNote = req.isGroup
+    ? (() => { const n = req.travellers.filter((t) => hasPersonalExtension(req, t.employeeId)).length; return n > 0 ? `${n} traveller${n > 1 ? 's' : ''}` : null; })()
+    : (req.personalStart ? `${fmtPretty(req.personalStart)} – ${fmtPretty(req.personalEnd)}` : null);
 
   const { days } = daysToBook(req, bookingDeadlineDays);
   const daysToTrip = req.startDate ? Math.max(0, Math.round((req.startDate.getTime() - Date.now()) / 86400000)) : null;
@@ -231,8 +233,10 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
             </div>
           </TileRow>
           {req.isGroup && <TileRow label="Travellers">{req.travellers.length}</TileRow>}
-          <TileRow label="Official travel dates">{dateText}</TileRow>
-          <TileRow label="Personal extension">{personalText}</TileRow>
+          <TileRow label="Official travel dates">
+            <div>{dateText}</div>
+            {personalExtNote && <div className="text-[11px] text-[var(--ecs-muted)]">incl. personal extension: {personalExtNote}</div>}
+          </TileRow>
         </SumTile>
 
         <SumTile title="Travel Arrangement" href={`${detailsHref}#sec-trip`}>
