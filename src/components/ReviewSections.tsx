@@ -300,17 +300,16 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
                 <li key={i}>
                   {/* The exception itself carries the emphasis — a solid red pill — so the card can stay white. */}
                   <div className="flex items-center gap-2">{exViews.length > 1 && <span className="font-semibold text-[var(--ecs-navy)]">{i + 1}.</span>}<span className="pill-exc">{e.label}</span>{e.travellerName && <span className="text-xs text-[var(--ecs-muted)]">· {e.travellerName}</span>}</div>
+                  {/* Metrics collapse to one inline line (muted labels, arrow baseline → actual) so
+                      only the justification needs its own full-width row below. */}
                   {e.breakdown ? (
-                    <div className="grid grid-cols-3 gap-2 mt-1.5">
-                      <div><div className="text-[11px] text-[var(--ecs-muted)]">{e.breakdown.leftLabel}</div><div className="text-[13px] font-medium text-[var(--ecs-text)]">{e.breakdown.leftValue}</div></div>
-                      <div><div className="text-[11px] text-[var(--ecs-muted)]">{e.breakdown.rightLabel}</div><div className="text-[13px] font-medium text-[var(--ecs-text)]">{e.breakdown.rightValue}</div></div>
-                      <div><div className="text-[11px] text-[var(--ecs-muted)]">Total incremental impact</div><div className="text-[13px] font-semibold text-[var(--ecs-navy)] tabular-nums">{fmtSgd(e.impactSgd)}</div></div>
+                    <div className="text-xs text-[var(--ecs-text)] mt-1">
+                      <span className="text-[var(--ecs-muted)]">{e.breakdown.leftLabel}</span> {e.breakdown.leftValue} <span className="text-[var(--ecs-muted)]">→</span> <span className="text-[var(--ecs-muted)]">{e.breakdown.rightLabel}</span> {e.breakdown.rightValue} <span className="text-[var(--ecs-muted)]">·</span> <span className="text-[var(--ecs-muted)]">Total incremental impact</span> <strong className="text-[var(--ecs-navy)] tabular-nums">{fmtSgd(e.impactSgd)}</strong>
                     </div>
                   ) : (
-                    <>
-                      {e.detail && <div className="text-xs text-[var(--ecs-muted)] mt-0.5">{e.detail}</div>}
-                      {e.impactSgd > 0 && <div className="text-xs text-[var(--ecs-text)] mt-0.5">Total incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
-                    </>
+                    (e.detail || e.impactSgd > 0) && (
+                      <div className="text-xs text-[var(--ecs-muted)] mt-1">{e.detail}{e.impactSgd > 0 && <>{e.detail ? ' · ' : ''}Total incremental impact <strong className="text-[var(--ecs-text)] tabular-nums">{fmtSgd(e.impactSgd)}</strong></>}</div>
+                    )
                   )}
                   <div className="text-xs text-[var(--ecs-muted)] mt-1.5"><span className="font-medium text-[var(--ecs-text)]">Justification:</span> {e.justification ? <span className="italic">&ldquo;{e.justification}&rdquo;</span> : <span>— none provided</span>}</div>
                 </li>
