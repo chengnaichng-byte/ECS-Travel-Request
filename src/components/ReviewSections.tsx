@@ -277,7 +277,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
                       (allocs is sorted desc by %) carries the Main tag; the rest are cross-charges. */}
                   <div className="min-w-0 flex items-center gap-1 text-[13px]">
                     <span className="truncate">{a.chargingCode} · {EcsCharging.code(a.chargingCode)?.name ?? ''}</span>
-                    {i === 0 && <span className="pill-navy shrink-0">Main</span>}
+                    {i === 0 && <span className="pill-navy shrink-0">Main · {a.percent}%</span>}
                     {EcsCharging.code(a.chargingCode)?.isResearch && <span className="pill-info shrink-0">research</span>}
                   </div>
                   <div className="text-[13px] font-medium whitespace-nowrap">{amountFor(a.percent)}</div>
@@ -306,12 +306,12 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
                     <div className="grid grid-cols-3 gap-2 mt-1.5">
                       <div><div className="text-[11px] text-[var(--ecs-muted)]">{e.breakdown.leftLabel}</div><div className="text-[13px] font-medium text-[var(--ecs-text)]">{e.breakdown.leftValue}</div></div>
                       <div><div className="text-[11px] text-[var(--ecs-muted)]">{e.breakdown.rightLabel}</div><div className="text-[13px] font-medium text-[var(--ecs-text)]">{e.breakdown.rightValue}</div></div>
-                      <div><div className="text-[11px] text-[var(--ecs-muted)]">Incremental impact</div><div className="text-[13px] font-semibold text-[var(--ecs-navy)] tabular-nums">{fmtSgd(e.impactSgd)}</div></div>
+                      <div><div className="text-[11px] text-[var(--ecs-muted)]">Total incremental impact</div><div className="text-[13px] font-semibold text-[var(--ecs-navy)] tabular-nums">{fmtSgd(e.impactSgd)}</div></div>
                     </div>
                   ) : (
                     <>
                       {e.detail && <div className="text-xs text-[var(--ecs-muted)] mt-0.5">{e.detail}</div>}
-                      {e.impactSgd > 0 && <div className="text-xs text-[var(--ecs-text)] mt-0.5">Estimated incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
+                      {e.impactSgd > 0 && <div className="text-xs text-[var(--ecs-text)] mt-0.5">Total incremental impact: <strong className="tabular-nums">{fmtSgd(e.impactSgd)}</strong></div>}
                     </>
                   )}
                   <div className="text-xs text-[var(--ecs-muted)] mt-1.5"><span className="font-medium text-[var(--ecs-text)]">Justification:</span> {e.justification ? <span className="italic">&ldquo;{e.justification}&rdquo;</span> : <span>— none provided</span>}</div>
