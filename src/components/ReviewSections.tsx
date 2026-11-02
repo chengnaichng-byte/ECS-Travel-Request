@@ -48,7 +48,7 @@ function entitledProposedClass(req: FullRequest): React.ReactNode {
   const ent = EcsReference.travelClass(derivedEntitledClassId(req));
   const prop = EcsReference.travelClass(req.travelClassId ?? '');
   const above = !!ent && !!prop && prop.rank > ent.rank;
-  return <>{ent?.name ?? '—'} / {prop?.name ?? '—'}{above && <span className="pill-warn ml-1">above entitlement</span>}</>;
+  return <>{ent?.name ?? '—'} / {prop?.name ?? '—'}{above && <span className="pill-exc ml-1">above entitlement</span>}</>;
 }
 function primaryCharging(req: FullRequest) {
   const p = [...req.allocations].sort((a, b) => b.percent - a.percent)[0];
@@ -188,8 +188,6 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
     : isGuest ? `guest ${travellerName(req)}${req.guestOrg ? ` of ${req.guestOrg}` : ''} hosted by ${deptName}`
     : `${travellerName(req)}`;
 
-  const sevClass: Record<string, string> = { Low: 'pill-info', Medium: 'pill-warn', High: 'pill-stop' };
-
   return (
     <div className="rounded-md border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] shadow-sm p-5">
       {/* Header + status chips + view-details */}
@@ -294,14 +292,14 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
         {exViews.length > 0 ? (
           <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span className="text-[var(--ecs-red)]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length}){exApproved && <span className="font-normal text-[var(--ecs-muted)]"> – Previously Approved</span>}</div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ecs-navy)]"><span className="text-[var(--ecs-red)]" aria-hidden>⚠</span>Policy Exception{exViews.length > 1 ? 's' : ''} ({exViews.length})</div>
               <a href={`${detailsHref}#sec-exceptions`} className="text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)] text-sm" title="Jump to full details">›</a>
             </div>
             <ol className="space-y-3 text-sm">
               {exViews.map((e, i) => (
                 <li key={i}>
                   {/* The exception itself carries the emphasis — a solid red pill — so the card can stay white. */}
-                  <div className="flex items-center gap-2">{exViews.length > 1 && <span className="font-semibold text-[var(--ecs-navy)]">{i + 1}.</span>}<span className="pill-exc">{e.label}</span><span className={sevClass[e.severity]}>{e.severity}</span>{e.travellerName && <span className="text-xs text-[var(--ecs-muted)]">· {e.travellerName}</span>}</div>
+                  <div className="flex items-center gap-2">{exViews.length > 1 && <span className="font-semibold text-[var(--ecs-navy)]">{i + 1}.</span>}<span className="pill-exc">{e.label}</span>{e.travellerName && <span className="text-xs text-[var(--ecs-muted)]">· {e.travellerName}</span>}</div>
                   {e.breakdown ? (
                     <div className="grid grid-cols-3 gap-2 mt-1.5">
                       <div><div className="text-[11px] text-[var(--ecs-muted)]">{e.breakdown.leftLabel}</div><div className="text-[13px] font-medium text-[var(--ecs-text)]">{e.breakdown.leftValue}</div></div>
