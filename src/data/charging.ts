@@ -28,7 +28,11 @@ export const businessAreas: BusinessArea[] = [
 
 export const chargingCodes: ChargingCode[] = [
   { code: 'CC-1000', name: 'SCSE Teaching & Operations', type: 'CC',  departmentId: 'SCH-CS', companyCode: '1000', businessArea: 'BA-CS', isResearch: false, active: true },
+  { code: 'CC-1100', name: 'SCSE Industry Partnerships',  type: 'CC',  departmentId: 'SCH-CS', companyCode: '1000', businessArea: 'BA-CS', isResearch: false, active: true },
+  { code: 'CC-1200', name: 'SCSE Graduate Education',     type: 'CC',  departmentId: 'SCH-CS', companyCode: '1000', businessArea: 'BA-CS', isResearch: false, active: true },
   { code: 'CC-2000', name: 'RI-AI Operations',           type: 'CC',  departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: false, active: true },
+  { code: 'CC-2100', name: 'RI-AI Applied Lab',          type: 'CC',  departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: false, active: true },
+  { code: 'CC-2200', name: 'RI-AI Outreach & Events',    type: 'CC',  departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: false, active: true },
   { code: 'WBS-R100', name: 'AI Grant Alpha',            type: 'WBS', subType: 'PROGRAMME', departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: true, active: true, fundingOwnerId: 'E-RDOA' },
   { code: 'WBS-R200', name: 'AI Grant Beta',             type: 'WBS', subType: 'PROJECT',   departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: true, active: true, fundingOwnerId: 'E-RDIR' },
   { code: 'WBS-R300', name: 'AI Grant Gamma (closed)',   type: 'WBS', subType: 'PROJECT',   departmentId: 'RI-AI',  companyCode: '1000', businessArea: 'BA-AI', isResearch: true, active: false, validTo: '2025-12-31', fundingOwnerId: 'E-RDIR' },

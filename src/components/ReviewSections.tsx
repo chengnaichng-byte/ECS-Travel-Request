@@ -272,7 +272,13 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
               ))}
               {allocs.map((a, i) => (
                 <li key={a.id} className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 text-[13px] truncate">{a.chargingCode} · {EcsCharging.code(a.chargingCode)?.name ?? ''}{i > 0 && <span className="pill-warn ml-1">cross-charge</span>}{EcsCharging.code(a.chargingCode)?.isResearch && <span className="pill-info ml-1">research</span>}</div>
+                  {/* Only the account name truncates — the cross-charge / research tags stay visible
+                      (shrink-0) so a long account name never hides them. */}
+                  <div className="min-w-0 flex items-center gap-1 text-[13px]">
+                    <span className="truncate">{a.chargingCode} · {EcsCharging.code(a.chargingCode)?.name ?? ''}</span>
+                    {i > 0 && <span className="pill-warn shrink-0">cross-charge</span>}
+                    {EcsCharging.code(a.chargingCode)?.isResearch && <span className="pill-info shrink-0">research</span>}
+                  </div>
                   <div className="text-[13px] font-medium whitespace-nowrap">{amountFor(a.percent)}</div>
                 </li>
               ))}

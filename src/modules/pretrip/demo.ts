@@ -497,6 +497,17 @@ async function clearDemoDrafts(tag: string) {
   await prisma.travelRequest.deleteMany({ where: { id: { in: ids } } });
 }
 
+/** Like clearDemoDrafts but for a SUBMITTED demo scenario — removes prior instances in any status so a
+ *  re-click reseeds cleanly. AuditEvent is the only non-cascading child, so it goes first; everything
+ *  else cascades from the TravelRequest delete. (This scenario never reaches booking/claim.) */
+async function clearDemoByTag(tag: string) {
+  const stale = await prisma.travelRequest.findMany({ where: { description: { contains: tag } }, select: { id: true } });
+  if (!stale.length) return;
+  const ids = stale.map((s) => s.id);
+  await prisma.auditEvent.deleteMany({ where: { requestId: { in: ids } } });
+  await prisma.travelRequest.deleteMany({ where: { id: { in: ids } } });
+}
+
 async function switchPersona(empId: string, roleKey: string) {
   const store = await cookies();
   store.set(PERSONA_COOKIE, empId, { path: '/' });
@@ -734,6 +745,45 @@ export async function demoDoaReview() {
   const step = await prisma.approvalStep.findFirst({ where: { requestId: req.id, status: 'Pending' }, orderBy: { seq: 'asc' }, select: { approverId: true } });
   await switchPersona(step?.approverId ?? 'E-DOA', 'DOA');
   redirect(`/requests/${req.id}`);
+}
+
+/** DOA review STRESS TEST — a submitted individual request parked at Pending DOA that deliberately
+ *  packs the dense cases onto one Approval Summary so the presentation can be judged: TWO policy
+ *  exceptions (Business above entitlement + an above-cap conference hotel), a SIX-WAY cross-charge
+ *  split (so the Cost allocation list scrolls), and a booking deadline only ~2 days out (so the
+ *  Timeline shows the strong-red urgency pill). Opens as the assigned DOA. */
+export async function demoComplexDoaReview() {
+  const TAG = '[demo:complex-doa]';
+  await clearDemoByTag(TAG);
+  const off = 16; // departs in ~16 days → ~2 days left to book (14-day lead) → strong-red urgency pill
+  const id = await buildDraft({
+    requestorId: 'E-TRAV2', travellerId: 'E-TRAV2', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: demoDay(off), end: demoDay(off + 4),
+    travelClassId: 'TC-BIZ', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 4200, currency: 'SGD', classId: 'TC-BIZ' },
+    hotel: { city: 'TYO', nights: 4, quotedNightly: 560, note: 'Official conference hotel (IEEE delegate block rate)' },
+    oda: { country: 'JP', city: 'TYO', arrive: demoDay(off), depart: demoDay(off + 4) }, conference: { amount: 900 },
+    // Primary + six cross-charge accounts across both BAs — a cross-faculty collaboration split.
+    charging: [
+      { code: 'CC-1000', pct: 26 }, { code: 'CC-2000', pct: 18 }, { code: 'CC-1100', pct: 16 },
+      { code: 'CC-1200', pct: 14 }, { code: 'CC-2100', pct: 12 }, { code: 'CC-2200', pct: 8 }, { code: 'CC-XCHG', pct: 6 },
+    ],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: {
+    description: `Cross-faculty collaboration — Tokyo · two exceptions, six-way cross-charge, booking deadline imminent ${TAG}`,
+    classJustification: 'Overnight red-eye arriving straight into the opening session; Business booked for the long-haul sector per the department upgrade approval.',
+  } });
+  // Flag the above-cap hotel as the conference hotel — self-justifying (§4.5), so it routes as an
+  // exception for approval rather than a hard stop.
+  const hotel = await prisma.estimatedExpense.findFirst({ where: { requestId: id, category: EXPENSE_CATEGORY.Accommodation }, include: { accommodation: true } });
+  if (hotel?.accommodation) await prisma.accommodationEstimate.update({ where: { id: hotel.accommodation.id }, data: { conferenceHotel: true } });
+  await backfillHotelDates(id); await rebuildOda(id);
+  // Submit, then approve the earlier steps (RO, Exception) so it rests at Pending DOA for the DOA.
+  await submit(id);
+  await advanceTo(id, APPROVER_ROLE.DOA);
+  const step = await prisma.approvalStep.findFirst({ where: { requestId: id, status: 'Pending' }, orderBy: { seq: 'asc' }, select: { approverId: true } });
+  await switchPersona(step?.approverId ?? 'E-DOA', 'DOA');
+  redirect(`/requests/${id}`);
 }
 
 export async function seedDemoScenarios() {

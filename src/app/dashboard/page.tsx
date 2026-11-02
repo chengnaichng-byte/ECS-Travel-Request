@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoDoaReview } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoDoaReview, demoComplexDoaReview } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
@@ -94,6 +94,7 @@ export default async function Dashboard() {
             <form action={demoM6Draft}><button className="btn-secondary text-xs" title="Seed a pre-filled Premium Economy long-haul draft (Dr Alice Tan, policy group C20) — the fare splits into an Economy base plus an M6 differential funded from the BA's M6 account. Act as the traveller.">▶ M6 upgrade TR · as Dr Alice Tan</button></form>
             <form action={seedNonTermResearchDemo}><button className="btn-secondary text-xs" title="Seed a non-term research draft (Dr Henry Ong) with the offline-approval attestation and email attached, and open it at Submit — ready to demonstrate the auto-approve branch.">▶ Non-term research TR · as Dr Henry Ong</button></form>
             <form action={demoDoaReview}><button className="btn-secondary text-xs" title="Open a submitted request at Pending DOA, acting as the assigned DOA, ready to review and approve.">▶ DOA review &amp; approval · as DOA</button></form>
+            <form action={demoComplexDoaReview}><button className="btn-secondary text-xs" title="Seed a submitted request at Pending DOA that packs the dense cases onto one Approval Summary — TWO exceptions (Business above entitlement + above-cap conference hotel), a six-way cross-charge split (Cost allocation list scrolls), and a booking deadline ~2 days out (strong-red urgency). Act as the assigned DOA.">▶ DOA review · dense case (2 exceptions · 6-way cross-charge · urgent)</button></form>
           </div>
         </div>
       )}
