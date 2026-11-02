@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoDoaReview, demoComplexDoaReview } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoPersonalDraft, demoDoaReview, demoComplexDoaReview, demoPersonalDoaReview } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 
 export const dynamic = 'force-dynamic';
@@ -90,11 +90,13 @@ export default async function Dashboard() {
             <form action={demoGuestDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled guest draft and act as the host PA.">▶ Guest TR · as Priya Nair (PA)</button></form>
             <form action={demoGuestUpgradeDraft}><button className="btn-secondary text-xs" title="Seed a guest draft (Prof Daniel Weiss, ETH Zürich) booked in Business above the guest's Economy entitlement — the travel-class upgrade routes to the host-school Provost ahead of the DOA (§8/DD-25). Provost and justification pre-filled. Act as the host PA.">▶ Guest class-upgrade TR · as Priya Nair (PA)</button></form>
             <form action={demoClassHotelExceptionDraft}><button className="btn-secondary text-xs" title="Seed an individual draft (Dr Grace Ho) with TWO exceptions — Business class above her Economy entitlement AND an above-cap hotel flagged as the conference hotel (self-justifying, §4.5). Opens at Review showing both. Act as the traveller.">▶ Class + conference-hotel exceptions · as Dr Grace Ho</button></form>
+            <form action={demoPersonalDraft}><button className="btn-secondary text-xs" title="Seed an individual draft (Dr Nadia Rahman) with a personal travel extension — three personal nights added to a four-night Tokyo conference. The personal nights/days are excluded from the NTU-funded hotel and ODA. Act as the traveller.">▶ Personal extension TR · as Dr Nadia Rahman</button></form>
             <form action={demoEmergencyDraft}><button className="btn-secondary text-xs" title="Seed a pre-filled, urgent agent-assisted draft (qualifies for the emergency lane on submit) and act as the traveller.">▶ Emergency TR · as Dr Alice Tan</button></form>
             <form action={demoM6Draft}><button className="btn-secondary text-xs" title="Seed a pre-filled Premium Economy long-haul draft (Dr Alice Tan, policy group C20) — the fare splits into an Economy base plus an M6 differential funded from the BA's M6 account. Act as the traveller.">▶ M6 upgrade TR · as Dr Alice Tan</button></form>
             <form action={seedNonTermResearchDemo}><button className="btn-secondary text-xs" title="Seed a non-term research draft (Dr Henry Ong) with the offline-approval attestation and email attached, and open it at Submit — ready to demonstrate the auto-approve branch.">▶ Non-term research TR · as Dr Henry Ong</button></form>
             <form action={demoDoaReview}><button className="btn-secondary text-xs" title="Open a submitted request at Pending DOA, acting as the assigned DOA, ready to review and approve.">▶ DOA review &amp; approval · as DOA</button></form>
             <form action={demoComplexDoaReview}><button className="btn-secondary text-xs" title="Seed a submitted request at Pending DOA that packs the dense cases onto one Approval Summary — TWO exceptions (Business above entitlement + above-cap conference hotel), a six-way cross-charge split (Cost allocation list scrolls), and a booking deadline ~2 days out (strong-red urgency). Act as the assigned DOA.">▶ DOA review · dense case (2 exceptions · 6-way cross-charge · urgent)</button></form>
+            <form action={demoPersonalDoaReview}><button className="btn-secondary text-xs" title="Seed a submitted request at Pending DOA with a personal travel extension (Dr Leon Tan, Seoul + 3 personal nights). The personal portion is excluded from the NTU-funded hotel and ODA. Act as the assigned DOA.">▶ DOA review · personal extension · as DOA</button></form>
           </div>
         </div>
       )}

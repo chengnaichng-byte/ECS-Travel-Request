@@ -734,6 +734,58 @@ export async function demoClassHotelExceptionDraft() {
   redirect(`/requests/${id}/review`);
 }
 
+/** Individual TR with a PERSONAL travel extension — Dr Nadia Rahman adds three personal nights to a
+ *  four-night Tokyo conference (books the return for the later date). The personal nights/days are
+ *  carved out of the NTU-funded hotel and ODA (she self-funds them); the personal window shows on the
+ *  Trip step. Pre-filled DRAFT, opens at Review as the traveller. */
+export async function demoPersonalDraft() {
+  const TAG = '[demo:personal]';
+  await clearDemoDrafts(TAG);
+  const off = 66; // start → +4 official nights → +3 personal nights (return on the later date)
+  const id = await buildDraft({
+    requestorId: 'E-TRAV8', travellerId: 'E-TRAV8', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: demoDay(off), end: demoDay(off + 7),
+    personalStart: demoDay(off + 4), personalEnd: demoDay(off + 7),
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1250, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'TYO', nights: 7, personalNights: 3 },
+    oda: { country: 'JP', city: 'TYO', arrive: demoDay(off), depart: demoDay(off + 7), personalDays: 3 },
+    conference: { amount: 800 },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { description: `Conference — Tokyo + 3 personal nights ${TAG}`, personalAck: true } });
+  await backfillHotelDates(id); // NOTE: no rebuildOda — it would reset the ODA personal days to 0
+  await switchPersona('E-TRAV8', 'REQUESTOR');
+  redirect(`/requests/${id}/review`);
+}
+
+/** DOA review of a request with a PERSONAL travel extension — Dr Leon Tan adds three personal nights
+ *  to a four-night Seoul conference; the personal portion is excluded from the NTU-funded hotel and
+ *  ODA. Submitted and parked at Pending DOA; opens as the assigned DOA. */
+export async function demoPersonalDoaReview() {
+  const TAG = '[demo:personal-doa]';
+  await clearDemoByTag(TAG);
+  const off = 40;
+  const id = await buildDraft({
+    requestorId: 'E-TRAV6', travellerId: 'E-TRAV6', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'KR', destCity: 'SEL', destAirport: 'ICN', start: demoDay(off), end: demoDay(off + 7),
+    personalStart: demoDay(off + 4), personalEnd: demoDay(off + 7),
+    travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
+    airfare: { amount: 1100, currency: 'SGD', classId: 'TC-ECO' },
+    hotel: { city: 'SEL', nights: 7, personalNights: 3 },
+    oda: { country: 'KR', city: 'SEL', arrive: demoDay(off), depart: demoDay(off + 7), personalDays: 3 },
+    conference: { amount: 700 },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  await prisma.travelRequest.update({ where: { id }, data: { description: `Conference — Seoul + 3 personal nights (pending DOA) ${TAG}`, personalAck: true } });
+  await backfillHotelDates(id); // no rebuildOda — preserve the ODA personal days
+  await submit(id);
+  await advanceTo(id, APPROVER_ROLE.DOA);
+  const step = await prisma.approvalStep.findFirst({ where: { requestId: id, status: 'Pending' }, orderBy: { seq: 'asc' }, select: { approverId: true } });
+  await switchPersona(step?.approverId ?? 'E-DOA', 'DOA');
+  redirect(`/requests/${id}`);
+}
+
 /** DOA review & approval — opens an already-SUBMITTED request sitting at Pending DOA, acting as the
  *  assigned DOA (a draft cannot be approved, so this scenario necessarily uses a submitted request). */
 export async function demoDoaReview() {
