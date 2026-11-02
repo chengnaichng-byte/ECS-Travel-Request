@@ -92,7 +92,6 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const canSubmit = hardStops.length === 0 && dupBlocking.length === 0;
   // §12 personal travel — present if a personal extension window or a personal leg exists.
   const hasPersonal = !!req.personalStart || req.legs.some((l) => l.isPersonal);
-  const personalCost = req.expenses.filter((e) => e.accommodation).reduce((s, e) => s + (e.accommodation!.personalNights || 0) * e.accommodation!.budgetedNightly, 0);
   // §4.8 high-risk destination — the traveller must acknowledge before submission
   // (enforced by the required checkbox below and re-checked server-side on submit).
   const highRisk = isHighRisk(req);
@@ -334,7 +333,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
         {hasPersonal && (
           <Card title="Personal Travel (§12)">
             <p className="text-sm text-[var(--ecs-muted)]">
-              This trip includes a personal extension{req.personalStart ? ` (${fmtDate(req.personalStart)} → ${fmtDate(req.personalEnd)})` : ''}. Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5). Estimated incremental personal cost borne by the traveller: <strong>{fmtSgd(personalCost)}</strong>{personalCost === 0 ? ' (no chargeable personal nights captured)' : ''}.
+              This trip includes a personal extension{req.personalStart ? ` (${fmtDate(req.personalStart)} → ${fmtDate(req.personalEnd)})` : ''}. Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5), so they do not form part of the NTU-funded estimate.
             </p>
           </Card>
         )}
