@@ -242,7 +242,10 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             </dl>
             {/* Col 2 — dates and class */}
             <dl className="space-y-3 md:border-l md:border-[var(--ecs-border)] md:pl-6">
-              <KV label="Travel dates">{fmtDate(req.startDate)} – {fmtDate(req.endDate)}</KV>
+              <KV label="Travel dates">
+                {fmtDate(req.startDate)} – {fmtDate(req.endDate)}
+                {req.personalStart && <div className="text-[11px] text-[var(--ecs-muted)]">incl. personal extension: {fmtDate(req.personalStart)} – {fmtDate(req.personalEnd)}</div>}
+              </KV>
               {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} – {fmtDate(req.eventEndDate)}</KV>}
               {req.isGroup ? (
                 <KV label="Entitled / Proposed travel class">Each traveller flies at their own class entitlement (§13.14) — per-traveller classes are shown in the cost items below.</KV>
