@@ -52,7 +52,7 @@ export function WorkflowChevrons({ req }: { req: FullRequest }) {
   return (
     <div className="card p-4">
       <div className="text-xs font-semibold text-[var(--ecs-muted)] mb-2">
-        Workflow{isResearchRequest(req) && <span className="ml-1 pill-navy">Research</span>}
+        Approval Route{isResearchRequest(req) && <span className="ml-1 pill-navy">Research</span>}
       </div>
       <div className="chev-row overflow-x-auto">
         {chevs.map((c, i) => (
