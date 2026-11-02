@@ -139,6 +139,15 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const mdCity = EcsReference.city(md.cityCode || (req.destCity ?? ''))?.name;
   const mdCountry = EcsReference.country(md.countryCode || (req.destCountry ?? ''))?.name;
   const destText = mdCity ? [mdCity, mdCountry].filter(Boolean).join(', ') : (mdCountry ?? destinationText(req));
+  // §4.4 Multi-city: list the full itinerary (all stop cities), not just the principal/policy destination.
+  const stopCities = req.tripType === 'MULTI_CITY'
+    ? [...new Map(sharedLegs(req).map((l) => {
+        const code = EcsReference.airport(l.destCode)?.cityCode ?? l.destCode;
+        return [code, EcsReference.city(code ?? '')?.name ?? code] as const;
+      }).filter(([code]) => code && code !== 'SIN')).values()]
+    : [];
+  const fmtCityList = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} & ${xs[xs.length - 1]}`);
+  const itineraryText = stopCities.length ? fmtCityList(stopCities) : destText;
   const tripType = tripTypeLabel(req);
   const foreignCountries = foreignCountryCount(req);
   const isMultiCity = req.tripType === 'MULTI_CITY';
@@ -154,7 +163,6 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
   const primary = allocs[0];
   const primaryCode = primary ? EcsCharging.code(primary.chargingCode) : null;
   const crossCharge = allocs.length > 1;
-  const research = allocs.some((a) => EcsCharging.code(a.chargingCode)?.isResearch);
   // #14 the NTU-funded class-upgrade differential charges M6, so the chosen accounts carry the
   // entitlement portion (ntuFunded − delta) and M6 carries the delta.
   const m6Delta = ntuUpgradeDeltaTotal(req.expenses);
@@ -218,47 +226,13 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           <TileRow label="Trip type">{tripType}</TileRow>
           <TileRow label="Destination">
             <div>
-              <div>{destText}</div>
-              {isMultiCity && <div className="text-[11px] text-[var(--ecs-muted)]">{sharedLegs(req).length} legs · {foreignCountries} countr{foreignCountries === 1 ? 'y' : 'ies'}</div>}
+              <div>{isMultiCity ? itineraryText : destText}</div>
+              {isMultiCity && <div className="text-[11px] text-[var(--ecs-muted)]">{sharedLegs(req).length} legs · {foreignCountries} countr{foreignCountries === 1 ? 'y' : 'ies'} · main: {destText}</div>}
             </div>
           </TileRow>
           {req.isGroup && <TileRow label="Travellers">{req.travellers.length}</TileRow>}
           <TileRow label="Official travel dates">{dateText}</TileRow>
           <TileRow label="Personal extension">{personalText}</TileRow>
-        </SumTile>
-
-        <SumTile title="Estimated Cost & Charging" href={`${detailsHref}#sec-cost`}>
-          <div>
-            <div className="text-[11px] text-[var(--ecs-muted)]">Total Estimated Trip Cost</div>
-            <div className="text-xl font-bold text-[var(--ecs-navy)]">{fmtSgd(summary.gross)}</div>
-            {summary.sponsorship > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded (committed): <strong>{fmtSgd(summary.ntuFunded)}</strong> · less sponsorship {fmtSgd(summary.sponsorship)}</div>}
-          </div>
-          <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
-            <div className="text-[11px] text-[var(--ecs-muted)]">Primary Charging Account</div>
-            <div className="text-[13px] font-medium">{primary ? `${primary.chargingCode} · ${primaryCode?.name ?? ''}` : '—'}</div>
-            <div className="text-[11px]">{primary ? `${primary.percent}% (${amountFor(primary.percent)})` : ''}{research && <span className="pill-warn ml-1">Research WBS</span>}</div>
-          </div>
-          {m6Delta > 0 && (
-            <div className="rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-2">
-              <div className="text-[11px] text-[var(--ecs-muted)]">M6 entitlement differential</div>
-              <div className="text-[13px] font-medium">{ntuUpgradeDeltaByAccount(req.expenses).map((m) => m.code ?? 'M6').join(', ')} <span className="pill-info ml-1">M6</span> {fmtSgd(m6Delta)}</div>
-              <div className="text-[11px] text-[var(--ecs-muted)]">Funded from M6 — the Economy base stays on the account(s) above</div>
-            </div>
-          )}
-          <TileRow label="Cross-charge">
-            {crossCharge ? <span className="pill-warn">Yes · {allocs.length} accounts</span> : 'No cross-charge'}
-          </TileRow>
-          {crossCharge && (
-            <div className="text-[11px] -mt-1">
-              {/* Accounts highest-share first (allocs is sorted desc by %). With more than two accounts
-                  the list is height-capped and scrolls, so the tile stays balanced with its neighbours;
-                  with two it shows in full. Rows never wrap; the DOA-basis line stays below, always visible. */}
-              <ul className={`space-y-0.5 pr-1 ${allocs.length > 2 ? 'max-h-24 overflow-y-auto' : ''}`}>
-                {allocs.map((a) => <li key={a.id} className="flex justify-between gap-2"><span className="truncate">{a.chargingCode}{EcsCharging.code(a.chargingCode)?.isResearch ? ' (research)' : ''}</span><span className="font-medium whitespace-nowrap">{a.percent}% · {amountFor(a.percent)}</span></li>)}
-              </ul>
-              <div className="text-[var(--ecs-muted)] pt-0.5 mt-0.5 border-t border-[var(--ecs-border)]">DOA basis: highest-share account{primaryCode ? ` (${EcsIdentity.department(primaryCode.departmentId)?.name ?? ''})` : ''}</div>
-            </div>
-          )}
         </SumTile>
 
         <SumTile title="Travel Arrangement" href={`${detailsHref}#sec-trip`}>
@@ -268,6 +242,38 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
             {fmtPretty(req.createdAt)} – {fmtPretty(validityEnd)}
             <div className="mt-1"><span className={daysPill(days)}>{days} days to book</span></div>
           </TileRow>
+        </SumTile>
+
+        <SumTile title="Estimated Cost & Charging" href={`${detailsHref}#sec-cost`}>
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="text-[11px] text-[var(--ecs-muted)]">Total Estimated Trip Cost</div>
+            <div className="text-xl font-bold text-[var(--ecs-navy)] whitespace-nowrap">{fmtSgd(summary.gross)}</div>
+          </div>
+          {summary.sponsorship > 0 && <div className="text-[11px] text-[var(--ecs-muted)]">NTU-funded (committed): <strong>{fmtSgd(summary.ntuFunded)}</strong> · less sponsorship {fmtSgd(summary.sponsorship)}</div>}
+          <div>
+            <div className="text-[11px] text-[var(--ecs-muted)] mb-1">Cost allocation</div>
+            {/* M6 differential first (with a one-line explanation), then the primary charging account, then
+                any cross-charge accounts. Height-capped → the list scrolls across many accounts. No total
+                line: the amounts sum to the Total Estimated Trip Cost shown above. */}
+            <ul className="space-y-1.5 pr-1 max-h-40 overflow-y-auto">
+              {m6Delta > 0 && ntuUpgradeDeltaByAccount(req.expenses).map((m, i) => (
+                <li key={`m6-${i}`} className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[13px]">{m.code ?? 'M6'} · M6 differential <span className="pill-info ml-0.5">M6</span></div>
+                    <div className="text-[11px] text-[var(--ecs-muted)]">Fare uplift from Economy to the entitled class.</div>
+                  </div>
+                  <div className="text-[13px] font-medium whitespace-nowrap">{fmtSgd(m.amount)}</div>
+                </li>
+              ))}
+              {allocs.map((a, i) => (
+                <li key={a.id} className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 text-[13px] truncate">{a.chargingCode} · {EcsCharging.code(a.chargingCode)?.name ?? ''}{i > 0 && <span className="pill-warn ml-1">cross-charge</span>}{EcsCharging.code(a.chargingCode)?.isResearch && <span className="pill-info ml-1">research</span>}</div>
+                  <div className="text-[13px] font-medium whitespace-nowrap">{amountFor(a.percent)}</div>
+                </li>
+              ))}
+            </ul>
+            {crossCharge && <div className="text-[11px] text-[var(--ecs-muted)] pt-1 mt-1 border-t border-[var(--ecs-border)]">DOA basis: highest-share account{primaryCode ? ` (${EcsIdentity.department(primaryCode.departmentId)?.name ?? ''})` : ''}</div>}
+          </div>
         </SumTile>
       </div>
 
@@ -308,6 +314,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           </div>
         ) : (
           <div className="rounded-md border border-[var(--ecs-border)] bg-white p-3">
+            <div className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Policy Exceptions</div>
             <div className="flex items-center gap-2 text-sm"><span className="pill-pass">Pass</span><span className="font-semibold text-[var(--ecs-navy)]">All policy checks passed</span></div>
             <div className="text-xs text-[var(--ecs-muted)] mt-1">This trip meets travel-policy requirements; no exception approval is required.</div>
           </div>
@@ -317,7 +324,7 @@ export function ApprovalSummaryCard({ req, summary, bookingDeadlineDays, details
           <div className="text-sm font-semibold text-[var(--ecs-navy)] mb-2">Approval Requested</div>
           <div className="text-xs text-[var(--ecs-muted)] mb-2">You are being asked to approve:</div>
           <div className="rounded-md border border-[#cdddf0] bg-[#eef3fa] p-3 mb-2">
-            <div className="text-sm font-semibold text-[var(--ecs-navy)]">Official travel for {whoPhrase} to {destText}</div>
+            <div className="text-sm font-semibold text-[var(--ecs-navy)]">Official travel for {whoPhrase} to {isMultiCity ? itineraryText : destText}</div>
             <div className="text-xs text-[var(--ecs-muted)] mt-0.5">{dateText}</div>
           </div>
           <ul className="list-disc pl-5 text-sm space-y-1">
