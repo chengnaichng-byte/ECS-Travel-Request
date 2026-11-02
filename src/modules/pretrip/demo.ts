@@ -786,6 +786,23 @@ export async function demoPersonalDoaReview() {
   redirect(`/requests/${id}`);
 }
 
+/** DOA review of a GROUP booking — a three-traveller Tokyo conference on a shared TA (per-traveller
+ *  airfare, ODA and accommodation; 60/40 cross-charge across two cost centres) submitted and parked
+ *  at Pending DOA; opens as the assigned DOA. Late-December window so no traveller's dates overlap an
+ *  existing active request. */
+export async function demoGroupDoaReview() {
+  const TAG = '[demo:group-doa]';
+  await clearDemoByTag(TAG);
+  const off = 54;
+  const id = await buildGroupDraft(`Group conference — Tokyo · 3 travellers (pending DOA) ${TAG}`, demoDay(off), demoDay(off + 4));
+  await backfillHotelDates(id); await rebuildOda(id);
+  await submit(id);
+  await advanceTo(id, APPROVER_ROLE.DOA);
+  const step = await prisma.approvalStep.findFirst({ where: { requestId: id, status: 'Pending' }, orderBy: { seq: 'asc' }, select: { approverId: true } });
+  await switchPersona(step?.approverId ?? 'E-DOA', 'DOA');
+  redirect(`/requests/${id}`);
+}
+
 /** DOA review & approval — opens an already-SUBMITTED request sitting at Pending DOA, acting as the
  *  assigned DOA (a draft cannot be approved, so this scenario necessarily uses a submitted request). */
 export async function demoDoaReview() {
