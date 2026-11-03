@@ -453,6 +453,7 @@ export async function saveTrip(id: string, fd: FormData) {
   const oldSig = `${req0?.startDate?.getTime() ?? 0}:${req0?.endDate?.getTime() ?? 0}:${legSig((req0?.legs ?? []).filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq))}`;
   const newSig = `${start?.getTime() ?? 0}:${end?.getTime() ?? 0}:${legSig(newLegs)}`;
   await syncAutoEstimates(id, oldSig !== newSig);
+  await syncPurposeItems(id); // §4.4 pre-create the purpose's declarable cost items (staff) as placeholders
   if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   // §13.x Overlapping-trip gate — advancing past the Trip step requires the itinerary to be clear of
   // any LIVE authorisation for the same traveller. This uses findDuplicateRequests (the same traveller
@@ -905,6 +906,55 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   revalidatePath(`/requests/${id}/estimates`);
 }
 
+/** §4.4 Purpose-driven cost items (staff only). Pre-creates a line per DECLARABLE item in the travel
+ *  purpose's configured profile, defaulted to its standard cost (or 0) and marked a placeholder, so
+ *  the full expected cost-item set is on the Estimates step rather than relying on the traveller to
+ *  remember each one. Airfare, accommodation and ODA are excluded here — they keep their own flows
+ *  (the airfare form; computed by syncAutoEstimates). Non-employees (guests/students) are skipped —
+ *  they get airfare + accommodation only. Additive and idempotent: it never touches an existing line
+ *  (so a filled-in amount is never clobbered) and never re-adds a type the traveller deleted
+ *  (tracked in dismissedCostItems). Respects the expense-scope setting (MAJOR_ONLY → major types only). */
+const PURPOSE_ITEM_EXCLUDE = new Set(['ET-AIR', 'ET-ACC', 'ET-ODA']); // own flows / computed
+async function syncPurposeItems(id: string) {
+  const settings = await getSettings();
+  if (!settings.purposeDrivenItems) return;
+  const req = await prisma.travelRequest.findUnique({ where: { id }, include: { travellers: true, expenses: true } });
+  if (!req || !req.purposeId) return;
+  if (!req.isGroup && isGuestRequest(req)) return; // an individual guest carries no purpose-driven items
+  const profile = await prisma.purposeCostItem.findMany({ where: { purposeId: req.purposeId }, orderBy: { sortOrder: 'asc' } });
+  if (profile.length === 0) return;
+  const allowIncidental = settings.expenseScope === 'ALL';
+  let dismissed: string[] = [];
+  try { dismissed = JSON.parse(req.dismissedCostItems ?? '[]'); } catch { dismissed = []; }
+  const items = profile.filter((p) => {
+    if (PURPOSE_ITEM_EXCLUDE.has(p.expenseTypeId) || dismissed.includes(p.expenseTypeId)) return false;
+    const t = EcsReference.expenseType(p.expenseTypeId);
+    return !!t && (allowIncidental || t.isMajorCost);
+  });
+  if (items.length === 0) return;
+  // Staff travellers only: a group's employee members, else the individual owner (travellerId null).
+  const staffTids: (string | null)[] = req.isGroup
+    ? req.travellers.filter((t) => !isNonEmployeeMember(t)).map((t) => t.employeeId)
+    : [null];
+  for (const tid of staffTids) {
+    for (const p of items) {
+      const exists = req.expenses.some((e) => e.expenseTypeId === p.expenseTypeId && (e.travellerId ?? '') === (tid ?? ''));
+      if (exists) continue;
+      const t = EcsReference.expenseType(p.expenseTypeId)!;
+      const amt = p.standardCostSgd ?? 0;
+      await prisma.estimatedExpense.create({
+        data: {
+          requestId: id, category: t.category, expenseTypeId: p.expenseTypeId,
+          currency: 'SGD', foreignAmount: amt, sgdAmount: amt,
+          // NOT autoDerived — a purpose placeholder is editable/removable like a manual line (autoDerived
+          // is reserved for the computed ODA/hotel lines, which the editors block). isPlaceholder marks it.
+          estimateBasis: 'QUOTED', autoDerived: false, isPlaceholder: true, travellerId: tid,
+        },
+      });
+    }
+  }
+}
+
 /** DD-19 Set the hotel payment channel: CTA (central-billed, reference-only in the claim) vs
  *  INDIVIDUAL (employee pays & claims). CTA is only accepted for a TMC arrangement — a self-
  *  arranged room cannot be central-billed — otherwise it is forced to INDIVIDUAL. Airfare is
@@ -973,7 +1023,18 @@ export async function addOther(id: string, fd: FormData) {
 
 export async function deleteExpense(id: string, expenseId: string) {
   if (!(await requireEdit(id))) return;
+  const line = await prisma.estimatedExpense.findUnique({ where: { id: expenseId }, select: { expenseTypeId: true } });
   await prisma.estimatedExpense.delete({ where: { id: expenseId } });
+  // §4.4 remember a removed cost item so the purpose-driven sync does not re-add it on the next Trip save.
+  if (line) {
+    const req = await prisma.travelRequest.findUnique({ where: { id }, select: { dismissedCostItems: true } });
+    let dismissed: string[] = [];
+    try { dismissed = JSON.parse(req?.dismissedCostItems ?? '[]'); } catch { dismissed = []; }
+    if (!dismissed.includes(line.expenseTypeId)) {
+      dismissed.push(line.expenseTypeId);
+      await prisma.travelRequest.update({ where: { id }, data: { dismissedCostItems: JSON.stringify(dismissed) } });
+    }
+  }
   await audit(id, 'AMEND', 'Estimate line removed');
   revalidatePath(`/requests/${id}/estimates`);
   revalidatePath(`/requests/${id}/charging`); // the Charging step lists the same lines (Remove acts there too)
@@ -1100,7 +1161,7 @@ export async function updateOther(id: string, expenseId: string, fd: FormData) {
   const type = EcsReference.expenseType(typeId);
   await prisma.estimatedExpense.update({
     where: { id: expenseId },
-    data: { category: type?.category ?? exp.category, expenseTypeId: typeId, currency, foreignAmount: foreign, sgdAmount: EcsFx.toSgd(foreign, currency, new Date()), notes: str(fd, 'notes') },
+    data: { category: type?.category ?? exp.category, expenseTypeId: typeId, currency, foreignAmount: foreign, sgdAmount: EcsFx.toSgd(foreign, currency, new Date()), notes: str(fd, 'notes'), isPlaceholder: false },
   });
   await audit(id, 'AMEND', `${type?.name ?? 'Other'} estimate updated`);
   revalidatePath(`/requests/${id}/estimates`);

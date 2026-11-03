@@ -15,6 +15,7 @@ export const moduleSettingsDefaults = {
   groupMaxTravellers: 10,           // §13.14 TMC group-booking size limit (incl. guests)
   groupGuestMixAllowed: false,      // §8/DD-13 CFO review — groups are employees-only; guests use a separate request
   mixedGroupEnabled: true,          // §13.14 may ONE group mix staff + students (+ guests)? on by default
+  purposeDrivenItems: true,         // §4.4 travel purpose auto-populates its full cost-item set (staff) on Estimates; off = ODA + accommodation only
   exceptionApproverRequired: true,  // §26 insert an Exception Approver step for exceptions (else surface to DOA)
   roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
   teAutoGrantTolerancePct: 10,      // §51 TE claim DOA auto-grant tolerance (% over approved)
@@ -61,6 +62,8 @@ export const decisionCatalogue = [
     effect: 'When on, if the governing business area offers more than one M6 account the traveller must pick which the upgrade differential charges (a hard stop until set); a BA with a single account auto-selects. When off (default), the BA\'s default (or first) M6 account is applied automatically and the traveller may still re-select (#14).' },
   { key: 'expenseScope', label: 'Expense scope', kind: 'enum', options: ['MAJOR_ONLY', 'ALL'],
     effect: 'Controls which expense types are available (major only vs all travel expenses).' },
+  { key: 'purposeDrivenItems', label: 'Purpose-driven cost items', kind: 'boolean',
+    effect: 'When on (default), selecting a travel purpose auto-populates its full configured cost-item set for staff on the Estimates step — ODA and accommodation stay policy-computed, the declarable items (airfare and incidentals) appear as pre-created lines defaulted to their configured standard cost (or 0, ready to fill). Deleted items are not re-added. Guests and students always get airfare and accommodation only. When off, only ODA and accommodation auto-derive. The per-purpose item set and standard costs are maintained on the Purpose Cost Items setup screen (§4.4).' },
   { key: 'hotelEstimateBasis', label: 'Hotel estimate basis', kind: 'enum', options: ['QUOTED', 'CAP', 'LOWER'],
     effect: 'Controls the accommodation budget: quoted amount, hotel cap, or the lower of both.' },
   { key: 'airfareTreatment', label: 'Airfare treatment', kind: 'enum', options: ['DIRECT_SAP', 'IN_TE', 'REFERENCE'],
