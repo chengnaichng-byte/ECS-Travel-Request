@@ -154,8 +154,8 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
                   const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
                   const ba = EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—';
                   const kind = r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND';
-                  const kindSub = kind === 'GRP' && r.groupType === 'STUDENT' ? 'Stu' : kind === 'GRP' && r.groupType === 'STAFF' ? 'Staff' : '';
-                  const kindTitle = kind === 'GRP' ? `${r.groupType === 'STUDENT' ? 'Student ' : r.groupType === 'STAFF' ? 'Staff ' : ''}group booking` : kind === 'GST' ? 'Guest booking' : 'Individual booking';
+                  const kindSub = kind === 'GRP' && r.groupType === 'STUDENT' ? 'Stu' : kind === 'GRP' && r.groupType === 'MIXED' ? 'Mix' : kind === 'GRP' && r.groupType === 'STAFF' ? 'Staff' : '';
+                  const kindTitle = kind === 'GRP' ? `${r.groupType === 'STUDENT' ? 'Student ' : r.groupType === 'MIXED' ? 'Mixed ' : r.groupType === 'STAFF' ? 'Staff ' : ''}group booking` : kind === 'GST' ? 'Guest booking' : 'Individual booking';
                   const exc = r.policyChecks.filter((c) => c.outcome === 'EXCEPTION').length;
                   const submitted = r.versions.at(-1)?.createdAt ?? r.updatedAt;
                   const travellers = r.groupType === 'STUDENT' ? `${r.travellers.length} students` : travellerName(r) + (r.isGroup ? ` +${r.travellers.length - 1}` : '');

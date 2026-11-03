@@ -14,6 +14,7 @@ export const moduleSettingsDefaults = {
   groupTravelEnabled: true,         // §13.14
   groupMaxTravellers: 10,           // §13.14 TMC group-booking size limit (incl. guests)
   groupGuestMixAllowed: false,      // §8/DD-13 CFO review — groups are employees-only; guests use a separate request
+  mixedGroupEnabled: true,          // §13.14 may ONE group mix staff + students (+ guests)? on by default
   exceptionApproverRequired: true,  // §26 insert an Exception Approver step for exceptions (else surface to DOA)
   roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
   teAutoGrantTolerancePct: 10,      // §51 TE claim DOA auto-grant tolerance (% over approved)
@@ -74,6 +75,8 @@ export const decisionCatalogue = [
     effect: 'Maximum travellers in a single group booking, including guest members — mirrors the TMC group-fare limit. Create is blocked above this count (§13.14).' },
   { key: 'groupGuestMixAllowed', label: 'Allow mixing guests in a group', kind: 'boolean',
     effect: 'Per the CFO review a group is employees-only by default (off): guests are raised on a separate Guest request. Turn on only to allow mixing employees and guests in one group (§8, DD-13).' },
+  { key: 'mixedGroupEnabled', label: 'Allow mixed staff + student groups', kind: 'boolean',
+    effect: 'When on (default), one group booking may combine staff (from the directory) and students (uploaded, non-validated) on a single shared TA — students carry no ODA and file no claim, exactly like guests. When off, a group is homogeneous: staff-only or student-only. Requires group travel enabled; students additionally require the student-group setting (§13.14).' },
   { key: 'selfBookingEnabled', label: 'Self-booked travel enabled', kind: 'boolean',
     effect: 'Allows Self-Booked method and Travel Request selection at claim (§13.17).' },
 ] as const;

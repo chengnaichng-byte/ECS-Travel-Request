@@ -1994,97 +1994,83 @@ export async function copyToNewRequest(id: string) {
 
 /* ------------------------------------------------ group travel (§13.13/§13.14) */
 
-/** Create a group draft: a requestor (who may not be a traveller) names travellers. */
+/** Create a group draft: a requestor (who may not be a traveller) names the party. A single group
+ *  may combine STAFF (employees from the directory) + STUDENTS (uploaded, non-validated) + GUESTS
+ *  (non-employees, captured inline) on one shared TA. Students and guests are non-employee members —
+ *  Economy, host-department charging, central settlement, no own claim, no ODA. The stored groupType
+ *  is DERIVED from the composition (STAFF / STUDENT / MIXED) and drives only display, not behaviour
+ *  (every runtime rule keys off the per-member traveller type). §13.13/§13.14/§8. */
 export async function createGroupDraft(fd: FormData) {
   const requestorId = await currentPersonaId();
   // §13.13 / DD-24 separation of duties — an approver-only persona may not originate a request.
   if (!canCreateTravelRequest(requestorId)) redirect(`/requests/new?error=${encodeURIComponent('You do not have authority to raise a travel request.')}`);
 
-  // §13.14 STUDENT group — members are uploaded by the requestor (name / email / student id /
-  // programme) and are NOT validated against any record. Mechanically a non-employee (guest-like)
-  // group: Economy, host-department charging, central settlement, no own claim.
-  if (str(fd, 'groupType') === 'STUDENT') return createStudentGroupDraft(fd, requestorId);
-
+  const settings = await getSettings();
   const travellerIds = (fd.getAll('travellerIds') as string[]).map((s) => s.trim()).filter(Boolean);
-  // §8 a group may also include guest members (non-employees), captured inline.
+  // §8 guest members (non-employees), captured inline; §13.14 student members (uploaded, not validated).
   let guests: { name: string; email?: string; org?: string }[] = [];
   try { guests = (JSON.parse(str(fd, 'guestsJson') || '[]') as typeof guests).filter((g) => g.name?.trim()); } catch { guests = []; }
-  const total = travellerIds.length + guests.length;
-  const settings = await getSettings();
+  let students: { name: string; email?: string; studentId?: string; programme?: string }[] = [];
+  try { students = (JSON.parse(str(fd, 'studentsJson') || '[]') as typeof students).filter((s) => s.name?.trim()); } catch { students = []; }
+
+  const hasStaff = travellerIds.length > 0;
+  const hasStudent = students.length > 0;
+  const total = travellerIds.length + students.length + guests.length;
+
+  // §13.14 student members require the student-group setting; §8 guest mixing requires its own setting;
+  // combining staff AND students in one group requires the mixed-group setting (else groups stay
+  // homogeneous — staff-only or student-only).
+  if (hasStudent && !settings.studentGroupEnabled) redirect(`/requests/new?error=${encodeURIComponent('Student members are disabled in configuration.')}`);
+  if (guests.length > 0 && !settings.groupGuestMixAllowed) redirect(`/requests/new?error=${encodeURIComponent('Guests cannot be added to a group booking — raise a separate guest request. (Mixing employees and guests is disabled in configuration.)')}`);
+  if (hasStaff && hasStudent && !settings.mixedGroupEnabled) redirect(`/requests/new?error=${encodeURIComponent('Mixing staff and students in one group is disabled in configuration — raise a staff-only or student-only group.')}`);
   // §13.14 a group needs ≥2 members and may not exceed the configured TMC group-booking limit.
   if (total < 2) redirect(`/requests/new?error=${encodeURIComponent('A group needs at least two members.')}`);
-  // §8 mixing guests into a group may be disabled in configuration — then a group is
-  // employees-only and guests must be raised on a separate guest request.
-  if (!settings.groupGuestMixAllowed && guests.length > 0) {
-    redirect(`/requests/new?error=${encodeURIComponent('Guests cannot be added to a group booking — raise a separate guest request. (Mixing employees and guests is disabled in configuration.)')}`);
-  }
   if (total > settings.groupMaxTravellers) redirect(`/requests/new?error=${encodeURIComponent(`A group booking is limited to ${settings.groupMaxTravellers} travellers (TMC group limit). You selected ${total}.`)}`);
   // §13.14 a group may name ANY employee traveller — cross-department routing and the per-member
   // inclusion confirmation (§13.13) are the controls, so the individual per-member remit check is
   // intentionally NOT applied here (it silently rejected cross-department members the UI offers).
   const invalidMembers = travellerIds.filter((t) => !EcsIdentity.employee(t)?.isTraveller);
   if (invalidMembers.length) redirect(`/requests/new?error=${encodeURIComponent('One or more selected members are not valid travellers.')}`);
+
   const sharePct = Math.round((100 / total) * 100) / 100;
+  const stamp = Date.now().toString(36);
+  const employeeRows = travellerIds.map((eid) => ({ employeeId: eid, travellerType: 'EMPLOYEE', isRequestor: eid === requestorId, confirmed: false, sharePct }));
+  const studentRows = students.map((s, i) => ({
+    employeeId: `S-${stamp}s${i}`, travellerType: 'STUDENT',
+    guestName: s.name.trim(), guestEmail: s.email?.trim() || null,
+    studentId: s.studentId?.trim() || null, programme: s.programme?.trim() || null,
+    isRequestor: false, confirmed: true, sharePct, // the coordinator confirms the party offline
+  }));
   const guestRows = guests.map((g, i) => ({
-    employeeId: `G-${Date.now().toString(36)}${i}`, travellerType: 'GUEST',
+    employeeId: `G-${stamp}g${i}`, travellerType: 'GUEST',
     guestName: g.name.trim(), guestEmail: g.email?.trim() || null, guestOrg: g.org?.trim() || null,
     isRequestor: false, confirmed: true, sharePct, // §13.13 host confirms the guest offline
   }));
+
+  // Derived label: staff + students → MIXED; students only → STUDENT; otherwise STAFF (guests never
+  // change the label — a staff+guest group is still STAFF, a student+guest group still STUDENT).
+  const groupType = hasStaff && hasStudent ? 'MIXED' : hasStudent ? 'STUDENT' : 'STAFF';
   // Routing anchors on an employee member when present; department falls back to the host's.
   const primary = travellerIds[0] ?? requestorId;
   const primaryDept = EcsIdentity.employee(travellerIds[0] ?? '')?.departmentId ?? EcsIdentity.employee(requestorId)?.departmentId;
   const requestNumber = await nextRequestNumber(yr());
   const req = await prisma.travelRequest.create({
     data: {
-      requestNumber, requestorId, travellerId: primary, isGroup: true, groupType: 'STAFF',
+      requestNumber, requestorId, travellerId: primary, isGroup: true, groupType,
       entityId: EcsIdentity.entity().id, departmentId: primaryDept,
       status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
-      travellers: {
-        create: [
-          ...travellerIds.map((eid) => ({ employeeId: eid, travellerType: 'EMPLOYEE', isRequestor: eid === requestorId, confirmed: false, sharePct })),
-          ...guestRows,
-        ],
-      },
+      travellers: { create: [...employeeRows, ...studentRows, ...guestRows] },
     },
   });
   // TR-02: seed the group's main charging account from the one chosen on Create (defaulted to the
   // requestor/host profile); per-member department allocation is applied on the Charging step.
   await seedDefaultCharging(req.id, chosenCharging(fd, EcsIdentity.employee(requestorId)?.defaultChargingCode));
-  await audit(req.id, 'CREATE', `Staff group draft ${requestNumber} created for ${total} travellers${guests.length ? ` (incl. ${guests.length} guest${guests.length > 1 ? 's' : ''})` : ''}`, requestorId);
-  redirect(`/requests/${req.id}/trip`);
-}
-
-/** §13.14 Create a STUDENT group draft. Members come entirely from the requestor's upload — name,
- *  email, student id, programme — and are NOT validated. They are non-employee (guest-like)
- *  travellers: Economy, host-department charging, central settlement, no own claim. The requestor
- *  (coordinator) anchors routing but carries no cost share. */
-async function createStudentGroupDraft(fd: FormData, requestorId: string) {
-  const settings = await getSettings();
-  if (!settings.studentGroupEnabled) redirect(`/requests/new?error=${encodeURIComponent('Student group requests are disabled in configuration.')}`);
-  let students: { name: string; email?: string; studentId?: string; programme?: string }[] = [];
-  try { students = (JSON.parse(str(fd, 'studentsJson') || '[]') as typeof students).filter((s) => s.name?.trim()); } catch { students = []; }
-  if (students.length < 2) redirect(`/requests/new?error=${encodeURIComponent('A student group needs at least two students.')}`);
-  if (students.length > settings.groupMaxTravellers) redirect(`/requests/new?error=${encodeURIComponent(`A group booking is limited to ${settings.groupMaxTravellers} travellers (TMC group limit). You uploaded ${students.length}.`)}`);
-  const sharePct = Math.round((100 / students.length) * 100) / 100;
-  const stamp = Date.now().toString(36);
-  const studentRows = students.map((s, i) => ({
-    employeeId: `S-${stamp}${i}`, travellerType: 'STUDENT',
-    guestName: s.name.trim(), guestEmail: s.email?.trim() || null,
-    studentId: s.studentId?.trim() || null, programme: s.programme?.trim() || null,
-    isRequestor: false, confirmed: true, sharePct, // the coordinator confirms the party offline
-  }));
-  const requestNumber = await nextRequestNumber(yr());
-  const req = await prisma.travelRequest.create({
-    data: {
-      requestNumber, requestorId, travellerId: requestorId, isGroup: true, groupType: 'STUDENT',
-      entityId: EcsIdentity.entity().id, departmentId: EcsIdentity.employee(requestorId)?.departmentId,
-      status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
-      travellers: { create: studentRows },
-    },
-  });
-  // TR-02: seed the group's main charging account from the one chosen on Create (host default).
-  await seedDefaultCharging(req.id, chosenCharging(fd, EcsIdentity.employee(requestorId)?.defaultChargingCode));
-  await audit(req.id, 'CREATE', `Student group draft ${requestNumber} created for ${students.length} students (uploaded, not validated)`, requestorId);
+  const parts: string[] = [];
+  if (travellerIds.length) parts.push(`${travellerIds.length} staff`);
+  if (students.length) parts.push(`${students.length} student${students.length > 1 ? 's' : ''} (uploaded, not validated)`);
+  if (guests.length) parts.push(`${guests.length} guest${guests.length > 1 ? 's' : ''}`);
+  const kindLabel = groupType === 'MIXED' ? 'Mixed' : groupType === 'STUDENT' ? 'Student' : 'Staff';
+  await audit(req.id, 'CREATE', `${kindLabel} group draft ${requestNumber} created — ${parts.join(', ')}`, requestorId);
   redirect(`/requests/${req.id}/trip`);
 }
 

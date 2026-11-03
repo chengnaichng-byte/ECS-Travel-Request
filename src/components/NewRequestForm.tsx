@@ -65,9 +65,9 @@ function TravelClassification({ isResearch }: { isResearch: boolean }) {
   );
 }
 
-export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, studentGroupEnabled, requestorCharging, chargingAccounts, entityName }: {
+export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, studentGroupEnabled, mixedGroupEnabled, requestorCharging, chargingAccounts, entityName }: {
   persona: { name: string; title: string }; isRequestor: boolean;
-  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; studentGroupEnabled: boolean;
+  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; studentGroupEnabled: boolean; mixedGroupEnabled: boolean;
   requestorCharging?: Charging | null; chargingAccounts: Account[]; entityName: string;
 }) {
   const [mode, setMode] = useState<Mode>('individual');
@@ -118,6 +118,12 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const total = selected.size;
   const over = total > groupMax;
   const tooFew = total < 2;
+  // §13.14 mixed group — when enabled, the staff group form also accepts students (uploaded,
+  // non-validated) in the same roster, so the party total counts staff + students.
+  const studentsIncluded = mixedGroupEnabled && studentGroupEnabled;
+  const grpTotal = total + (studentsIncluded ? studentTotal : 0);
+  const grpOver = grpTotal > groupMax;
+  const grpTooFew = grpTotal < 2;
 
   const optById = new Map(groupOptions.map((o) => [o.id, o] as const));
   const q = query.trim().toLowerCase();
@@ -271,6 +277,50 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
     <button type="button" onClick={onClick} className={`px-1 pb-2 text-sm font-medium border-b-2 -mb-px ${active ? 'border-[var(--ecs-navy)] text-[var(--ecs-navy)]' : 'border-transparent text-[var(--ecs-muted)] hover:text-[var(--ecs-navy)]'}`}>{children}</button>
   );
 
+  // §13.14 student-member entry card (manual rows or Excel bulk-upload; uploaded, not validated) —
+  // shared by the student-only group form and the mixed (staff + student) group form.
+  const studentMembersCard = (heading: string) => (
+    <div className="card mt-4">
+      <div className="card-head flex items-center justify-between"><span>{heading}</span><span className="text-xs font-normal text-[var(--ecs-muted)]">Students carry no cost share and file no claim</span></div>
+      <div className="p-4">
+        <div className="flex gap-5 border-b border-[var(--ecs-border)] mb-4">
+          <SubTab active={studentTab === 'search'} onClick={() => setStudentTab('search')}>Add manually</SubTab>
+          <SubTab active={studentTab === 'bulk'} onClick={() => setStudentTab('bulk')}>Bulk add from Excel</SubTab>
+        </div>
+        {studentTab === 'bulk' ? (
+          <>
+            <Upload onPick={() => studentFileRef.current?.click()} onTemplate={downloadStudentTemplate} inputRef={studentFileRef} onChange={onStudentExcel} />
+            {studentNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{studentNote}</p>}
+            {studentErrors.length > 0 && <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{studentErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>}
+          </>
+        ) : (
+          <button type="button" className="btn-secondary text-sm" onClick={addStudent}>＋ Add student</button>
+        )}
+        <div className="text-sm font-semibold text-[var(--ecs-navy)] mt-5 mb-2">Students — uploaded details, not validated ({studentTotal})</div>
+        {students.length === 0 ? (
+          <div className="rounded-md border border-[var(--ecs-border)] p-8 text-center text-sm text-[var(--ecs-muted)]">No students added yet. Add manually or use bulk add to build the party.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Student ID</th><th className="th">Programme</th><th className="th">Actions</th></tr></thead>
+              <tbody>
+                {students.map((s, i) => (
+                  <tr key={i}>
+                    <td className="td"><input className="field" placeholder="Student name" value={s.name} onChange={(e) => setStudent(i, { name: e.target.value })} /></td>
+                    <td className="td"><input className="field" placeholder="Email (optional)" value={s.email} onChange={(e) => setStudent(i, { email: e.target.value })} /></td>
+                    <td className="td"><input className="field" placeholder="Matric no." value={s.studentId} onChange={(e) => setStudent(i, { studentId: e.target.value })} /></td>
+                    <td className="td"><input className="field" placeholder="Programme" value={s.programme} onChange={(e) => setStudent(i, { programme: e.target.value })} /></td>
+                    <td className="td"><button type="button" className="btn-ghost text-xs" onClick={() => delStudent(i)} aria-label="Remove">✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div>
       {/* Request-type tabs (icon cards) */}
@@ -334,7 +384,7 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
         </form>
       ) : (
         <>
-          {studentGroupEnabled && (
+          {studentGroupEnabled && !mixedGroupEnabled && (
             <div className="card p-1.5 mb-4 flex w-fit gap-1">
               <button type="button" onClick={() => setGroupKind('staff')} className={`w-40 py-3 rounded-md font-semibold text-sm ${groupKind === 'staff' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Staff group</button>
               <button type="button" onClick={() => setGroupKind('student')} className={`w-40 py-3 rounded-md font-semibold text-sm ${groupKind === 'student' ? 'bg-[var(--ecs-navy)] text-white' : 'text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]'}`}>Student group</button>
@@ -356,48 +406,9 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                 </div>
               </div>
 
-              <div className="card mt-4">
-                <div className="card-head flex items-center justify-between"><span>Add Group Members</span><span className="text-xs font-normal text-[var(--ecs-muted)]">Minimum 2 · Maximum {groupMax} travellers</span></div>
-                <div className="p-4">
-                  <div className="flex gap-5 border-b border-[var(--ecs-border)] mb-4">
-                    <SubTab active={studentTab === 'search'} onClick={() => setStudentTab('search')}>Add manually</SubTab>
-                    <SubTab active={studentTab === 'bulk'} onClick={() => setStudentTab('bulk')}>Bulk add from Excel</SubTab>
-                  </div>
-                  {studentTab === 'bulk' ? (
-                    <>
-                      <Upload onPick={() => studentFileRef.current?.click()} onTemplate={downloadStudentTemplate} inputRef={studentFileRef} onChange={onStudentExcel} />
-                      {studentNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{studentNote}</p>}
-                      {studentErrors.length > 0 && <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{studentErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>}
-                    </>
-                  ) : (
-                    <button type="button" className="btn-secondary text-sm" onClick={addStudent}>＋ Add student</button>
-                  )}
-
-                  <div className="text-sm font-semibold text-[var(--ecs-navy)] mt-5 mb-2">Students — uploaded details, not validated ({studentTotal})</div>
-                  {students.length === 0 ? (
-                    <div className="rounded-md border border-[var(--ecs-border)] p-8 text-center text-sm text-[var(--ecs-muted)]">No students added yet. Add manually or use bulk add to build the party.</div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Student ID</th><th className="th">Programme</th><th className="th">Actions</th></tr></thead>
-                        <tbody>
-                          {students.map((s, i) => (
-                            <tr key={i}>
-                              <td className="td"><input className="field" placeholder="Student name" value={s.name} onChange={(e) => setStudent(i, { name: e.target.value })} /></td>
-                              <td className="td"><input className="field" placeholder="Email (optional)" value={s.email} onChange={(e) => setStudent(i, { email: e.target.value })} /></td>
-                              <td className="td"><input className="field" placeholder="Matric no." value={s.studentId} onChange={(e) => setStudent(i, { studentId: e.target.value })} /></td>
-                              <td className="td"><input className="field" placeholder="Programme" value={s.programme} onChange={(e) => setStudent(i, { programme: e.target.value })} /></td>
-                              <td className="td"><button type="button" className="btn-ghost text-xs" onClick={() => delStudent(i)} aria-label="Remove">✕</button></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  <p className="text-xs text-[var(--ecs-muted)] mt-3">Approved once on the group total; the DOA is derived from the host (requestor&apos;s) department. Students carry no individual cost share and file no claim (§13.14).</p>
-                  {studentOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {studentTotal - groupMax} student{studentTotal - groupMax > 1 ? 's' : ''}.</p>}
-                </div>
-              </div>
+              {studentMembersCard('Add Group Members')}
+              <p className="text-xs text-[var(--ecs-muted)] mt-3">Approved once on the group total; the DOA is derived from the host (requestor&apos;s) department. Students carry no individual cost share and file no claim (§13.14).</p>
+              {studentOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {studentTotal - groupMax} student{studentTotal - groupMax > 1 ? 's' : ''}.</p>}
               <div className="mt-4 flex items-center justify-end gap-3">
                 {studentTooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 students to continue.</span>}
                 <button className="btn-primary" disabled={studentOver || studentTooFew}>Create student group draft →</button>
@@ -405,10 +416,10 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
             </form>
           ) : (
             <form action={createGroupDraft}>
-              <input type="hidden" name="groupType" value="STAFF" />
+              {studentsIncluded && <input type="hidden" name="studentsJson" value={JSON.stringify(namedStudents.map((s) => ({ name: s.name.trim(), email: s.email.trim(), studentId: s.studentId.trim(), programme: s.programme.trim() })))} />}
               {[...selected].map((id) => <input key={id} type="hidden" name="travellerIds" value={id} />)}
               <div className="card">
-                <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${over ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{total} of {groupMax} travellers</span></div>
+                <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${grpOver ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{grpTotal} of {groupMax} {studentsIncluded ? 'members' : 'travellers'}</span></div>
                 <div className="p-4 space-y-4">
                   <div>
                     <label className="label">Requestor (you)</label>
@@ -485,13 +496,17 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                     </div>
                   )}
 
-                  <p className="text-xs text-[var(--ecs-muted)] mt-3">Each employee confirms their inclusion (§13.13). Approved once on the group total; the DOA is derived from the highest charging department. The requestor holds no cost share (§13.14). Guests are not added to a group — raise a separate <b>Guest / non-employee</b> request (§8).</p>
-                  {over && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {total - groupMax} traveller{total - groupMax > 1 ? 's' : ''}.</p>}
+                  <p className="text-xs text-[var(--ecs-muted)] mt-3">Each employee confirms their inclusion (§13.13). Approved once on the group total; the DOA is derived from the highest charging department. The requestor holds no cost share (§13.14).{studentsIncluded ? ' You can add students below — uploaded, not validated; like guests they carry no cost share, file no claim and receive no ODA (§13.14).' : ' Guests are not added to a group — raise a separate Guest / non-employee request (§8).'}</p>
                 </div>
               </div>
+              {studentsIncluded && (<>
+                {studentMembersCard('Add students (optional)')}
+                <p className="text-xs text-[var(--ecs-muted)] mt-3">Students are uploaded and not validated; the coordinator confirms the party offline (§13.13).</p>
+              </>)}
+              {grpOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {grpTotal - groupMax} member{grpTotal - groupMax > 1 ? 's' : ''}.</p>}
               <div className="mt-4 flex items-center justify-end gap-3">
-                {tooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 travellers to continue.</span>}
-                <button className="btn-primary" disabled={over || tooFew}>Create group draft →</button>
+                {grpTooFew && <span className="text-xs text-[var(--ecs-muted)]">Add at least 2 members to continue.</span>}
+                <button className="btn-primary" disabled={grpOver || grpTooFew}>Create group draft →</button>
               </div>
             </form>
           )}

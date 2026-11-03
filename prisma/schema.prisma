@@ -24,6 +24,7 @@ model ModuleSettings {
   approvalAmountBasis    String  @default("NET_NTU")     // GROSS | NET_NTU | MAJOR_COST | ALLOCATION
   groupTravelEnabled     Boolean @default(true)   // §13.14
   studentGroupEnabled    Boolean @default(true)   // §13.14 may a requestor raise a STUDENT group (uploaded, non-validated student members)?
+  mixedGroupEnabled      Boolean @default(true)   // §13.14 may ONE group mix staff + students (+ guests)? off = homogeneous staff-only / student-only groups
   groupMaxTravellers     Int     @default(10)     // §13.14 max travellers in one group booking (TMC group limit)
   groupGuestMixAllowed   Boolean @default(true)   // §8 may a group booking mix employees and guests? (else guests use a separate request)
   groupSubItineraries    Boolean @default(true)   // §13.20 per-traveller sub-itineraries (D3)
