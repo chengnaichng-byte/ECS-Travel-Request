@@ -8,6 +8,7 @@ export const REQUEST_STATUS = {
   PendingRO: 'Pending RO Approval',
   PendingAdditional: 'Pending Additional Approval',  // §23 traveller-added Additional Approver
   PendingException: 'Pending Exception Approval',
+  PendingDean: 'Pending Dean Recommendation',          // §8 / DD-25 guest travel-class upgrade — Dean recommends before the Provost
   PendingProvost: 'Pending Provost Approval',          // §8 / DD-25 guest travel-class upgrade
   PendingDOA: 'Pending DOA Approval',
   Approved: 'Approved',
@@ -27,10 +28,11 @@ export type RequestStatus = (typeof REQUEST_STATUS)[keyof typeof REQUEST_STATUS]
  *  is no longer a transition target. */
 export const STATUS_TRANSITIONS: Record<string, string[]> = {
   [REQUEST_STATUS.Draft]: [REQUEST_STATUS.Submitted, REQUEST_STATUS.Withdrawn],
-  [REQUEST_STATUS.Submitted]: [REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingProvost],
-  [REQUEST_STATUS.PendingRO]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingProvost, REQUEST_STATUS.SentBack],
-  [REQUEST_STATUS.PendingAdditional]: [REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
-  [REQUEST_STATUS.PendingException]: [REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.Submitted]: [REQUEST_STATUS.PendingAdditional, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDean, REQUEST_STATUS.PendingProvost],
+  [REQUEST_STATUS.PendingRO]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDean, REQUEST_STATUS.PendingProvost, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingAdditional]: [REQUEST_STATUS.PendingException, REQUEST_STATUS.PendingDean, REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingException]: [REQUEST_STATUS.PendingDean, REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
+  [REQUEST_STATUS.PendingDean]: [REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.PendingProvost]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.PendingDOA]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.Approved]: [REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Cancelled, REQUEST_STATUS.Expired, REQUEST_STATUS.Closed],
@@ -85,6 +87,7 @@ export const APPROVER_ROLE = {
   DOA: 'DOA',
   ResearchDOA: 'RESEARCH_DOA',
   Exception: 'EXCEPTION',
+  Dean: 'DEAN',                    // §8 / DD-25 guest travel-class upgrade — Dean (or equivalent) recommends before the Provost
   Provost: 'PROVOST',              // §8 / DD-25 guest travel-class upgrade authority
   Verifier: 'VERIFIER',            // §51 TE claim verifier (claim-stage only)
 } as const;

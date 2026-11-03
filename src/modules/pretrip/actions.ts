@@ -1350,10 +1350,19 @@ export async function submitRequest(id: string, fd?: FormData) {
     const emergencyFields = {
       isEmergency: isEmergencyNow, isRetrospective: false, emergencyOutsideWindow: false, emergencyRatified: false,
     };
+    // §8/DD-25 Dean recommendation — when the config step is on and this is a guest travel-class upgrade,
+    // the requestor must pick the recommending Dean (any staff); it is stored and routes before the Provost.
+    const selDean = str(fd, 'selectedDeanId') || null;
+    const needsDean = settings.guestUpgradeDeanStep && isGuestRequest(req) && !req.isGroup
+      && req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception);
+    if (needsDean && !selDean) {
+      await audit(id, 'STATUS', 'Submission blocked — select the recommending Dean for the guest travel-class upgrade');
+      redirect(`/requests/${id}/review?error=${encodeURIComponent('Select the recommending Dean (or dean-equivalent) for this guest travel-class upgrade before submitting.')}`);
+    }
     if (piSelfApproves) {
       // decision 3 — the PI is the DOA; no external DOA selection is needed. On the emergency lane the
       // PI (the self-approving DOA) is the authorising authority.
-      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, emergencyAuthoriserId: isEmergencyNow ? req.travellerId : null, additionalApproverId: aaId, selectedDoaId: null, personalAck, highRiskAck, nonTermDeclared } });
+      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, emergencyAuthoriserId: isEmergencyNow ? req.travellerId : null, additionalApproverId: aaId, selectedDoaId: null, selectedDeanId: selDean, personalAck, highRiskAck, nonTermDeclared } });
     } else {
       // §13.14 / decision 1 — the DOA is DEFAULTED when exactly one candidate is eligible; with several,
       // the traveller selects one (self is already excluded from the candidate list).
@@ -1366,7 +1375,7 @@ export async function submitRequest(id: string, fd?: FormData) {
         redirect(`/requests/${id}/review?error=${encodeURIComponent('Please select the approving DOA.')}`);
       }
       // §DD-23 on the emergency lane the selected approving DOA is also the authorising authority.
-      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, emergencyAuthoriserId: isEmergencyNow ? (effectiveDoa || null) : null, additionalApproverId: aaId, selectedDoaId: effectiveDoa || null, personalAck, highRiskAck, nonTermDeclared } });
+      await prisma.travelRequest.update({ where: { id }, data: { ...emergencyFields, emergencyAuthoriserId: isEmergencyNow ? (effectiveDoa || null) : null, additionalApproverId: aaId, selectedDoaId: effectiveDoa || null, selectedDeanId: selDean, personalAck, highRiskAck, nonTermDeclared } });
     }
   }
 
@@ -1411,6 +1420,7 @@ export async function submitRequest(id: string, fd?: FormData) {
     hasException: routeHasException,
     roRequirement: settings.roRequirement,
     guestUpgradeProvostId,
+    guestUpgradeDeanStep: settings.guestUpgradeDeanStep,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
     nonTermAutoApprove: settings.nonTermAutoApprove,

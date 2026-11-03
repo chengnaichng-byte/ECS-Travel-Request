@@ -111,7 +111,7 @@ function pickDoa(line: string[], tierIndex: number, excluded: Set<string>): { id
   return { id: line[idx], note };
 }
 
-export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; roRequirement: string; guestUpgradeProvostId?: string | null; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; nonTermAutoApprove?: boolean; emergency?: { authoriserId: string | null; retrospective: boolean }; workflowScenario?: WorkflowScenario };
+export type RouteOpts = { exceptionApproverRequired: boolean; sameRouteResearch: boolean; approvalAmount: number; hasException: boolean; roRequirement: string; guestUpgradeProvostId?: string | null; guestUpgradeDeanStep?: boolean; researchPiSelfApproval?: boolean; selfApprovalLimitSgd?: number; nonTermAutoApprove?: boolean; emergency?: { authoriserId: string | null; retrospective: boolean }; workflowScenario?: WorkflowScenario };
 
 /** §2.3 Gather the closed FACTS the workflow engine evaluates, from the request + settings. Presence
  *  facts already apply §13.5 self-approval exclusion so a step the originator would fill is not raised. */
@@ -137,6 +137,8 @@ export function gatherWorkflowFacts(req: FullRequest, opts: RouteOpts, excluded:
     additionalApproverPresent: !!(req.additionalApproverId && !excluded.has(req.additionalApproverId)),
     // §13.19 a travel-class upgrade raises a CLASS policy exception; the Provost is its exception approver.
     travelClassUpgradeException: req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception),
+    // §8/DD-25 insert a Dean recommendation step before the Provost on a guest upgrade (config toggle).
+    guestUpgradeDeanStep: !!opts.guestUpgradeDeanStep,
     isEmergency: !!opts.emergency,
     // §6.2 ECS-mirrored decision-point facts (Expense-Claim fields → their Travel-Request equivalents)
     seniorManager: emp?.workerType === 'EXECUTIVE',                   // ECS "Senior manager flag (RO)"
@@ -177,6 +179,9 @@ function resolveSpecs(specs: RouteStepSpec[], req: FullRequest, opts: RouteOpts,
     } else if (spec.resolver === 'ROLE' && spec.ref === 'EXCEPTION_APPROVER') {
       const exc = EcsRoles.employeesWithRole(ROLE.ExceptionApprover).find((e) => !excluded.has(e.id));
       if (exc) push(APPROVER_ROLE.Exception, exc.id, 'Policy exception review');
+    } else if (spec.resolver === 'FIXED' && spec.ref === 'DEAN') {
+      // §8/DD-25 Dean recommendation before the Provost — the requestor-selected Dean (any staff).
+      if (req.selectedDeanId && !excluded.has(req.selectedDeanId)) push(APPROVER_ROLE.Dean, req.selectedDeanId, 'Guest travel-class upgrade — Dean recommendation (§8 / DD-25)');
     } else if (spec.resolver === 'RELATIONSHIP' && spec.ref === 'PROVOST') {
       if (opts.guestUpgradeProvostId && !excluded.has(opts.guestUpgradeProvostId)) push(APPROVER_ROLE.Provost, opts.guestUpgradeProvostId, 'Guest travel-class upgrade — Provost authorisation (§8 / DD-25)');
     } else if (spec.resolver === 'SELF') {
@@ -216,6 +221,7 @@ export function statusForStep(roleType: string): string {
   if (roleType === APPROVER_ROLE.RO) return 'Pending RO Approval';
   if (roleType === APPROVER_ROLE.AdditionalApprover) return 'Pending Additional Approval';
   if (roleType === APPROVER_ROLE.Exception) return 'Pending Exception Approval';
+  if (roleType === APPROVER_ROLE.Dean) return 'Pending Dean Recommendation';
   if (roleType === APPROVER_ROLE.Provost) return 'Pending Provost Approval';
   return 'Pending DOA Approval';
 }

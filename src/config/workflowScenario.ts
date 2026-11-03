@@ -65,6 +65,7 @@ export function defaultOrder(roleType: string, _ref?: string): number {
   if (roleType === APPROVER_ROLE.AdditionalApprover) return 10;
   if (roleType === APPROVER_ROLE.RO) return 20;
   if (roleType === APPROVER_ROLE.Exception) return 50;
+  if (roleType === APPROVER_ROLE.Dean) return 55;
   if (roleType === APPROVER_ROLE.Provost) return 60;
   return 70; // DOA / Research DOA
 }
@@ -117,6 +118,9 @@ export const TR_STANDARD_SCENARIO: WorkflowScenario = {
     // condition); an administrator can remove this whole rule to drop Provost approval, or relax the
     // condition to extend it to employee upgrades. WHO the Provost is comes from the module setting.
     { seq: 5, label: 'Add the Provost for a travel-class upgrade (guest)', conditions: [{ fact: 'isGuest', op: 'is', value: true }, { fact: 'travelClassUpgradeException', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Provost, resolver: 'RELATIONSHIP', ref: 'PROVOST', resolverLabel: 'Configured Provost (Pre-Trip settings)', order: 60 }] },
+    // §8/DD-25 Dean recommendation BEFORE the Provost on a guest upgrade — inserted only when the config
+    // toggle is on. The requestor selects the Dean (any staff); it sorts at order 55 (ahead of the Provost).
+    { seq: 12, label: 'Add the Dean recommendation before the Provost (guest upgrade, when enabled)', conditions: [{ fact: 'isGuest', op: 'is', value: true }, { fact: 'travelClassUpgradeException', op: 'is', value: true }, { fact: 'guestUpgradeDeanStep', op: 'is', value: true }], actions: [{ verb: 'ADD', targetLevel: APPROVER_ROLE.Dean, resolver: 'FIXED', ref: 'DEAN', resolverLabel: 'Requestor-selected Dean', order: 55 }] },
     { seq: 6, label: 'Replace the DOA with the traveller for research PI self-approval', conditions: PI_SELF_APPROVAL, actions: [{ verb: 'REPLACE', targetLevel: APPROVER_ROLE.DOA, resolver: 'SELF', resolverLabel: 'Traveller (research PI self-approval)', note: 'Research PI self-approval' }] },
     // ---- ECS-mirrored decision points (from the Expense-Claim "Edit workflow rule" screen, mirrored to
     //      the Travel-Request equivalents; only the ECS rules relevant to TR, not the claim-specific

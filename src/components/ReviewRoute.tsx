@@ -8,20 +8,26 @@ import { useState } from 'react';
 
 export interface Opt { id: string; name: string; note?: string; title?: string }
 
-export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates, additionalCandidates, initialDoa, initialAdditional, children }: {
+export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates, additionalCandidates, initialDoa, initialAdditional, needsDean, deanCandidates, initialDean, children }: {
   research: boolean;
-  fixedSteps: { label: string; name: string }[];   // RO / Funding Owner / Exception etc. (resolved server-side)
+  fixedSteps: { label: string; name: string }[];   // RO / Funding Owner / Exception / Provost (resolved server-side; Dean handled client-side here)
   doaRoleLabel: string;
   doaCandidates: Opt[];
   additionalCandidates: Opt[];
   initialDoa: string;
   initialAdditional: string;
+  needsDean?: boolean;                               // §8/DD-25 guest upgrade + Dean step enabled
+  deanCandidates?: Opt[];
+  initialDean?: string;
   children: React.ReactNode;
 }) {
   const [doa, setDoa] = useState(initialDoa);
   const [additional, setAdditional] = useState(initialAdditional);
+  const [dean, setDean] = useState(initialDean ?? '');
   const doaName = doaCandidates.find((c) => c.id === doa)?.name;
   const addName = additionalCandidates.find((c) => c.id === additional)?.name;
+  const deanOpt = (deanCandidates ?? []).find((c) => c.id === dean);
+  const deanSub = deanOpt ? `${deanOpt.name}${deanOpt.title ? ` · ${deanOpt.title}` : ''}` : 'Select the Dean';
 
   const chev = (label: string, sub: string, state: 'done' | 'todo' | 'current') => (
     <div className="flex items-center">
@@ -38,7 +44,12 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
         <div className="chev-row overflow-x-auto">
           <div className="flex items-center"><div className="chev chev-done"><div className="font-semibold">Traveller</div><div className="opacity-80">submits</div></div></div>
           {addName && chev('Additional Approver', addName, 'todo')}
-          {fixedSteps.map((s, i) => <div key={i} className="contents">{chev(s.label, s.name, 'todo')}</div>)}
+          {fixedSteps.map((s, i) => (
+            <div key={i} className="contents">
+              {needsDean && s.label === 'Provost' && chev('Dean (recommender)', deanSub, dean ? 'todo' : 'current')}
+              {chev(s.label, s.name, 'todo')}
+            </div>
+          ))}
           {chev(doaRoleLabel, doaName ?? 'Select the DOA', doa ? 'todo' : 'current')}
         </div>
       </div>
@@ -67,6 +78,16 @@ export function ReviewRoute({ research, fixedSteps, doaRoleLabel, doaCandidates,
             </select>
             <p className="text-xs text-[var(--ecs-muted)] mt-1">Optionally route through one additional approver before the DOA (§23). You cannot select yourself.</p>
           </div>
+          {needsDean && (
+            <div>
+              <label className="label" htmlFor="selectedDeanId">Recommending Dean <span className="text-[var(--ecs-red)]">*</span></label>
+              <select id="selectedDeanId" name="selectedDeanId" value={dean} onChange={(e) => setDean(e.target.value)} className="field txt-default">
+                <option value="">— select the Dean —</option>
+                {(deanCandidates ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}{c.title ? ` — ${c.title}` : ''}</option>)}
+              </select>
+              <p className="text-xs text-[var(--ecs-muted)] mt-1">The Dean (or dean-equivalent) recommends this guest travel-class upgrade before the Provost. The person you pick — and their position — is shown to the Provost so they know who recommended it (§8 / DD-25).</p>
+            </div>
+          )}
         </div>
       </div>
     </>

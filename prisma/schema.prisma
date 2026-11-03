@@ -39,6 +39,7 @@ model ModuleSettings {
   selfApprovalLimitSgd   Int     @default(0)      // approval amount at/below which a traveller-approver self-approves (0 = never)
   researchPiSelfApproval Boolean @default(true)   // #1 research-WBS trip raised for a PI traveller, within selfApprovalLimitSgd, is self-approved (PI is the DOA)
   guestUpgradeProvostId  String  @default("E-PROVOST") // §8/DD-25 WHO the Provost is for a guest travel-class upgrade (single NTU Provost; WHETHER it is required lives in the workflow config)
+  guestUpgradeDeanStep   Boolean @default(false)  // §8/DD-25 insert a Dean (or equivalent) recommendation step before the Provost on a guest travel-class upgrade (off = Provost-only)
   nonTermAutoApprove     Boolean @default(false)  // §13.x research-WBS trip in non-term time (attested + approval e-mail attached) → auto-approved (zero approval steps); offline approval already exists
   upgradeDeltaRoutingEnabled Boolean @default(true)    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account (off = keep it on the original allocation)
   upgradeDeltaSelectionRequired Boolean @default(false) // #14 false = default to the BA's default/first M6 account and allow re-select; true = force a pick when the BA has >1 (hard stop until set); a single-account BA always auto-selects
@@ -99,6 +100,7 @@ model TravelRequest {
   additionalApproverId String?                       // §23 optional traveller-selected Additional Approver (any AD person)
   selectedDoaId     String?                          // §13.14 traveller-selected DOA (from the eligible DOA candidates; not pre-selected)
   provostId         String?                          // §8 / DD-25 selected Provost (approver id) for a guest travel-class upgrade
+  selectedDeanId    String?                          // §8 / DD-25 requestor-selected Dean (any staff id) who recommends a guest travel-class upgrade before the Provost
   // §13.x / DD-23 Emergency / retrospective lane — bounded, audited (not a general bypass).
   isEmergency       Boolean  @default(false)          // emergency lane: compressed route + book-first
   isRetrospective   Boolean  @default(false)          // raised after the trip was booked / taken

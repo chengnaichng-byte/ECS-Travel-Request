@@ -8,7 +8,7 @@ import type { FullRequest } from '@/modules/pretrip/queries';
 
 const ROLE_LABEL: Record<string, string> = {
   [APPROVER_ROLE.RO]: 'RO', [APPROVER_ROLE.AdditionalApprover]: 'Additional Approver', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA',
-  [APPROVER_ROLE.Exception]: 'Exception', [APPROVER_ROLE.Provost]: 'Provost',
+  [APPROVER_ROLE.Exception]: 'Exception', [APPROVER_ROLE.Dean]: 'Dean', [APPROVER_ROLE.Provost]: 'Provost',
 };
 
 type State = 'done' | 'current' | 'todo' | 'stop';
@@ -31,7 +31,10 @@ function buildChevrons(req: FullRequest): Chev[] {
     else if (s.status === 'Rejected') { state = 'stop'; label = `${role} Rejected`; }
     else if (s.status === 'SentBack') { state = 'stop'; label = `${role} Sent Back`; }
     else if (s.status === 'Pending') { state = s.id === firstPending?.id ? 'current' : 'todo'; }
-    chevs.push({ label, sub: name, state });
+    // §8/DD-25 surface the Dean's POSITION so the Provost sees who recommended the guest upgrade.
+    const title = EcsIdentity.employee(s.approverId ?? '')?.title;
+    const sub = s.roleType === APPROVER_ROLE.Dean && title ? `${name} · ${title}` : name;
+    chevs.push({ label, sub, state });
   }
 
   // Terminal / header states

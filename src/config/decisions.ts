@@ -24,6 +24,7 @@ export const moduleSettingsDefaults = {
   selfApprovalLimitSgd: 5000,       // §43 self-approval limit (0 = never); the research PI self-approval band
   researchPiSelfApproval: true,     // #1 research WBS raised for a PI traveller ≤ limit → self-approved (PI is the DOA)
   guestUpgradeProvostId: 'E-PROVOST', // §8/DD-25 WHO the Provost is for a guest travel-class upgrade (WHETHER it is required is a workflow-config decision point)
+  guestUpgradeDeanStep: false,      // §8/DD-25 insert a Dean recommendation step before the Provost on a guest travel-class upgrade (off by default)
   nonTermAutoApprove: true,         // §13.x research-WBS non-term travel (attested + approval e-mail) → auto-approved (on by default)
   upgradeDeltaRoutingEnabled: true,    // #14 route the NTU-funded travel-class upgrade differential to a separate M6 account
   upgradeDeltaSelectionRequired: false, // #14 default to the BA's default (or first) M6 account and let the traveller re-select; set true to force a pick when the BA has >1
@@ -74,6 +75,8 @@ export const decisionCatalogue = [
     effect: 'Amount used for DOA tiering (§2.2).' },
   { key: 'groupTravelEnabled', label: 'Group travel requests enabled', kind: 'boolean',
     effect: 'Enables one-request-many-travellers group requests (§13.14).' },
+  { key: 'guestUpgradeDeanStep', label: 'Dean recommendation before Provost (guest upgrade)', kind: 'boolean',
+    effect: 'When on, a guest travel-class upgrade routes through a Dean (or dean-equivalent) recommendation step BEFORE the Provost. The requestor selects the Dean from the staff directory on the Review step (required to submit); the Dean’s name and position are shown to the Provost so they can see who recommended the upgrade. When off (default), the guest upgrade goes straight to the Provost (§8, DD-25).' },
   { key: 'groupMaxTravellers', label: 'Group booking size limit', kind: 'number',
     effect: 'Maximum travellers in a single group booking, including guest members — mirrors the TMC group-fare limit. Create is blocked above this count (§13.14).' },
   { key: 'groupGuestMixAllowed', label: 'Allow mixing guests in a group', kind: 'boolean',

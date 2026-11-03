@@ -35,6 +35,7 @@ import { HighRiskAdvisory } from '@/components/HighRiskAdvisory';
 const ROUTE_ROLE_LABEL: Record<string, string> = {
   [APPROVER_ROLE.AdditionalApprover]: 'Additional Approver',
   [APPROVER_ROLE.Exception]: 'Exception Approver', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA', [APPROVER_ROLE.RO]: 'RO',
+  [APPROVER_ROLE.Dean]: 'Dean (recommender)', [APPROVER_ROLE.Provost]: 'Provost',
 };
 
 export const dynamic = 'force-dynamic';
@@ -115,6 +116,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
     hasException: previewHasException,
     roRequirement: settings.roRequirement,
     guestUpgradeProvostId: previewProvostId,
+    guestUpgradeDeanStep: settings.guestUpgradeDeanStep,
     researchPiSelfApproval: settings.researchPiSelfApproval,
     selfApprovalLimitSgd: settings.selfApprovalLimitSgd,
     workflowScenario: await getActiveWorkflowScenario(),
@@ -123,9 +125,13 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // Funding Owner / Exception) are resolved server-side; the chevron visual adds the chosen
   // Additional Approver and DOA.
   const isDoaRole = (rt: string) => rt === APPROVER_ROLE.DOA || rt === APPROVER_ROLE.ResearchDOA;
+  // The Dean step is traveller-selected (like Additional Approver / DOA), so it is excluded from the
+  // server-resolved fixedSteps and rendered client-side in the chevron (before the Provost).
   const fixedSteps = previewSteps
-    .filter((s) => s.roleType !== APPROVER_ROLE.AdditionalApprover && !isDoaRole(s.roleType))
+    .filter((s) => s.roleType !== APPROVER_ROLE.AdditionalApprover && s.roleType !== APPROVER_ROLE.Dean && !isDoaRole(s.roleType))
     .map((s) => ({ label: ROUTE_ROLE_LABEL[s.roleType] ?? s.roleType, name: EcsIdentity.employee(s.approverId ?? '')?.name ?? 'TBD' }));
+  // §8/DD-25 Dean recommendation — required when the config step is on and this is a guest class upgrade.
+  const needsDean = !!settings.guestUpgradeDeanStep && previewGuestUpgrade;
   const doaStep = previewSteps.find((s) => isDoaRole(s.roleType));
   const doaRoleLabel = doaStep?.roleType === APPROVER_ROLE.ResearchDOA ? 'Research DOA' : 'DOA';
   const doaCandidates = doaCandidatesFor(req, { approvalAmount: summary.approvalAmount, sameRouteResearch: settings.sameRouteResearch });
@@ -226,6 +232,9 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
           additionalCandidates={additionalCandidates}
           initialDoa={req.selectedDoaId || (doaCandidates.length === 1 ? doaCandidates[0].id : '')}
           initialAdditional={req.additionalApproverId ?? ''}
+          needsDean={needsDean}
+          deanCandidates={additionalCandidates}
+          initialDean={req.selectedDeanId ?? ''}
         >
         {/* Trip and Policy Exceptions side by side. The Trip card carries the details (incl. entitled
             class) and the full itinerary; the Policy Exceptions card lists the hotel-cap / travel-class
