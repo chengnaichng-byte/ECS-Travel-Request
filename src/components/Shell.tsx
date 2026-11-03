@@ -91,6 +91,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
               { href: '/setup/workflow', label: 'Workflow Configuration (TR)', icon: '⇄' },
               { href: '/setup/policy', label: 'Policy Configuration (TR)', icon: '§' },
               { href: '/setup/purpose-items', label: 'Purpose Cost Items', icon: '▤' },
+              { href: '/setup/academic-calendar', label: 'Academic Calendar', icon: '▦' },
             ]} /></div>
             <ul className="space-y-0.5">
               {STUBS.map((s) => (

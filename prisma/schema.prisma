@@ -399,6 +399,22 @@ model PolicyGroupM6 {
   updatedAt DateTime @updatedAt
 }
 
+/// §13.x AcademicTerm — the single university-wide teaching calendar (admin-maintained per academic
+/// year). Each row is a dated period typed TEACHING | EXAM | BREAK. Teaching and exam periods are
+/// "term time"; breaks/vacations are "non-term time". The non-term-research derivation checks a trip's
+/// whole travel window (personal included) against these: it is non-term only when no TEACHING/EXAM
+/// day falls inside the window, and only when the window is within the loaded calendar's coverage.
+model AcademicTerm {
+  id           String   @id @default(cuid())
+  academicYear String                        // e.g. "2026/2027"
+  name         String                        // e.g. "Semester 1 — Teaching"
+  type         String                        // TEACHING | EXAM | BREAK
+  startDate    DateTime
+  endDate      DateTime
+  sortOrder    Int      @default(0)
+  updatedAt    DateTime @updatedAt
+}
+
 /// §4.4 PurposeCostItem — admin-editable per-travel-purpose cost-item profile. Each row says a given
 /// expense type is a "possible cost item" for a purpose, with an optional standard cost that pre-fills
 /// the line. Drives the purpose-driven auto-population on the Estimates step (staff only): ODA /

@@ -5,6 +5,7 @@
 import { PrismaClient } from '@prisma/client';
 import { moduleSettingsDefaults as d } from '../src/config/decisions';
 import { defaultPurposeCostItems } from '../src/data/purposeCostItems';
+import { defaultAcademicTerms } from '../src/data/academicCalendar';
 
 const prisma = new PrismaClient();
 
@@ -26,6 +27,18 @@ async function main() {
     });
   }
   console.log(`Seeded PurposeCostItem (${defaultPurposeCostItems.length} rows).`);
+
+  // §13.x Academic calendar — seed the factory terms only when the table is empty (admin edits kept).
+  const termCount = await prisma.academicTerm.count();
+  if (termCount === 0) {
+    await prisma.academicTerm.createMany({ data: defaultAcademicTerms.map((t) => ({
+      academicYear: t.academicYear, name: t.name, type: t.type,
+      startDate: new Date(t.startDate), endDate: new Date(t.endDate), sortOrder: t.sortOrder,
+    })) });
+    console.log(`Seeded AcademicTerm (${defaultAcademicTerms.length} rows).`);
+  } else {
+    console.log(`AcademicTerm already has ${termCount} rows — not reseeded.`);
+  }
 }
 
 main()
