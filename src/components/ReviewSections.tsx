@@ -946,9 +946,12 @@ export function CostItems({ req, summary, basis, letter, lineActions, outcomeFor
     // Estimates step passes a live outcome (evaluated from the current lines); the Review step uses
     // the persisted policy checks (exView).
     const live = outcomeFor?.(r.category, r.lines);
+    // §4.4 a purpose-seeded line still at its default (never edited) reads as a default to confirm,
+    // not a real estimate — flag it in the Details column (the provenance "default" cue).
+    const allPlaceholder = r.lines.length > 0 && r.lines.every((l) => l.isPlaceholder);
     return {
       typeName: EcsReference.expenseType(r.typeId)?.name ?? r.typeId,
-      detail, basis: basisLabel, gross: r.gross, sponsor: r.sponsor, ntu: r.gross - r.sponsor,
+      detail: allPlaceholder ? 'Default — confirm amount' : detail, basis: basisLabel, gross: r.gross, sponsor: r.sponsor, ntu: r.gross - r.sponsor,
       outcomeExc: live ? live.exc : catExc.length > 0,
       outcomeLabel: live ? live.label : catExc.length === 0 ? 'Within Policy' : req.isGroup ? `${catExc.length} Traveller${catExc.length > 1 ? 's' : ''} with Exception` : 'Exception',
       breakdown,
