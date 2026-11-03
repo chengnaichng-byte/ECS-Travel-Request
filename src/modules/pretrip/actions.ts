@@ -595,6 +595,32 @@ export async function moveLeg(id: string, legId: string, dir: 'up' | 'down') {
   revalidatePath(`/requests/${id}/trip`); revalidatePath(`/requests/${id}`);
 }
 
+/** §13.20 Save (or clear) a group traveller's OWN itinerary — a declared deviation from the shared
+ *  legs. Replaces that traveller's own legs from the posted legsJson (empty = revert to the shared
+ *  itinerary), then re-derives the estimates so their ODA/accommodation follow their own route/dates. */
+export async function saveTravellerItinerary(id: string, employeeId: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const settings = await getSettings();
+  if (!settings.groupSubItineraries) return; // the toggle gates per-traveller itineraries
+  type FL = { originCode: string; destCode: string; departDate?: string; arriveDate?: string };
+  let legs: FL[] = [];
+  try { legs = (JSON.parse(str(fd, 'legsJson') || '[]') as FL[]).filter((l) => l.originCode && l.destCode); } catch { legs = []; }
+  await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: employeeId } });
+  let seq = 1;
+  for (const l of legs) {
+    const dep = l.departDate ? new Date(`${l.departDate}T00:00:00.000Z`) : null;
+    const arr = l.arriveDate ? new Date(`${l.arriveDate}T00:00:00.000Z`) : dep;
+    await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: employeeId, seq: seq++, originCode: l.originCode, destCode: l.destCode, departDate: dep, arriveDate: arr, transportMode: 'AIR', nights: 0, isPersonal: false } });
+  }
+  await syncAutoEstimates(id, true);
+  const who = EcsIdentity.employee(employeeId)?.name ?? employeeId;
+  await audit(id, 'AMEND', legs.length
+    ? `Per-traveller itinerary set for ${who} (${legs.length} leg${legs.length > 1 ? 's' : ''})`
+    : `Per-traveller itinerary cleared for ${who} — reverted to the shared itinerary`);
+  revalidatePath(`/requests/${id}/trip`);
+  revalidatePath(`/requests/${id}/estimates`);
+}
+
 /* ------------------------------------------------- estimates (TR-05..08) */
 /** §13.14 group fan-out for an individual estimate line. When the traveller select is set to
  *  the "All travellers" sentinel, return one id per group traveller so the caller creates a

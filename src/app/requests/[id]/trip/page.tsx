@@ -4,7 +4,11 @@ import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { saveTrip, attachNamedFile, removeNamedAttachment } from '@/modules/pretrip/actions';
+import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary } from '@/modules/pretrip/actions';
+import { getSettings } from '@/modules/pretrip/settings';
+import { memberName } from '@/modules/pretrip/traveller';
+import { sharedLegs } from '@/modules/pretrip/group';
+import { PerTravellerItineraries } from '@/components/PerTravellerItineraries';
 import { NON_TERM_APPROVAL_DOC, nonTermResearchEligible } from '@/modules/pretrip/nonTerm';
 import { listAcademicTerms, deriveNonTermTime } from '@/modules/pretrip/academicCalendar';
 import { NonTermField } from '@/components/NonTermField';
@@ -52,6 +56,20 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const nonTermApprovals = req.attachments.filter((a) => a.docType === NON_TERM_APPROVAL_DOC);
   // §13.x Non-term research is DERIVED from the teaching calendar for the current travel window.
   const nonTermDerivation = nonTermEligible ? deriveNonTermTime(req.startDate, req.endDate, await listAcademicTerms()) : null;
+  // §13.20 Per-traveller group itineraries — shown for a group when the setting is on. Each traveller's
+  // own legs (a declared deviation) are editable; non-deviating travellers follow the shared itinerary.
+  const settings = await getSettings();
+  const perTravellerOn = !!settings.groupSubItineraries && req.isGroup;
+  const airportOpts: [string, string][] = airports.map((a) => [a.code, `${a.code} · ${airportMeta[a.code]?.city ?? a.code}`]);
+  const sharedLegList = sharedLegs(req);
+  const sharedRoute = sharedLegList.length ? [sharedLegList[0].originCode, ...sharedLegList.map((l) => l.destCode)].join(' → ') : '';
+  const itineraryMembers = perTravellerOn ? req.travellers.map((t) => ({
+    employeeId: t.employeeId,
+    name: memberName(t),
+    legs: req.legs.filter((l) => l.travellerId === t.employeeId).sort((a, b) => a.seq - b.seq)
+      .map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate) })),
+    action: saveTravellerItinerary.bind(null, id, t.employeeId),
+  })) : [];
 
   return (
     <div>
@@ -115,6 +133,12 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           conflicts={conflicts}
         />
       </form>
+
+      {perTravellerOn && itineraryMembers.length > 0 && (
+        <Card title="Per-traveller itineraries (§13.20)" className="mt-5">
+          <PerTravellerItineraries members={itineraryMembers} airports={airportOpts} sharedRoute={sharedRoute} />
+        </Card>
+      )}
     </div>
   );
 }
