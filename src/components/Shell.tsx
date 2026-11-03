@@ -26,7 +26,6 @@ const NAV: NavItem[] = [
   ] },
   { href: '/reports', label: 'Reporting', icon: '▥' },
   { href: '/visa-letters', label: 'Visa Letters', icon: '✉' },
-  { href: '/notifications', label: 'Notifications', icon: '🔔' },
 ];
 
 const STUBS = ['GST Codes', 'Entertainment Tier', 'Mileage', 'CTC Cards', 'Rejection Reasons', 'Employee Tier', 'Define Research WBS', 'Announcements'];
@@ -49,14 +48,16 @@ export async function Shell({ children }: { children: React.ReactNode }) {
       {/* White application header — NTU mark + red title + user menu (§13.22) */}
       <header className="bg-white border-b-2 border-[var(--ecs-red)]">
         <div className="flex items-center justify-between gap-2 px-4 h-16">
-          <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
+          <Link href="/" className="flex items-center gap-3 min-w-0">
             <span className="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border-2 border-[var(--ecs-navy)] text-[var(--ecs-navy)] font-bold text-[11px]">NTU</span>
-            <span className="flex flex-col min-w-0">
-              <span className="text-[var(--ecs-red)] font-bold tracking-tight text-sm sm:text-lg uppercase leading-tight truncate">NTU Expense Claim System</span>
-              <span className="text-[var(--ecs-muted)] text-[11px] tracking-wide hidden sm:block">Pre-Trip Travel Request module</span>
-            </span>
+            <span className="text-[var(--ecs-red)] font-bold tracking-tight text-sm sm:text-lg uppercase leading-tight truncate">NTU Travel &amp; Expense Claim System</span>
           </Link>
           <div className="flex items-center gap-3">
+            {/* §13.22 Notifications bell — moved from the sidebar into the top bar. */}
+            <Link href="/notifications" aria-label="Notifications" className="relative inline-flex items-center justify-center w-9 h-9 rounded-full bg-[var(--ecs-panel)] border border-[var(--ecs-border)] text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+              <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-[var(--ecs-red)] border border-white" />
+            </Link>
             {/* Key on the committed persona so the switcher remounts (fresh dropdown state) whenever the
                 persona changes server-side — e.g. a demo-scenario button sets the cookie and redirects.
                 Without this, the client component keeps its stale useState until a full reload. */}
