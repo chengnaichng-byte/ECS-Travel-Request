@@ -15,6 +15,7 @@ export const moduleSettingsDefaults = {
   groupMaxTravellers: 10,           // §13.14 TMC group-booking size limit (incl. guests)
   groupGuestMixAllowed: false,      // §8/DD-13 CFO review — groups are employees-only; guests use a separate request
   mixedGroupEnabled: true,          // §13.14 may ONE group mix staff + students (+ guests)? on by default
+  groupSubItineraries: false,       // §13.20 allow per-traveller sub-itineraries (deviations) in a group; off = one shared itinerary
   purposeDrivenItems: true,         // §4.4 travel purpose auto-populates its full cost-item set (staff) on Estimates; off = ODA + accommodation only
   exceptionApproverRequired: true,  // §26 insert an Exception Approver step for exceptions (else surface to DOA)
   roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
@@ -83,6 +84,8 @@ export const decisionCatalogue = [
     effect: 'Per the CFO review a group is employees-only by default (off): guests are raised on a separate Guest request. Turn on only to allow mixing employees and guests in one group (§8, DD-13).' },
   { key: 'mixedGroupEnabled', label: 'Allow mixed staff + student groups', kind: 'boolean',
     effect: 'When on (default), one group booking may combine staff (from the directory) and students (uploaded, non-validated) on a single shared TA — students carry no ODA and file no claim, exactly like guests. When off, a group is homogeneous: staff-only or student-only. Requires group travel enabled; students additionally require the student-group setting (§13.14).' },
+  { key: 'groupSubItineraries', label: 'Allow per-traveller group itineraries', kind: 'boolean',
+    effect: 'When on, a group traveller may DEVIATE from the shared itinerary with their own legs (declared upfront on the Trip step) — a different route or dates — and their ODA, accommodation and travel-class entitlement are costed on their own itinerary. When off (default), a group travels on one shared itinerary (§13.20).' },
   { key: 'selfBookingEnabled', label: 'Self-booked travel enabled', kind: 'boolean',
     effect: 'Allows Self-Booked method and Travel Request selection at claim (§13.17).' },
 ] as const;

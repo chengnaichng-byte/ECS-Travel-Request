@@ -17,7 +17,7 @@ import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travell
 import { hasNonTermApproval, nonTermResearchEligible, NON_TERM_APPROVAL_DOC } from './nonTerm';
 import { listAcademicTerms, deriveNonTermTime } from './academicCalendar';
 import { exceptionNeedsApproval } from '@/config/policyThresholds';
-import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
+import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { findBlockingDuplicates, findDuplicateRequests } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
@@ -852,22 +852,34 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   // is the home leg (Singapore). From = arrival at that city; To = the next leg's departure onward
   // (the last stop ends at the trip's end date). Nights = (To − From) in days; ODA days = nights. ----
   const home = 'SIN';
-  const legs = req.legs.filter((l) => l.travellerId === null && !l.isPersonal).sort((a, b) => a.seq - b.seq);
   type Stop = { legSeq: number; city: string; country: string; from: Date; to: Date; nights: number };
-  const stops: Stop[] = [];
-  for (let i = 0; i < legs.length; i++) {
-    const l = legs[i];
-    const city = EcsReference.airport(l.destCode)?.cityCode ?? l.destCode;
-    if (!city || city === home) continue; // the return-home leg is not a stop
-    const from = l.arriveDate ?? l.departDate ?? null;
-    const next = legs[i + 1];
-    const to = next?.departDate ?? next?.arriveDate ?? req.endDate ?? null;
-    if (!from || !to) continue;
-    const nights = Math.max(Math.round((to.getTime() - from.getTime()) / DAY), 0);
-    if (nights <= 0) continue;
-    const country = EcsReference.city(city)?.countryCode ?? req.destCountry ?? '';
-    stops.push({ legSeq: l.seq, city, country, from, to, nights });
-  }
+  // §13.20 stops are derived PER TRAVELLER from their EFFECTIVE itinerary — their own legs when they
+  // deviate, else the shared legs. A non-deviating traveller (and an individual request) just gets the
+  // shared stops. Personal-extension legs are excluded (they carry no ODA/hotel budget).
+  const computeStops = (legList: FullRequest['legs']): Stop[] => {
+    const ls = [...legList].filter((l) => !l.isPersonal).sort((a, b) => a.seq - b.seq);
+    const out: Stop[] = [];
+    for (let i = 0; i < ls.length; i++) {
+      const l = ls[i];
+      const city = EcsReference.airport(l.destCode)?.cityCode ?? l.destCode;
+      if (!city || city === home) continue; // the return-home leg is not a stop
+      const from = l.arriveDate ?? l.departDate ?? null;
+      const next = ls[i + 1];
+      const to = next?.departDate ?? next?.arriveDate ?? req.endDate ?? null;
+      if (!from || !to) continue;
+      const nights = Math.max(Math.round((to.getTime() - from.getTime()) / DAY), 0);
+      if (nights <= 0) continue;
+      const country = EcsReference.city(city)?.countryCode ?? req.destCountry ?? '';
+      out.push({ legSeq: l.seq, city, country, from, to, nights });
+    }
+    return out;
+  };
+  const stopsCache = new Map<string, Stop[]>();
+  const stopsForTid = (tid: string | null): Stop[] => {
+    const k = tid ?? '';
+    if (!stopsCache.has(k)) stopsCache.set(k, computeStops(effectiveLegs(req, tid ?? undefined)));
+    return stopsCache.get(k)!;
+  };
 
   const guestIds = new Set(req.travellers.filter((t) => isNonEmployeeMember(t)).map((t) => t.employeeId));
   const hotelTids: (string | null)[] = req.isGroup ? req.travellers.map((t) => t.employeeId) : [null];
@@ -879,7 +891,7 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   // ---- HOTEL: one line per stop × traveller (city cap × nights; nightly rate editable) ----
   const autoHotels = req.expenses.filter((e) => e.autoDerived && e.category === EXPENSE_CATEGORY.Accommodation);
   const wantHotel = new Set<string>();
-  for (const tid of hotelTids) for (const s of stops) {
+  for (const tid of hotelTids) for (const s of stopsForTid(tid)) {
     wantHotel.add(key(tid, s.legSeq));
     const existing = autoHotels.find((e) => (e.travellerId ?? '') === (tid ?? '') && e.accommodation?.legSeq === s.legSeq);
     const cap = EcsPolicy.hotelCap(s.city) ?? 0;
@@ -900,7 +912,7 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   // proportioning). A country with no configured ODA rate yields no line. ----
   const autoOda = req.expenses.filter((e) => e.autoDerived && e.category === EXPENSE_CATEGORY.ODA);
   const wantOda = new Set<string>();
-  for (const tid of odaTids) for (const s of stops) {
+  for (const tid of odaTids) for (const s of stopsForTid(tid)) {
     const dailyRate = EcsPolicy.odaRate(s.country) ?? 0;
     if (dailyRate <= 0) continue;
     wantOda.add(key(tid, s.legSeq));

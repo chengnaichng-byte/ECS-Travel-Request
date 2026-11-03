@@ -122,18 +122,32 @@ export function computeTravellerShares(req: FullRequest): TravellerShare[] {
 /** §13.13 a group request cannot receive final approval until all travellers confirm. */
 /* ------------------------------------------------------------- group itinerary */
 
-/** The shared group itinerary. Group requests have ONE shared itinerary — there are no
- *  per-traveller sub-itineraries or deviations, so every traveller follows these legs. */
+/** The shared group itinerary (the baseline). §13.20 A group travels on one shared itinerary by
+ *  default; a traveller may DEVIATE with their own legs (see effectiveLegs), in which case those
+ *  override the shared ones for that traveller. Non-deviating travellers follow these shared legs. */
 export function sharedLegs(req: FullRequest) {
   return req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
 }
 
-/** Effective itinerary for a traveller — always the shared itinerary (no deviations). */
-export function effectiveLegs(req: FullRequest, _employeeId?: string) {
+/** A traveller's OWN legs (their per-traveller sub-itinerary), if any. §13.20 */
+export function ownLegs(req: FullRequest, employeeId: string) {
+  return req.legs.filter((l) => l.travellerId === employeeId).sort((a, b) => a.seq - b.seq);
+}
+
+/** Effective itinerary for a traveller — their OWN legs if they have any (a declared deviation),
+ *  else the shared group itinerary. Every per-traveller cost/entitlement derivation flows through
+ *  this, so one traveller flying a different route/dates is costed on their own itinerary. §13.20 */
+export function effectiveLegs(req: FullRequest, employeeId?: string) {
+  if (employeeId) { const own = ownLegs(req, employeeId); if (own.length) return own; }
   return sharedLegs(req);
 }
 
-/** True when the trip has a personal extension leg (shared across all travellers). */
-export function hasPersonalExtension(req: FullRequest, _employeeId?: string) {
-  return sharedLegs(req).some((l) => l.isPersonal);
+/** True when the traveller's effective itinerary includes a personal-extension leg. */
+export function hasPersonalExtension(req: FullRequest, employeeId?: string) {
+  return effectiveLegs(req, employeeId).some((l) => l.isPersonal);
+}
+
+/** True when any traveller on this request carries a per-traveller sub-itinerary (a deviation). */
+export function hasPerTravellerItineraries(req: FullRequest) {
+  return req.legs.some((l) => !!l.travellerId);
 }
