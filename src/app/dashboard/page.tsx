@@ -49,6 +49,8 @@ export default async function Dashboard() {
       // Booking provenance — the TA number and PNR(s) once booked, so the request is findable by either.
       ta: r.authorisationNo,
       pnrs: (r.bookings ?? []).map((b) => b.pnr).filter(Boolean).join(' '),
+      // §13.8 the linked TE expense claim (latest), so the TR row shows the full lifecycle TR → TE.
+      teClaim: r.claims?.[0] ? { number: r.claims[0].claimNumber, status: r.claims[0].status } : null,
     };
   });
 

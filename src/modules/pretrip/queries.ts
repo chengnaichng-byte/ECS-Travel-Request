@@ -28,7 +28,7 @@ export type FullRequest = NonNullable<Awaited<ReturnType<typeof loadRequest>>>;
 
 export async function listRequests() {
   return prisma.travelRequest.findMany({
-    include: { expenses: true, travellers: true, policyChecks: true, allocations: true, bookings: true },
+    include: { expenses: true, travellers: true, policyChecks: true, allocations: true, bookings: true, claims: { select: { claimNumber: true, status: true }, orderBy: { claimNumber: 'desc' } } },
     orderBy: { updatedAt: 'desc' },
   });
 }

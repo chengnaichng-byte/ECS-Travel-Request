@@ -13,6 +13,7 @@ export interface DashRow {
   exceptions: number; status: string; bookingStatus: string;
   startSort: string | null; ntuSort: number;   // raw values for date / cost sorting (not the formatted strings)
   ta?: string | null; pnrs?: string;   // booking provenance — TA number + PNR(s), for search + inline display
+  teClaim?: { number: string; status: string } | null;   // §13.8 the linked TE expense claim once the trip is claimed
 }
 
 export function DashboardRequests({ rows }: { rows: DashRow[] }) {
@@ -120,6 +121,7 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
                     {(r.status === 'Draft' || r.status === 'Sent Back') && <span className="pill-warn">Edit</span>}
                   </div>
                   {r.ta && <div className="text-[11px] text-[var(--ecs-muted)] font-mono mt-0.5">{r.ta}{r.pnrs ? ` · ${r.pnrs.trim().split(/\s+/).length > 1 ? `${r.pnrs.trim().split(/\s+/).length} PNRs` : r.pnrs.trim()}` : ''}</div>}
+                  {r.teClaim && <div className="text-[11px] mt-0.5"><span className="pill-info">TE · {r.teClaim.status}</span> <span className="font-mono text-[var(--ecs-muted)]">{r.teClaim.number}</span></div>}
                 </td>
                 <td className="td">{r.ba}</td>
                 <td className="td">{r.traveller}</td>
