@@ -1,9 +1,9 @@
 'use client';
-// §13.x Non-term research travel — a research-gated attestation checkbox that sits with the Trip-step
-// detail checkboxes (below the visa-letter row). Ticking it attests the trip is in non-term time with
-// the offline approval obtained; on check it reveals a styled "Attach approval e-mail" button and the
-// uploaded-file chip, all on one responsive row. Research-gated: disabled (greyed, not clickable, with
-// a hover tooltip) when the trip is not research-funded. Posts name="nonTerm" value="on".
+// §13.x Non-term research travel — the flag is DERIVED from the university teaching calendar, not
+// attested: when the travel window lies within the loaded calendar, this shows a read-only derived
+// status (non-term time vs term time) with its basis. Only when the window is OUTSIDE the loaded
+// calendar does it fall back to a manual attestation checkbox. Research-gated. The approval e-mail is
+// still required for the non-term fast-track (belt-and-braces).
 import { useRef, useState } from 'react';
 
 function Paperclip() {
@@ -14,9 +14,10 @@ function Paperclip() {
   );
 }
 
-export function NonTermField({ eligible, declared, attachAction, removeAction, approvals }: {
+export function NonTermField({ eligible, declared, derivation, attachAction, removeAction, approvals }: {
   eligible: boolean;
   declared: boolean;
+  derivation: { covered: boolean; nonTerm: boolean; basis: string } | null;
   attachAction: (fd: FormData) => Promise<void>;
   removeAction: (attachmentId: string) => Promise<void>;
   approvals: { id: string; fileName: string; sizeKb: number }[];
@@ -24,42 +25,58 @@ export function NonTermField({ eligible, declared, attachAction, removeAction, a
   const [checked, setChecked] = useState(declared);
   const fileRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
-  const on = eligible && checked;
+
+  if (!eligible) {
+    return <div className="md:col-span-3 text-sm text-[var(--ecs-muted)]">Non-term research fast-track — available on research-funded travel only.</div>;
+  }
+
+  const covered = !!derivation?.covered;
+  const derivedOn = covered && !!derivation?.nonTerm;
+  const showAttach = covered ? derivedOn : checked; // email shows when the flag is on (derived or attested)
+
   return (
-    <div className="md:col-span-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <label className={`flex items-center gap-2 text-sm ${eligible ? '' : 'text-[var(--ecs-muted)] cursor-not-allowed'}`}
-          title={eligible ? undefined : 'Research-funded travel only'}>
-          <input type="checkbox" name="nonTerm" value="on" checked={on} disabled={!eligible}
-            onChange={(e) => setChecked(e.target.checked)} className="w-4 h-4" />
-          <span>This is a <strong>non-term time research trip</strong></span>
-        </label>
+    <div className="md:col-span-3 space-y-2">
+      {covered ? (
+        <div className={`rounded-md border p-3 ${derivedOn ? 'border-[#bfe3cc] bg-[#eef7f1]' : 'border-[var(--ecs-border)] bg-[var(--ecs-panel-2)]'}`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            {derivedOn ? <span className="pill-pass">Non-term time research trip</span> : <span className="pill-info">Term-time trip</span>}
+            <span className="txt-derived text-xs">derived from the academic calendar</span>
+          </div>
+          <div className="text-xs text-[var(--ecs-muted)] mt-1">{derivation?.basis}</div>
+        </div>
+      ) : (
+        <>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="nonTerm" value="on" checked={checked} onChange={(e) => setChecked(e.target.checked)} className="w-4 h-4" />
+            <span>This is a <strong>non-term time research trip</strong></span>
+          </label>
+          <div className="text-xs text-[var(--ecs-muted)]">{derivation?.basis ?? 'Set the travel dates to derive this automatically.'} Outside the loaded academic calendar — attest manually.</div>
+        </>
+      )}
 
-        {on && (
-          <>
-            {/* Styled trigger — opens the hidden file picker; selecting a file auto-submits the attach
-                action. Replaces the raw "Choose File" input so the control stays compact and responsive. */}
-            <button type="button" onClick={() => fileRef.current?.click()}
-              className="btn-secondary text-xs inline-flex items-center gap-2 whitespace-nowrap">
-              <Paperclip /> Attach approval e-mail
-            </button>
-            <input ref={fileRef} type="file" name="nonTermEmail" accept="application/pdf,image/png,image/jpeg"
-              className="hidden" onChange={(e) => { if (e.target.files?.length) e.target.form?.requestSubmit(submitRef.current ?? undefined); }} />
-            <button ref={submitRef} type="submit" formAction={attachAction} className="hidden" aria-hidden tabIndex={-1} />
+      {showAttach && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => fileRef.current?.click()}
+            className="btn-secondary text-xs inline-flex items-center gap-2 whitespace-nowrap">
+            <Paperclip /> Attach approval e-mail
+          </button>
+          <input ref={fileRef} type="file" name="nonTermEmail" accept="application/pdf,image/png,image/jpeg"
+            className="hidden" onChange={(e) => { if (e.target.files?.length) e.target.form?.requestSubmit(submitRef.current ?? undefined); }} />
+          <button ref={submitRef} type="submit" formAction={attachAction} className="hidden" aria-hidden tabIndex={-1} />
 
-            {approvals.map((a) => (
-              <span key={a.id} className="inline-flex items-center gap-2 rounded-full bg-[color-mix(in_srgb,var(--ecs-green,#16a34a)_12%,transparent)] px-3 py-1 text-xs max-w-full">
-                <span className="w-2 h-2 rounded-full bg-[var(--ecs-green,#16a34a)] shrink-0" />
-                <span className="font-medium truncate">{a.fileName}</span>
-                <span className="text-[var(--ecs-muted)] shrink-0">({a.sizeKb} KB)</span>
-                <button type="button" onClick={() => removeAction(a.id)}
-                  title="Remove attachment" aria-label={`Remove ${a.fileName}`}
-                  className="shrink-0 text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] leading-none">✕</button>
-              </span>
-            ))}
-          </>
-        )}
-      </div>
+          {approvals.map((a) => (
+            <span key={a.id} className="inline-flex items-center gap-2 rounded-full bg-[color-mix(in_srgb,var(--ecs-green,#16a34a)_12%,transparent)] px-3 py-1 text-xs max-w-full">
+              <span className="w-2 h-2 rounded-full bg-[var(--ecs-green,#16a34a)] shrink-0" />
+              <span className="font-medium truncate">{a.fileName}</span>
+              <span className="text-[var(--ecs-muted)] shrink-0">({a.sizeKb} KB)</span>
+              <button type="button" onClick={() => removeAction(a.id)}
+                title="Remove attachment" aria-label={`Remove ${a.fileName}`}
+                className="shrink-0 text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] leading-none">✕</button>
+            </span>
+          ))}
+          {approvals.length === 0 && <span className="text-xs text-[var(--ecs-red)]">Approval e-mail required for the non-term fast-track.</span>}
+        </div>
+      )}
     </div>
   );
 }

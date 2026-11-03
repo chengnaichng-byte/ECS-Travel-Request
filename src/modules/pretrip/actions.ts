@@ -15,6 +15,7 @@ import { computeSummary, computeAccommodation, computeOda, computeOdaTiered } fr
 import { evaluatePolicies, hasHardStop, hasException } from './policy';
 import { buildRoute, statusForStep, doaCandidatesFor, isResearchRequest, travellerIsEligibleDoa } from './route';
 import { hasNonTermApproval, nonTermResearchEligible, NON_TERM_APPROVAL_DOC } from './nonTerm';
+import { listAcademicTerms, deriveNonTermTime } from './academicCalendar';
 import { exceptionNeedsApproval } from '@/config/policyThresholds';
 import { sharedLegs, travellerNightsAtCity, computeTravellerShares, guestAttributionViolations } from './group';
 import { findBlockingDuplicates, findDuplicateRequests } from './duplicates';
@@ -259,6 +260,18 @@ export async function createGuestDraft(fd: FormData) {
   redirect(`/requests/${req.id}/trip`);
 }
 
+/** §13.x Derive the non-term research flag from the university teaching calendar. Only research-funded
+ *  trips carry it. Within the calendar's coverage the flag is DERIVED from the travel window (personal
+ *  included); outside coverage it falls back to the manual attestation. */
+async function deriveNonTermDeclared(
+  req: { travellerId: string; allocations: { chargingCode: string }[] },
+  start: Date | null, end: Date | null, attested: boolean,
+): Promise<boolean> {
+  if (!nonTermResearchEligible(req)) return false;
+  const der = deriveNonTermTime(start, end, await listAcademicTerms());
+  return der.covered ? der.nonTerm : attested;
+}
+
 /* ------------------------------------------------------------- trip (TR-04) */
 export async function saveTrip(id: string, fd: FormData) {
   if (!(await requireEdit(id))) return;
@@ -348,7 +361,11 @@ export async function saveTrip(id: string, fd: FormData) {
   // dropdown only renders when the trip is research-eligible, so an absent field means "not declared"
   // and the value clears correctly. The EMERGENCY lane is no longer a Trip-step opt-in: it is
   // AUTO-DETERMINED by the system at submission (lead time + booking method), so nothing is stored here.
+  // §13.x Non-term research is DERIVED from the teaching calendar (the posted checkbox is only the
+  // out-of-calendar fallback attestation). Computed from the dates being saved.
   const nonTermOn = str(fd, 'nonTerm') === 'on';
+  const endD = dateOrNull(fd, 'endDate');
+  const nonTermDeclaredVal = req0 ? await deriveNonTermDeclared(req0, start, endD, nonTermOn) : false;
 
   await prisma.travelRequest.update({
     where: { id },
@@ -360,7 +377,7 @@ export async function saveTrip(id: string, fd: FormData) {
       destCountry,
       destCity,
       startDate: start,
-      endDate: dateOrNull(fd, 'endDate'),
+      endDate: endD,
       personalStart: dateOrNull(fd, 'personalStart'),
       personalEnd: dateOrNull(fd, 'personalEnd'),
       eventStartDate: dateOrNull(fd, 'eventStartDate'),
@@ -375,8 +392,9 @@ export async function saveTrip(id: string, fd: FormData) {
       entitledClassId: derived.classId,
       classBasis: derived.basis,
       classJustification: isGroupReq ? null : (str(fd, 'classJustification') || null),
-      // §13.x non-term attestation (declared on the Trip step); emergency is auto-determined at submit.
-      nonTermDeclared: nonTermOn,
+      // §13.x non-term research flag — DERIVED from the teaching calendar (fallback to attestation
+      // outside the calendar); emergency is auto-determined at submit.
+      nonTermDeclared: nonTermDeclaredVal,
     },
   });
   // §13.14 Group: set each traveller's booked class to their OWN entitlement for this itinerary
@@ -1294,9 +1312,10 @@ export async function submitRequest(id: string, fd?: FormData) {
     const aaId = aa && aa !== req.travellerId ? aa : null;
     const personalAck = str(fd, 'personalAck') === 'on';
     const highRiskAck = str(fd, 'highRiskAck') === 'on' || req.highRiskAck;
-    // §13.x non-term research travel attestation (captured here; the auto-approve routing is gated
-    // separately and off by default — this only records the declaration + its evidence attachment).
-    const nonTermDeclared = str(fd, 'nonTerm') === 'on';
+    // §13.x non-term research — re-DERIVED from the teaching calendar against the final travel dates
+    // (the posted field is only the out-of-calendar fallback attestation). The evidence e-mail is still
+    // required for the auto-approve routing (gated separately, off by default).
+    const nonTermDeclared = await deriveNonTermDeclared(req, req.startDate, req.endDate, str(fd, 'nonTerm') === 'on');
     // §13.x submit-blocking validation — if a non-term declaration still stands but the trip is no longer
     // research-funded (the charging changed), the traveller must update it first; it is not silently cleared.
     if (nonTermDeclared && !nonTermResearchEligible(req)) {

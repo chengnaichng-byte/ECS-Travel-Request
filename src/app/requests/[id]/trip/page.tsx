@@ -6,6 +6,7 @@ import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip, attachNamedFile, removeNamedAttachment } from '@/modules/pretrip/actions';
 import { NON_TERM_APPROVAL_DOC, nonTermResearchEligible } from '@/modules/pretrip/nonTerm';
+import { listAcademicTerms, deriveNonTermTime } from '@/modules/pretrip/academicCalendar';
 import { NonTermField } from '@/components/NonTermField';
 import Link from 'next/link';
 import { travelPurposes } from '@/data/travelPurposes';
@@ -49,6 +50,8 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   // §13.x Non-term research — availability gated on the research funding (Is-Research flag).
   const nonTermEligible = nonTermResearchEligible(req);
   const nonTermApprovals = req.attachments.filter((a) => a.docType === NON_TERM_APPROVAL_DOC);
+  // §13.x Non-term research is DERIVED from the teaching calendar for the current travel window.
+  const nonTermDerivation = nonTermEligible ? deriveNonTermTime(req.startDate, req.endDate, await listAcademicTerms()) : null;
 
   return (
     <div>
@@ -92,7 +95,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               </label>
             </div>
             {/* §13.x Non-term research — a research-gated attestation checkbox, below the visa-letter row. */}
-            <NonTermField eligible={nonTermEligible} declared={req.nonTermDeclared} approvals={nonTermApprovals} attachAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} removeAction={removeNamedAttachment.bind(null, id)} />
+            <NonTermField eligible={nonTermEligible} declared={req.nonTermDeclared} derivation={nonTermDerivation} approvals={nonTermApprovals} attachAction={attachNamedFile.bind(null, id, 'nonTermEmail', NON_TERM_APPROVAL_DOC)} removeAction={removeNamedAttachment.bind(null, id)} />
           </div>
         </Card>
 
