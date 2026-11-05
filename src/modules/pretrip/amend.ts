@@ -93,7 +93,7 @@ export async function applyMaterialAmendment(id: string, reason: string) {
     const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: REQUEST_STATUS.AmendmentInProgress, contractVersion: CONTRACT_VERSION };
     const { mode, instructions } = assembleOutboundInstructions(fresh, tmcEnabledSet(await getContractSettings()), meta);
     const payloadObj = mode === 'GROUP_FANOUT'
-      ? { meta, mode, kind: 'AMENDMENT_RETRANSMIT', authorisationNumber: fresh.authorisationNo ?? '', instructionCount: instructions.length, instructions }
+      ? { meta, mode, kind: 'AMENDMENT_RETRANSMIT', authorisationNumber: fresh.authorisationNo ?? '', groupType: fresh.groupType, instructionCount: instructions.length, instructions }
       : { ...instructions[0], kind: 'AMENDMENT_RETRANSMIT' };
     await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_AMEND', payload: JSON.stringify(payloadObj, null, 2) } });
   }

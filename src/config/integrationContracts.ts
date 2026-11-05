@@ -13,7 +13,7 @@ import { REQUEST_STATUS, BOOKING_STATUS, BOOKING_METHOD } from '@/shared/enums';
 
 // Version stamped into each message's provenance header (§13.9). Bump when the
 // contract shape changes so downstream logs can correlate payloads to a contract.
-export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.2';
+export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.3';
 
 export type TeTreatment = 'LOCKED' | 'EDITABLE' | 'REFERENCE' | 'EXCLUDED';
 
@@ -49,6 +49,10 @@ export const CONTRACT_FIELDS: ContractField[] = [
     tmc: 'toggle', defaultTmc: true },
   { key: 'costCeiling', group: 'Booking header', label: 'Approved cost ceiling (SGD)', source: 'Σ airfare + accommodation',
     tmc: 'toggle', defaultTmc: true, note: 'Booking must stay within this ceiling.' },
+  { key: 'costCeilingBreakdown', group: 'Booking header', label: 'Cost-ceiling breakdown (airfare / accommodation / bill-to)', source: 'EstimatedExpense by category + hotel billTo',
+    tmc: 'toggle', defaultTmc: true, note: 'v1.3 splits the ceiling by category and payment channel (CTA vs traveller); AIR segments carry approvedAmountSgd (apportioned by leg duration), HOTEL carry approvedTotalSgd. Reconciles to approvedCostCeilingSgd.' },
+  { key: 'tripType', group: 'Booking header', label: 'Trip type', source: 'req.tripType',
+    tmc: 'toggle', defaultTmc: true, note: 'v1.3 ROUND_TRIP | ONE_WAY | MULTI_CITY.' },
   { key: 'approvedExceptions', group: 'Booking header', label: 'Approved policy exceptions', source: 'policyChecks(Exception)',
     tmc: 'toggle', defaultTmc: true, note: 'Authorises e.g. an approved class upgrade at booking.' },
   { key: 'tripPurpose', group: 'Booking header', label: 'Travel purpose', source: 'req.purposeId',

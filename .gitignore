@@ -55,3 +55,6 @@ next-env.d.ts
 _*.mjs
 _*.log
 _dev.log
+
+# Word lock/owner files
+~$*

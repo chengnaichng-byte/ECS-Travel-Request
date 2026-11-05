@@ -41,6 +41,7 @@ import { assignGroupLineNos } from './groupLines';
 import { assembleOutboundInstructions } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
+import { computeBookingDeviations, type ApprovedAirSegment } from './bookingDeviation';
 import { resolveTmcProvider } from './tmcRouting';
 import { bookingsForAuthorisation } from './tmcRetrieval';
 import { assessHandoffRouting, channelLabel } from './handoffRouting';
@@ -1718,7 +1719,7 @@ export async function handoffToTmc(id: string) {
   // §9.3 group fan-out (AC15): one approval → one booking instruction per traveller.
   const { mode, instructions } = assembleOutboundInstructions(req, tmcEnabledSet(contract), meta);
   const payloadObj = mode === 'GROUP_FANOUT'
-    ? { meta, mode, authorisationNumber: req.authorisationNo ?? '', instructionCount: instructions.length, instructions }
+    ? { meta, mode, authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, instructionCount: instructions.length, instructions }
     : instructions[0];
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', tmcProviderId: provider.id, payload: JSON.stringify(payloadObj, null, 2) } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.SentToTMC } });
@@ -1807,12 +1808,19 @@ export async function receiveBooking(id: string, fd: FormData) {
     return [{ travellerId, lineNo, inbound: applyTrace(sim) }];
   });
 
-  // §6.4 booking-deviation check (AC10) — on the aggregate booked airfare.
+  // §6.4 / v1.3 booking-deviation checks (AC10) — at CATEGORY and SEGMENT/PNR level (bookingDeviation.ts).
   const tol = EcsPolicy.tolerances();
-  const approvedAir = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0);
-  const bookedAir = inbounds.reduce((s, b) => s + b.inbound.fareSgd + b.inbound.taxesSgd + b.inbound.feesSgd, 0);
-  const allowed = approvedAir + Math.min(approvedAir * tol.bookingFarePct / 100, tol.bookingFareAbsSgd);
-  const deviation = approvedAir > 0 && bookedAir > allowed;
+  const approvedAirSegments: ApprovedAirSegment[] = (isFanout
+    ? (outbound.instructions ?? []).flatMap((inst: { segments?: ApprovedAirSegment[] }) => inst.segments ?? [])
+    : ((outbound.segments as ApprovedAirSegment[] | undefined) ?? [])
+  ).filter((s: ApprovedAirSegment) => s.type === 'AIR');
+  const deviations = computeBookingDeviations({
+    approvedAirfareSgd: req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0),
+    approvedAccommodationSgd: req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0),
+    approvedAirSegments,
+    booked: inbounds.map((b) => ({ pnr: b.inbound.pnr, fareSgd: b.inbound.fareSgd, taxesSgd: b.inbound.taxesSgd, feesSgd: b.inbound.feesSgd, segments: b.inbound.segments })),
+    tol: { bookingFarePct: tol.bookingFarePct, bookingFareAbsSgd: tol.bookingFareAbsSgd },
+  });
 
   const inboundMeta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: outbound.meta?.messageId ?? null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: providerId };
   // §13.x list form whenever there is more than one booking (a group fan-out, or multiple PNRs).
@@ -1841,7 +1849,7 @@ export async function receiveBooking(id: string, fd: FormData) {
         await tx.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true, pnr: c.pnr ?? inbound.pnr, ticketNumber: c.ticketNumber ?? null, segmentRef: c.segmentRef ?? null } });
       }
     }
-    if (deviation) await tx.bookingDeviation.create({ data: { requestId: id, field: 'Airfare', approvedValue: approvedAir.toFixed(0), bookedValue: bookedAir.toFixed(0), material: true, action: 'Reapproval' } });
+    for (const d of deviations) await tx.bookingDeviation.create({ data: { requestId: id, field: d.field, approvedValue: d.approved.toFixed(0), bookedValue: d.booked.toFixed(0), material: true, action: 'Reapproval' } });
     await tx.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   });
   await audit(id, 'INTEGRATION', isFanout

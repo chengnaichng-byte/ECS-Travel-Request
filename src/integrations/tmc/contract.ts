@@ -48,11 +48,24 @@ export interface CanonicalOutbound {
   bookingDeadline?: string | null;    // omitted when excluded from the contract
   approvedCostCeilingSgd?: number;    // omitted when excluded from the contract
   approvedExceptions?: string[];      // omitted when excluded from the contract
+  // v1.3 trip classification carried to the TMC (toggleable contract field, default on).
+  tripType?: 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';  // sourced from TravelRequest.tripType
   // §4.6 approved-request context required in the ECS-led hand-off
   travelPurpose?: string;             // purpose name
   eventStartDate?: string | null;     // event / conference dates (may differ from travel dates)
   eventEndDate?: string | null;
   approvalValidUntil?: string | null; // approval validity period (authorisation expiry)
+  // v1.3 cost-ceiling breakdown (toggleable contract field costCeilingBreakdown, default on). The
+  // overall approvedCostCeilingSgd is unchanged; this splits it by category and by payment channel so
+  // the TMC can check airfare against its own limit and separate central (CTA) from traveller-paid cost.
+  // Reconciles: airfare + accommodation ceilings = approvedCostCeilingSgd; ctaSgd + travellerSgd = the
+  // same total; each AIR segment's approvedAmountSgd sums to the airfare ceiling and each HOTEL stay's
+  // approvedTotalSgd sums to the accommodation ceiling.
+  costCeilingBreakdown?: {
+    approvedAirfareCeilingSgd: number;
+    approvedAccommodationCeilingSgd: number;
+    ceilingByBillTo: { ctaSgd: number; travellerSgd: number };
+  };
   // §29 payload enrichment (each gated by its contract toggle)
   charging?: { code: string; type: string; businessArea?: string | null; companyCode?: string | null; percent: number; isResearch: boolean; primary: boolean }[];
   approvals?: { role: string; approver: string; decidedAt: string | null }[];
@@ -66,9 +79,11 @@ export interface CanonicalOutbound {
     arriveDate?: string | null;     // DD-17 booked arrival date — carried so the inbound can persist it
     returnDate?: string | null;
     approvedClass?: string;
+    approvedAmountSgd?: number;     // v1.3 AIR: apportioned approved airfare for this leg (by leg duration)
     city?: string;
     nights?: number;
     cappedNightlySgd?: number;
+    approvedTotalSgd?: number;      // v1.3 HOTEL: approved funded total for this stay
     billTo?: 'CTA' | 'TRAVELLER';   // DD-19 hotel payment channel (HOTEL segments): central CTA vs employee-paid
   }[];
 }
@@ -79,6 +94,7 @@ export interface GroupFanoutOutbound {
   meta?: OutboundMeta;
   mode: 'GROUP_FANOUT';
   authorisationNumber: string;
+  groupType?: 'STAFF' | 'STUDENT' | 'MIXED' | null;  // v1.3 sourced from TravelRequest.groupType
   instructionCount: number;
   instructions: CanonicalOutbound[];
 }

@@ -41,8 +41,10 @@ export function buildOutbound(req: {
   eventStartDate?: Date | null;
   eventEndDate?: Date | null;
   approvalValidUntil?: Date | null;
-  legs: { originCode: string; destCode: string; departDate: Date | null; arriveDate?: Date | null; travelClassId: string | null }[];
-  accommodation: { city: string; nights: number; cappedNightlySgd: number; billTo?: 'CTA' | 'TRAVELLER' }[];
+  tripType?: 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';   // v1.3
+  costCeilingBreakdown?: { approvedAirfareCeilingSgd: number; approvedAccommodationCeilingSgd: number; ceilingByBillTo: { ctaSgd: number; travellerSgd: number } };  // v1.3
+  legs: { originCode: string; destCode: string; departDate: Date | null; arriveDate?: Date | null; travelClassId: string | null; approvedAmountSgd?: number }[];
+  accommodation: { city: string; nights: number; cappedNightlySgd: number; billTo?: 'CTA' | 'TRAVELLER'; approvedTotalSgd?: number }[];
   charging?: { code: string; type: string; businessArea?: string | null; companyCode?: string | null; percent: number; isResearch: boolean; primary: boolean }[];
   approvals?: { role: string; approver: string; decidedAt: string | null }[];
   travellerCategory?: string;
@@ -67,12 +69,14 @@ export function buildOutbound(req: {
         departDate: l.departDate ? l.departDate.toISOString().slice(0, 10) : null,
         arriveDate: l.arriveDate ? l.arriveDate.toISOString().slice(0, 10) : (l.departDate ? l.departDate.toISOString().slice(0, 10) : null),
         approvedClass: on('airApprovedClass') ? EcsReference.travelClass(l.travelClassId ?? '')?.name : undefined,
+        ...(on('costCeilingBreakdown') && l.approvedAmountSgd != null ? { approvedAmountSgd: l.approvedAmountSgd } : {}),   // v1.3 per-leg approved airfare
       })) : []),
       ...(on('hotelSegments') ? req.accommodation.map((a) => ({
         type: 'HOTEL' as const,
         city: a.city,
         nights: a.nights,
         cappedNightlySgd: a.cappedNightlySgd,
+        ...(on('costCeilingBreakdown') && a.approvedTotalSgd != null ? { approvedTotalSgd: a.approvedTotalSgd } : {}),   // v1.3 per-stay approved total
         billTo: a.billTo ?? 'TRAVELLER',   // DD-19 CTA (central-billed) vs TRAVELLER (employee pays & claims)
       })) : []),
     ],
@@ -88,6 +92,9 @@ export function buildOutbound(req: {
     out.eventEndDate = req.eventEndDate ? req.eventEndDate.toISOString().slice(0, 10) : null;
   }
   if (on('approvalValidity')) out.approvalValidUntil = req.approvalValidUntil ? req.approvalValidUntil.toISOString().slice(0, 10) : null;
+  // v1.3 trip classification + cost-ceiling breakdown (each gated by its own contract toggle)
+  if (on('tripType') && req.tripType) out.tripType = req.tripType;
+  if (on('costCeilingBreakdown') && req.costCeilingBreakdown) out.costCeilingBreakdown = req.costCeilingBreakdown;
   // §29 enrichment
   if (on('charging') && req.charging?.length) out.charging = req.charging;
   if (on('approvalMetadata') && req.approvals?.length) out.approvals = req.approvals;

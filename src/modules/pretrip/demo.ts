@@ -302,7 +302,7 @@ async function bookGroupViaTmc(id: string, ctaAccountId = 'CTA-SG-SGD') {
   const chargeDate = req.startDate ? new Date(req.startDate.getTime() - 7 * 86400000) : null;
   const chargeIso = chargeDate ? chargeDate.toISOString().slice(0, 10) : null;
   const { mode, instructions } = assembleOutboundInstructions(req);
-  await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify({ mode, authorisationNumber: req.authorisationNo ?? '', instructionCount: instructions.length, instructions }, null, 2) } });
+  await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify({ mode, authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, instructionCount: instructions.length, instructions }, null, 2) } });
   const bookings: unknown[] = [];
   for (const inst of instructions) {
     const lineNo = inst.instructionSeq ?? null;

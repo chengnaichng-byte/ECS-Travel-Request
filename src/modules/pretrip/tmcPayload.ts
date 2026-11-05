@@ -16,6 +16,46 @@ import { isEmergencyBookFirst } from './emergency';
 import { EXPENSE_CATEGORY, POLICY_OUTCOME, APPROVER_ROLE } from '@/shared/enums';
 import type { FullRequest } from './queries';
 
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** v1.3 Apportion an airfare total across AIR legs by leg duration (even split when durations are
+ *  missing), with a rounding adjustment on the last leg so the parts sum exactly to the total. */
+export function apportionAirfare(airfareTotal: number, legs: { durationHours?: number | null }[]): number[] {
+  const n = legs.length;
+  if (n === 0) return [];
+  if (airfareTotal <= 0) return legs.map(() => 0);
+  const durs = legs.map((l) => (l.durationHours && l.durationHours > 0 ? l.durationHours : 0));
+  const totalDur = durs.reduce((a, b) => a + b, 0);
+  const amounts = totalDur > 0 ? durs.map((d) => r2(airfareTotal * (d / totalDur))) : legs.map(() => r2(airfareTotal / n));
+  const sum = amounts.reduce((a, b) => a + b, 0);
+  amounts[n - 1] = r2(amounts[n - 1] + (airfareTotal - sum));   // last-leg rounding adjustment
+  return amounts;
+}
+
+/** v1.3 Cost-ceiling breakdown by category and payment channel. Airfare is always central (CTA);
+ *  the hotel follows the request's hotel payment channel (hotelBillTo). */
+export function ceilingBreakdown(airfareSgd: number, accommodationSgd: number, hotelBillTo: 'CTA' | 'TRAVELLER') {
+  return {
+    approvedAirfareCeilingSgd: r2(airfareSgd),
+    approvedAccommodationCeilingSgd: r2(accommodationSgd),
+    ceilingByBillTo: {
+      ctaSgd: r2(airfareSgd + (hotelBillTo === 'CTA' ? accommodationSgd : 0)),
+      travellerSgd: r2(hotelBillTo === 'TRAVELLER' ? accommodationSgd : 0),
+    },
+  };
+}
+
+/** v1.3 Approved airfare attributable to one group traveller: their own airfare lines when the
+ *  estimate is kept per traveller, otherwise an even split of the shared airfare. */
+function airfareForTraveller(req: FullRequest, employeeId: string): number {
+  const own = req.expenses
+    .filter((e) => e.category === EXPENSE_CATEGORY.Airfare && !e.isShared && e.travellerId === employeeId)
+    .reduce((s, e) => s + e.sgdAmount, 0);
+  if (own > 0) return r2(own);
+  const total = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0);
+  return r2(total / (req.travellers.length || 1));
+}
+
 function guestBlock(req: FullRequest) {
   return isGuestRequest(req)
     ? { bookingFor: 'GUEST' as const, guest: { name: req.guestName ?? 'Guest', email: req.guestEmail, organisation: req.guestOrg } }
@@ -68,10 +108,16 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
   const hotelBillTo: 'CTA' | 'TRAVELLER' = lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL' ? 'CTA' : 'TRAVELLER';
   const acc = req.expenses
     .filter((e) => e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation)
-    .map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly, billTo: hotelBillTo }));
-  const ceiling = req.expenses
-    .filter((e) => e.category === EXPENSE_CATEGORY.Airfare || e.category === EXPENSE_CATEGORY.Accommodation)
-    .reduce((s, e) => s + e.sgdAmount, 0);
+    .map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly, billTo: hotelBillTo, approvedTotalSgd: e.sgdAmount }));
+  // v1.3 cost-ceiling by category; airfare apportioned per AIR leg (by leg duration). The overall
+  // ceiling is unchanged (airfare + accommodation); the breakdown and per-segment amounts reconcile to it.
+  const airfareSgd = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0);
+  const accommodationSgd = acc.reduce((s, a) => s + a.approvedTotalSgd, 0);
+  const ceiling = r2(airfareSgd + accommodationSgd);
+  const airLegs = sharedLegs(req);
+  const airAmounts = apportionAirfare(airfareSgd, airLegs);
+  const legsWithAmt = airLegs.map((l, i) => ({ ...l, approvedAmountSgd: airAmounts[i] }));
+  const breakdown = ceilingBreakdown(airfareSgd, accommodationSgd, hotelBillTo);
   const exceptions = req.policyChecks.filter((c) => c.outcome === POLICY_OUTCOME.Exception).map((c) => c.label);
   // §8 / DD-25 when a guest upgrade was Provost-authorised, carry that authority to the TMC so the
   // agent may book the approved higher class against the named Provost (from the approval route).
@@ -85,7 +131,8 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
     authorisationNo: req.authorisationNo, travellerId: req.travellerId, travellerName: travellerName(req),
     bookingFor: g.bookingFor, guest: 'guest' in g ? g.guest : undefined,
     travellers: req.travellers, bookingMethod: req.bookingMethod, bookingDeadline: req.bookingDeadline,
-    approvedCostCeilingSgd: ceiling, approvedExceptions: exceptions, legs: sharedLegs(req), accommodation: acc,
+    approvedCostCeilingSgd: ceiling, approvedExceptions: exceptions, legs: legsWithAmt, accommodation: acc,
+    tripType: req.tripType as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY', costCeilingBreakdown: breakdown,
     travelPurpose: EcsReference.travelPurpose(req.purposeId ?? '')?.name,
     eventStartDate: req.eventStartDate, eventEndDate: req.eventEndDate, approvalValidUntil: req.authorisationExpiry,
     charging: chargingBlock(req), approvals: approvalsBlock(req),
@@ -139,8 +186,13 @@ export function assembleOutboundInstructions(
     const ownAcc = req.expenses
       .filter((e) => !e.isShared && e.travellerId === t.employeeId && e.category === EXPENSE_CATEGORY.Accommodation && e.accommodation)
       .map((e) => ({ city: e.accommodation!.city, nights: e.accommodation!.nights, cappedNightlySgd: e.accommodation!.budgetedNightly, billTo: hotelBillTo }));
-    const acc = [...sharedAcc, ...ownAcc];
+    const acc = [...sharedAcc, ...ownAcc].map((a) => ({ ...a, approvedTotalSgd: r2(a.nights * a.cappedNightlySgd) }));
     const share = shares.find((s) => s.employeeId === t.employeeId);
+    // v1.3 per-traveller cost-ceiling breakdown; airfare apportioned across this traveller's AIR legs.
+    const airfareT = airfareForTraveller(req, t.employeeId);
+    const accommodationT = acc.reduce((s, a) => s + a.approvedTotalSgd, 0);
+    const airAmountsT = apportionAirfare(airfareT, legs);
+    const breakdownT = ceilingBreakdown(airfareT, accommodationT, hotelBillTo);
 
     const out: CanonicalOutbound = {
       authorisationNumber: req.authorisationNo ?? '',
@@ -154,16 +206,19 @@ export function assembleOutboundInstructions(
       instructionCount: count,
       bookingMethod: req.bookingMethod ?? 'TMC_ONLINE',
       segments: [
-        ...(on('airSegments') ? legs.map((l) => ({
+        ...(on('airSegments') ? legs.map((l, li) => ({
           type: 'AIR' as const, origin: l.originCode, destination: l.destCode,
           departDate: l.departDate ? l.departDate.toISOString().slice(0, 10) : null,
           approvedClass: on('airApprovedClass') ? EcsReference.travelClass((guest ? classId : (l.chosenClassId ?? classId)) ?? '')?.name : undefined,
+          ...(on('costCeilingBreakdown') ? { approvedAmountSgd: airAmountsT[li] } : {}),   // v1.3 per-leg approved airfare
         })) : []),
-        ...(on('hotelSegments') ? acc.map((a) => ({ type: 'HOTEL' as const, city: a.city, nights: a.nights, cappedNightlySgd: a.cappedNightlySgd })) : []),
+        ...(on('hotelSegments') ? acc.map((a) => ({ type: 'HOTEL' as const, city: a.city, nights: a.nights, cappedNightlySgd: a.cappedNightlySgd, ...(on('costCeilingBreakdown') ? { approvedTotalSgd: a.approvedTotalSgd } : {}) })) : []),
       ],
     };
     if (on('bookingDeadline')) out.bookingDeadline = req.bookingDeadline ? req.bookingDeadline.toISOString().slice(0, 10) : null;
-    if (on('costCeiling')) out.costShareSgd = Math.round(share?.totalSgd ?? 0);
+    if (on('costCeiling')) { out.costShareSgd = Math.round(share?.totalSgd ?? 0); out.approvedCostCeilingSgd = r2(airfareT + accommodationT); }
+    if (on('tripType') && req.tripType) out.tripType = req.tripType as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
+    if (on('costCeilingBreakdown')) out.costCeilingBreakdown = breakdownT;
     // Per-traveller exceptions (plus any request-level exceptions that carry no traveller).
     if (on('approvedExceptions')) {
       out.approvedExceptions = exceptions.filter((c) => !c.travellerId || c.travellerId === t.employeeId).map((c) => c.label);
