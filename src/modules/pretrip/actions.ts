@@ -38,7 +38,7 @@ import { adapterFor } from '@/integrations/tmc/adapter';
 import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
 import type { CanonicalInbound } from '@/integrations/tmc/contract';
 import { assignGroupLineNos } from './groupLines';
-import { assembleOutboundInstructions } from './tmcPayload';
+import { assembleOutboundInstructions, buildApprovedSnapshot, outboundFromSnapshot, snapshotApprovedAirSegments, type ApprovedSnapshot } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
 import { computeBookingDeviations, type ApprovedAirSegment } from './bookingDeviation';
@@ -121,7 +121,14 @@ async function finalizeApproval(id: string) {
   const expiry = req.endDate ? new Date(req.endDate.getTime() + settings.authorisationValidityDays * 86400000) : null;
   await prisma.travelRequest.update({ where: { id }, data: { status: REQUEST_STATUS.Approved, authorisationNo: authNo, bookingDeadline, authorisationExpiry: expiry } });
   const approved = await loadRequest(id);
-  if (approved) await snapshot(approved, 'APPROVAL', true);
+  if (approved) {
+    await snapshot(approved, 'APPROVAL', true);
+    // v1.3 / B2 Freeze the approved breakdown + itinerary (per-traveller canonical instructions).
+    // The approved TR cannot change after this: the outbound hand-off and the booking-deviation
+    // check read this snapshot, never recompute. A material amendment re-approves and rewrites it.
+    const snap = buildApprovedSnapshot(approved, tmcEnabledSet(await getContractSettings()));
+    await prisma.travelRequest.update({ where: { id }, data: { approvedBreakdownJson: JSON.stringify(snap) } });
+  }
   await audit(id, 'STATUS', reapproval ? `Amendment reapproved — Travel Authorisation ${authNo} retained` : `Final approval — Travel Authorisation ${authNo} issued`);
   // §13.9 auto hand-off on final approval — Travel Admin no longer triggers the send. Idempotent
   // (a booking already sent/booked/in-flight is skipped), and only TMC-arranged bookings are sent
@@ -1717,14 +1724,29 @@ export async function handoffToTmc(id: string) {
   const contract = await getContractSettings();
   const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: provider.id };
   // §9.3 group fan-out (AC15): one approval → one booking instruction per traveller.
-  const { mode, instructions } = assembleOutboundInstructions(req, tmcEnabledSet(contract), meta);
-  const payloadObj = mode === 'GROUP_FANOUT'
-    ? { meta, mode, authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, instructionCount: instructions.length, instructions }
-    : instructions[0];
+  // v1.3 / B2 the outbound is built from the FROZEN approval snapshot (approvedBreakdownJson), not
+  // recomputed from the live request. Fall back to a live build only when no snapshot exists yet —
+  // an emergency book-first hand-off runs ahead of final approval, or a request approved before v1.3.
+  let payloadObj: unknown;
+  let fanout: boolean;
+  let instructionCount: number;
+  if (req.approvedBreakdownJson) {
+    const snap = JSON.parse(req.approvedBreakdownJson) as ApprovedSnapshot;
+    payloadObj = outboundFromSnapshot(snap, meta, { authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, bookingMethod: req.bookingMethod });
+    fanout = snap.mode === 'GROUP_FANOUT';
+    instructionCount = snap.instructions.length;
+  } else {
+    const { mode, instructions } = assembleOutboundInstructions(req, tmcEnabledSet(contract), meta);
+    fanout = mode === 'GROUP_FANOUT';
+    instructionCount = instructions.length;
+    payloadObj = fanout
+      ? { meta, mode, authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, instructionCount, instructions }
+      : instructions[0];
+  }
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', tmcProviderId: provider.id, payload: JSON.stringify(payloadObj, null, 2) } });
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.SentToTMC } });
-  await audit(id, 'INTEGRATION', mode === 'GROUP_FANOUT'
-    ? `Outbound booking fan-out sent to ${provider.name} (mock) — ${instructions.length} traveller instruction(s)`
+  await audit(id, 'INTEGRATION', fanout
+    ? `Outbound booking fan-out sent to ${provider.name} (mock) — ${instructionCount} traveller instruction(s)`
     : `Outbound booking payload sent to ${provider.name} (mock)`);
   revalidatePath(`/requests/${id}/booking`);
 }
@@ -1809,14 +1831,22 @@ export async function receiveBooking(id: string, fd: FormData) {
   });
 
   // §6.4 / v1.3 booking-deviation checks (AC10) — at CATEGORY and SEGMENT/PNR level (bookingDeviation.ts).
+  // v1.3 / B2 the approved baseline (category totals + per-segment approved amounts) is read from the
+  // FROZEN approval snapshot, not recomputed from the live request, so an edit after approval cannot
+  // move the baseline. Falls back to the outbound message + live expenses for a pre-v1.3 request.
   const tol = EcsPolicy.tolerances();
-  const approvedAirSegments: ApprovedAirSegment[] = (isFanout
-    ? (outbound.instructions ?? []).flatMap((inst: { segments?: ApprovedAirSegment[] }) => inst.segments ?? [])
-    : ((outbound.segments as ApprovedAirSegment[] | undefined) ?? [])
-  ).filter((s: ApprovedAirSegment) => s.type === 'AIR');
+  const snap: ApprovedSnapshot | null = req.approvedBreakdownJson ? JSON.parse(req.approvedBreakdownJson) : null;
+  const approvedAirSegments = ((snap
+    ? snapshotApprovedAirSegments(snap)
+    : isFanout
+      ? (outbound.instructions ?? []).flatMap((inst: { segments?: ApprovedAirSegment[] }) => inst.segments ?? [])
+      : ((outbound.segments as ApprovedAirSegment[] | undefined) ?? [])
+  ) as ApprovedAirSegment[]).filter((s) => s.type === 'AIR');
+  const approvedAirfareSgd = snap ? snap.approvedAirfareSgd : req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0);
+  const approvedAccommodationSgd = snap ? snap.approvedAccommodationSgd : req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0);
   const deviations = computeBookingDeviations({
-    approvedAirfareSgd: req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0),
-    approvedAccommodationSgd: req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0),
+    approvedAirfareSgd,
+    approvedAccommodationSgd,
     approvedAirSegments,
     booked: inbounds.map((b) => ({ pnr: b.inbound.pnr, fareSgd: b.inbound.fareSgd, taxesSgd: b.inbound.taxesSgd, feesSgd: b.inbound.feesSgd, segments: b.inbound.segments })),
     tol: { bookingFarePct: tol.bookingFarePct, bookingFareAbsSgd: tol.bookingFareAbsSgd },
@@ -1849,7 +1879,7 @@ export async function receiveBooking(id: string, fd: FormData) {
         await tx.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true, pnr: c.pnr ?? inbound.pnr, ticketNumber: c.ticketNumber ?? null, segmentRef: c.segmentRef ?? null } });
       }
     }
-    for (const d of deviations) await tx.bookingDeviation.create({ data: { requestId: id, field: d.field, approvedValue: d.approved.toFixed(0), bookedValue: d.booked.toFixed(0), material: true, action: 'Reapproval' } });
+    for (const d of deviations) await tx.bookingDeviation.create({ data: { requestId: id, field: d.field, approvedValue: d.approved.toFixed(0), bookedValue: d.booked.toFixed(0), material: d.material, action: d.action, level: d.level, scopeRef: d.scopeRef, pnr: d.pnr } });
     await tx.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   });
   await audit(id, 'INTEGRATION', isFanout

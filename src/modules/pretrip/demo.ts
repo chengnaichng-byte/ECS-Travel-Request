@@ -26,7 +26,7 @@ import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { buildOutbound, simulateInbound } from '@/integrations/tmc/adapter';
 import { obtToEcsBookingStatus } from '@/integrations/tmc/vocab';
 import { assignGroupLineNos } from './groupLines';
-import { assembleOutboundInstructions } from './tmcPayload';
+import { buildApprovedSnapshot } from './tmcPayload';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
 import { NON_TERM_APPROVAL_DOC } from './nonTerm';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
@@ -301,7 +301,10 @@ async function bookGroupViaTmc(id: string, ctaAccountId = 'CTA-SG-SGD') {
   if (!req || !req.isGroup) return;
   const chargeDate = req.startDate ? new Date(req.startDate.getTime() - 7 * 86400000) : null;
   const chargeIso = chargeDate ? chargeDate.toISOString().slice(0, 10) : null;
-  const { mode, instructions } = assembleOutboundInstructions(req);
+  // v1.3 / B2 freeze the approval snapshot and hand off FROM it (mirrors finalizeApproval → handoffToTmc).
+  const snap = buildApprovedSnapshot(req);
+  await prisma.travelRequest.update({ where: { id }, data: { approvedBreakdownJson: JSON.stringify(snap) } });
+  const { mode, instructions } = snap;
   await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_HANDOFF', payload: JSON.stringify({ mode, authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, instructionCount: instructions.length, instructions }, null, 2) } });
   const bookings: unknown[] = [];
   for (const inst of instructions) {

@@ -2,8 +2,8 @@
 // No test framework in this project; this is a standalone assertion script matching the repo's
 // tsx-based ad-hoc testing style. Exits non-zero on any failure.
 import { execSync } from 'node:child_process';
-import { apportionAirfare, ceilingBreakdown, assembleOutbound, assembleOutboundInstructions } from '@/modules/pretrip/tmcPayload';
-import { computeBookingDeviations } from '@/modules/pretrip/bookingDeviation';
+import { apportionAirfare, ceilingBreakdown, assembleOutbound, assembleOutboundInstructions, buildApprovedSnapshot, outboundFromSnapshot, snapshotApprovedAirSegments } from '@/modules/pretrip/tmcPayload';
+import { computeBookingDeviations, type ApprovedAirSegment } from '@/modules/pretrip/bookingDeviation';
 import { CONTRACT_FIELDS } from '@/config/integrationContracts';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -58,6 +58,44 @@ const D = (s: string) => new Date(`${s}T00:00:00Z`);
   ok('deviation: accommodation category over → raised', hotelOver.some((d) => d.field === 'Accommodation'), JSON.stringify(hotelOver));
   const noSeg = computeBookingDeviations({ approvedAirfareSgd: 1200, approvedAccommodationSgd: 1400, approvedAirSegments: [{ type: 'AIR', origin: 'SIN', destination: 'HND' }], booked: booked(2000, 1400), tol });
   ok('deviation: no per-segment approved → only category level', noSeg.every((d) => !d.field.startsWith('Airfare segment')), JSON.stringify(noSeg));
+}
+
+// ---------- 3b. v1.3 item 1 (LogOnly rule) + item 3 (level / scopeRef / pnr) ----------
+{
+  const tol = { bookingFarePct: 10, bookingFareAbsSgd: 500 };
+  const approvedAirSegments: ApprovedAirSegment[] = [
+    { type: 'AIR', origin: 'SIN', destination: 'HND', approvedAmountSgd: 600 },
+    { type: 'AIR', origin: 'HND', destination: 'SIN', approvedAmountSgd: 600 },
+  ];
+  // Two PNRs: one per leg (the TMC split the return fare).
+  const two = (a: number, b: number) => [
+    { pnr: 'PNR-A', fareSgd: a, taxesSgd: 0, feesSgd: 0, segments: [{ type: 'AIR', origin: 'SIN', destination: 'HND' }] },
+    { pnr: 'PNR-B', fareSgd: b, taxesSgd: 0, feesSgd: 0, segments: [{ type: 'AIR', origin: 'HND', destination: 'SIN' }] },
+  ];
+
+  // Segment-only breach: PNR-A over its 600 (booked 800), but the category total (1100) is within
+  // allow(1200)=1320. Item 1 → non-material, LogOnly.
+  const segOnly = computeBookingDeviations({ approvedAirfareSgd: 1200, approvedAccommodationSgd: 1400, approvedAirSegments, booked: two(800, 300), tol });
+  ok('item1: no airfare category deviation when total within limit', !segOnly.some((d) => d.scopeRef === 'AIRFARE'), JSON.stringify(segOnly));
+  const seg = segOnly.find((d) => d.level === 'SEGMENT');
+  ok('item1: segment-only breach is raised', !!seg, JSON.stringify(segOnly));
+  ok('item1: segment-only breach is non-material', !!seg && seg.material === false);
+  ok('item1: segment-only breach action = LogOnly', !!seg && seg.action === 'LogOnly');
+  ok('item3: segment scopeRef names the route', !!seg && seg.scopeRef === 'AIR:SIN-HND', JSON.stringify(seg));
+  ok('item3: segment carries its PNR', !!seg && seg.pnr === 'PNR-A', JSON.stringify(seg));
+
+  // Both PNRs over: category total (2000) exceeds allow(1200)=1320. Item 1 → segment breaches become
+  // material (Reapproval), alongside the category deviation.
+  const both = computeBookingDeviations({ approvedAirfareSgd: 1200, approvedAccommodationSgd: 1400, approvedAirSegments, booked: two(1000, 1000), tol });
+  const cat = both.find((d) => d.level === 'CATEGORY' && d.scopeRef === 'AIRFARE');
+  ok('item3: airfare category deviation level/scopeRef/pnr', !!cat && cat.pnr === null && cat.material === true && cat.action === 'Reapproval', JSON.stringify(cat));
+  const segs = both.filter((d) => d.level === 'SEGMENT');
+  ok('item1: segment breaches material when category also breached', segs.length > 0 && segs.every((d) => d.material === true && d.action === 'Reapproval'), JSON.stringify(segs));
+
+  // Accommodation category breach carries its scope.
+  const hotel = computeBookingDeviations({ approvedAirfareSgd: 1200, approvedAccommodationSgd: 1400, approvedAirSegments, booked: [{ pnr: 'P', fareSgd: 1100, taxesSgd: 0, feesSgd: 0, segments: [{ type: 'HOTEL', city: 'TYO', amountSgd: 2200 } as never] }], tol });
+  const acc = hotel.find((d) => d.scopeRef === 'ACCOMMODATION');
+  ok('item3: accommodation category deviation level/scopeRef', !!acc && acc.level === 'CATEGORY' && acc.pnr === null && acc.material === true);
 }
 
 // ---------- request factories ----------
@@ -143,6 +181,52 @@ function mixedGrpReq(): FullRequest {
     const env = { groupType: (r as unknown as { groupType: string }).groupType };
     ok(`grp: groupType ${gt} carried`, env.groupType === gt);
   }
+}
+
+// ---------- 5b. v1.3 item 2 (B2) approval snapshot ----------
+{
+  const req = indReq();
+  const snap = buildApprovedSnapshot(req);
+  ok('B2: snapshot mode SINGLE', snap.mode === 'SINGLE');
+  ok('B2: snapshot one instruction', snap.instructions.length === 1);
+  ok('B2: snapshot category totals frozen', near(snap.approvedAirfareSgd, 1200) && near(snap.approvedAccommodationSgd, 1400), JSON.stringify({ a: snap.approvedAirfareSgd, h: snap.approvedAccommodationSgd }));
+  const snapAir = snapshotApprovedAirSegments(snap);
+  ok('B2: snapshot air segments reconcile to airfare total', near(sum(snapAir.map((s) => s.approvedAmountSgd ?? 0)), 1200), JSON.stringify(snapAir.map((s) => s.approvedAmountSgd)));
+
+  // Amend the itinerary AFTER the snapshot: the frozen snapshot must not move.
+  (req.expenses[0] as unknown as { sgdAmount: number }).sgdAmount = 9999;
+  req.legs.push({ ...req.legs[0], id: 'L9', seq: 9, originCode: 'SIN', destCode: 'LHR' } as never);
+  ok('B2: snapshot airfare unchanged after amend', near(snap.approvedAirfareSgd, 1200));
+  ok('B2: snapshot air segments unchanged after amend', snapAir.length === 2 && near(sum(snapAir.map((s) => s.approvedAmountSgd ?? 0)), 1200));
+
+  // The outbound payload is built FROM the snapshot, so it uses the approved (not the amended) values.
+  const meta = { messageId: '00000000-0000-0000-0000-000000000000' as const, sentAt: '2026-11-06T00:00:00Z', sourceStatus: 'Approved', contractVersion: 'ecs-pretrip-contract/1.3', tmc: 'fcm' };
+  const payload = outboundFromSnapshot(snap, meta, { authorisationNumber: 'TA-2026-000001', groupType: null, bookingMethod: 'AGENT_ASSISTED' }) as Record<string, unknown>;
+  const pAir = (payload.segments as { type: string; approvedAmountSgd?: number }[]).filter((s) => s.type === 'AIR');
+  ok('B2: outbound-from-snapshot uses frozen airfare', near(sum(pAir.map((s) => s.approvedAmountSgd ?? 0)), 1200), JSON.stringify(pAir));
+  ok('B2: outbound-from-snapshot still 2 air legs (amend ignored)', pAir.length === 2);
+  ok('B2: outbound-from-snapshot overlays operational bookingMethod', payload.bookingMethod === 'AGENT_ASSISTED');
+  ok('B2: outbound-from-snapshot carries meta', !!payload.meta);
+
+  // The deviation baseline comes from the frozen snapshot — a booking over the approved airfare is a
+  // deviation even though the live request was later edited down/up.
+  const dev = computeBookingDeviations({
+    approvedAirfareSgd: snap.approvedAirfareSgd, approvedAccommodationSgd: snap.approvedAccommodationSgd,
+    approvedAirSegments: snapAir as ApprovedAirSegment[],
+    booked: [{ pnr: 'P', fareSgd: 1500, taxesSgd: 0, feesSgd: 0, segments: snapAir.map((s) => ({ type: 'AIR', origin: s.origin, destination: s.destination })) }],
+    tol: { bookingFarePct: 10, bookingFareAbsSgd: 500 },
+  });
+  ok('B2: deviation check uses the frozen baseline', dev.some((d) => d.scopeRef === 'AIRFARE'), JSON.stringify(dev));
+
+  // Group snapshot: one instruction per traveller; outbound-from-snapshot is a fan-out envelope.
+  const gsnap = buildApprovedSnapshot(mixedGrpReq());
+  ok('B2: group snapshot per traveller', gsnap.mode === 'GROUP_FANOUT' && gsnap.instructions.length === 3, `${gsnap.mode}/${gsnap.instructions.length}`);
+  const genv = outboundFromSnapshot(gsnap, meta, { authorisationNumber: 'TA-2026-000001', groupType: 'MIXED', bookingMethod: 'TMC_ONLINE' }) as Record<string, unknown>;
+  ok('B2: group outbound-from-snapshot is a fan-out envelope', genv.mode === 'GROUP_FANOUT' && genv.instructionCount === 3 && genv.groupType === 'MIXED');
+
+  // Category totals survive the breakdown toggle being off (so the category deviation check still works).
+  const offBrk = buildApprovedSnapshot(indReq(), without('costCeilingBreakdown'));
+  ok('B2: category totals kept even when breakdown toggled off', near(offBrk.approvedAirfareSgd, 1200) && near(offBrk.approvedAccommodationSgd, 1400));
 }
 
 // ---------- 6. CTA posting only on receipt, never from the claim ----------

@@ -260,12 +260,17 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         </Card>
 
         <Card title="Booking Reconciliation (TR-15) — deviations">
-          {req.deviations.length === 0 ? <Empty>No material deviations.</Empty> : (
+          {req.deviations.length === 0 ? <Empty>No deviations.</Empty> : (
             <ul className="space-y-2">
               {req.deviations.map((d) => (
                 <li key={d.id} className="text-sm flex items-start gap-2">
-                  <span className={d.material ? 'pill-exc' : 'pill-info'}>{d.material ? 'Material' : 'Minor'}</span>
-                  <div><strong>{d.field}</strong>: approved {d.approvedValue} → booked {d.bookedValue}. <span className="text-[var(--ecs-muted)]">Action: {d.action}</span></div>
+                  <span className={d.material ? 'pill-exc' : 'pill-info'}>{d.material ? 'Material' : 'Log only'}</span>
+                  <div>
+                    <strong>{d.field}</strong>: approved {d.approvedValue} → booked {d.bookedValue}.{' '}
+                    <span className="text-[var(--ecs-muted)]">
+                      {[d.level, d.scopeRef, d.pnr ? `PNR ${d.pnr}` : null, `Action: ${d.action}`].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>

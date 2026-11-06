@@ -150,6 +150,16 @@ model TravelRequest {
   approvalAmountSgd  Float?                         // amount basis result (SGD, §13.4)
   bookingDeadline    DateTime?
   authorisationExpiry DateTime?
+  // v1.3/B2 Immutable approved-breakdown snapshot, frozen at FINAL approval (finalizeApproval).
+  // Holds the approved canonical booking instruction(s) — one per traveller for a group — with the
+  // approved itinerary (routes + dates), per-segment approved amounts (approvedAmountSgd /
+  // approvedTotalSgd), the cost-ceiling breakdown (airfare / accommodation + ceilingByBillTo), plus
+  // the frozen airfare / accommodation category totals. The outbound hand-off and the booking-
+  // deviation check READ this snapshot; they never recompute from the live request. The approved TR
+  // cannot be changed: at booking the traveller may shift dates (and the actual fare is returned by
+  // the TMC) but not the route; a route that cannot be fulfilled as approved is returned NOT BOOKED
+  // and needs a fresh TR/TA. A material amendment re-approves and writes a fresh snapshot.
+  approvedBreakdownJson String?
 
   currentVersion    Int      @default(0)
   createdAt         DateTime @default(now())
@@ -573,6 +583,11 @@ model BookingDeviation {
   bookedValue   String?
   material      Boolean @default(false)
   action        String?                     // Reapproval | LogOnly | UpdateBooking
+  // v1.3 deviation scope — which level breached and the exact scope, so a category, segment or PNR
+  // overspend can be told apart (not just a free-text field).
+  level         String?                     // TOTAL | CATEGORY | SEGMENT
+  scopeRef      String?                     // AIRFARE | ACCOMMODATION | AIR:SIN-HND | HOTEL:TYO
+  pnr           String?                     // the booked PNR a SEGMENT deviation is on (null at CATEGORY/TOTAL level)
 }
 
 /// Mock TE claim (§4.4, §13.8) — draft claim created from an approved request

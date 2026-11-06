@@ -58,3 +58,6 @@ _dev.log
 
 # Word lock/owner files
 ~$*
+
+# Doc-generator local deps (installed on demand; see docs/generators/README.md)
+docs/generators/node_modules/

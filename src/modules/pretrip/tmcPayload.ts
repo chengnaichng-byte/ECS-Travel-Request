@@ -240,3 +240,46 @@ export function assembleOutboundInstructions(
 
   return { mode: 'GROUP_FANOUT', instructions };
 }
+
+/* ------------------------------------------------------------ v1.3 / B2 approval snapshot */
+
+/** v1.3 / B2 The immutable approved-breakdown snapshot. Holds the approved canonical instruction(s)
+ *  — one per traveller for a group — i.e. the approved itinerary (routes + dates), per-segment
+ *  approved amounts and the cost-ceiling breakdown, PLUS the airfare / accommodation category totals
+ *  (kept independently of the costCeilingBreakdown toggle so the category deviation check always has
+ *  a baseline). Frozen at final approval and stored on TravelRequest.approvedBreakdownJson. */
+export interface ApprovedSnapshot {
+  mode: 'SINGLE' | 'GROUP_FANOUT';
+  instructions: CanonicalOutbound[];
+  approvedAirfareSgd: number;
+  approvedAccommodationSgd: number;
+}
+
+/** v1.3 / B2 Build the approved snapshot from the approved request. Called once at final approval;
+ *  thereafter the outbound hand-off and the deviation check read the stored snapshot, never recompute. */
+export function buildApprovedSnapshot(req: FullRequest, enabled?: Set<string>): ApprovedSnapshot {
+  const { mode, instructions } = assembleOutboundInstructions(req, enabled);
+  const approvedAirfareSgd = r2(req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0));
+  const approvedAccommodationSgd = r2(req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0));
+  return { mode, instructions, approvedAirfareSgd, approvedAccommodationSgd };
+}
+
+/** v1.3 / B2 Build the persisted outbound payload FROM the frozen snapshot. The approved itinerary
+ *  and amounts are sent exactly as approved; only the operational channel (bookingMethod) is overlaid
+ *  with the current hand-off routing. */
+export function outboundFromSnapshot(
+  snap: ApprovedSnapshot,
+  meta: OutboundMeta,
+  ctx: { authorisationNumber: string; groupType: string | null; bookingMethod?: string | null },
+): Record<string, unknown> {
+  const instructions = snap.instructions.map((i) => (ctx.bookingMethod ? { ...i, bookingMethod: ctx.bookingMethod } : i));
+  return snap.mode === 'GROUP_FANOUT'
+    ? { meta, mode: snap.mode, authorisationNumber: ctx.authorisationNumber, groupType: ctx.groupType, instructionCount: instructions.length, instructions }
+    : { meta, ...instructions[0] };
+}
+
+/** v1.3 / B2 The approved AIR segments carried on the snapshot (with their per-leg approvedAmountSgd),
+ *  flattened across group instructions — the basis for the SEGMENT / PNR deviation check. */
+export function snapshotApprovedAirSegments(snap: ApprovedSnapshot) {
+  return snap.instructions.flatMap((i) => (i.segments ?? []).filter((s) => s.type === 'AIR'));
+}
