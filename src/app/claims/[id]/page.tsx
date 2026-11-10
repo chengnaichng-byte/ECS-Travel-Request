@@ -9,7 +9,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
-import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging } from '@/modules/te/actions';
+import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging, waiveEvidence } from '@/modules/te/actions';
 import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { getCtaAccount } from '@/modules/pretrip/ctaMaster';
@@ -44,6 +44,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const canSubmit = canEdit && (persona === claim.claimantId || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
   const pendingStep = claim.approvalSteps.find((s) => s.status === 'Pending');
   const canAct = !!pendingStep && (pendingStep.approverId === persona || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN'));
+  // §8 Who may waive an offline-approval evidence requirement: the current pending approver, or a Travel/
+  // System Administrator. Available even pre-submission so a stuck evidence requirement can be cleared.
+  const canWaive = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN') || (!!pendingStep && pendingStep.approverId === persona);
 
   const emp = EcsIdentity.employee(claim.claimantId);
   const ro = EcsIdentity.employee(emp?.reportingOfficerId ?? '');
@@ -223,6 +226,40 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           {canEdit && <div className="flex justify-end mt-4"><button type="submit" className="btn-secondary">Save draft</button></div>}
         </Card>
       </form>
+
+      {req.deviations.length > 0 && (
+        <Card title="Booking deviations vs approved (§6.4)">
+          {(() => {
+            const blocking = req.deviations.filter((x) => x.requiresEvidence && !x.evidenceAttachmentId && !x.waivedBy);
+            return blocking.length > 0 ? (
+              <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+                <b>Submission blocked (§8):</b> {blocking.length} deviation(s) need offline-approval evidence or an approved waiver before this claim can be submitted. The traveller uploads evidence against the request (Booking page); the approver may waive with a reason below.
+              </div>
+            ) : null;
+          })()}
+          <ul className="space-y-2 text-sm">
+            {req.deviations.map((x) => (
+              <li key={x.id} className="flex flex-col gap-1 border-b border-[var(--ecs-border)] pb-2 last:border-0">
+                <div className="flex items-start gap-2">
+                  <span className={x.material ? 'pill-exc' : 'pill-info'}>{x.material ? 'Material' : 'Log only'}</span>
+                  <div className="min-w-0"><strong>{x.field}</strong>: approved {x.approvedValue} → booked {x.bookedValue}. <span className="text-[var(--ecs-muted)]">{[x.level, x.scopeRef, x.pnr ? `PNR ${x.pnr}` : null].filter(Boolean).join(' · ')}</span></div>
+                </div>
+                {x.requiresEvidence && (
+                  x.evidenceAttachmentId ? <div className="text-xs text-emerald-700 ml-10">✓ Offline-approval evidence attached.</div>
+                  : x.waivedBy ? <div className="text-xs text-amber-800 ml-10">Evidence waived by {EcsIdentity.employee(x.waivedBy)?.name ?? x.waivedBy}{x.waiverReason ? ` — ${x.waiverReason}` : ''}.</div>
+                  : canWaive ? (
+                    <form action={waiveEvidence.bind(null, x.id, id)} className="ml-10 flex flex-wrap items-center gap-2">
+                      <span className="pill-warn text-xs">Evidence required</span>
+                      <input name="reason" placeholder="Waiver reason (required)" className="field w-72 py-1 text-xs" />
+                      <button className="btn-secondary text-xs">Waive with reason</button>
+                    </form>
+                  ) : <div className="text-xs text-amber-800 ml-10">Evidence required (§8) — awaiting upload against the request before submission.</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {/* Charging — reused ECS cascade + Accounting Entries */}
       <ChargingAccountEditor

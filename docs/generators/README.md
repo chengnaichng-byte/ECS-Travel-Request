@@ -13,12 +13,12 @@ Contract version documented: `ecs-pretrip-contract/1.3`.
 ## Prerequisites
 
 The scripts use [`docx`](https://www.npmjs.com/package/docx). It is **not** a runtime dependency
-of the prototype, so install it in this folder before regenerating (the resulting
-`node_modules/` here is git-ignored):
+of the prototype — it is declared in this folder's own `package.json`, so install it here before
+regenerating (the resulting `node_modules/` is git-ignored):
 
 ```bash
 cd docs/generators
-npm i docx@9.15.2
+npm i
 ```
 
 The data dictionary embeds the three ERD images (`erd-a.png`, `erd-b.png`, `erd-c.png`), which are

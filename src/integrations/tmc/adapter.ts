@@ -42,6 +42,7 @@ export function buildOutbound(req: {
   eventEndDate?: Date | null;
   approvalValidUntil?: Date | null;
   tripType?: 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';   // v1.3
+  allowedDateShift?: { daysBefore: number; daysAfter: number };   // §6.4 online date-shift allowance
   costCeilingBreakdown?: { approvedAirfareCeilingSgd: number; approvedAccommodationCeilingSgd: number; ceilingByBillTo: { ctaSgd: number; travellerSgd: number } };  // v1.3
   legs: { originCode: string; destCode: string; departDate: Date | null; arriveDate?: Date | null; travelClassId: string | null; approvedAmountSgd?: number }[];
   accommodation: { city: string; nights: number; cappedNightlySgd: number; billTo?: 'CTA' | 'TRAVELLER'; approvedTotalSgd?: number }[];
@@ -94,6 +95,7 @@ export function buildOutbound(req: {
   if (on('approvalValidity')) out.approvalValidUntil = req.approvalValidUntil ? req.approvalValidUntil.toISOString().slice(0, 10) : null;
   // v1.3 trip classification + cost-ceiling breakdown (each gated by its own contract toggle)
   if (on('tripType') && req.tripType) out.tripType = req.tripType;
+  if (on('allowedDateShift') && req.allowedDateShift) out.allowedDateShift = req.allowedDateShift;
   if (on('costCeilingBreakdown') && req.costCeilingBreakdown) out.costCeilingBreakdown = req.costCeilingBreakdown;
   // §29 enrichment
   if (on('charging') && req.charging?.length) out.charging = req.charging;

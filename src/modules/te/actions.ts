@@ -114,6 +114,17 @@ export async function submitClaim(claimId: string) {
   if (!claim || !claim.requestId || (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack)) return;
   const req = await loadRequest(claim.requestId);
   if (!req) return;
+  // §8 Offline-approval evidence gate (te.evidence): block submission until every booking deviation that
+  // requires evidence has a linked evidence attachment OR an approved waiver. Self-booked trips have no
+  // TMC booking, hence no deviations, so this passes vacuously.
+  const evidenceComplete = req.deviations.filter((d) => d.requiresEvidence).every((d) => !!d.evidenceAttachmentId || !!d.waivedBy);
+  const subGate = evaluateFlow({ status: req.status, bookingStatus: req.bookingStatus, bookingMethod: req.bookingMethod, authorisationNo: req.authorisationNo, evidenceComplete }, 'TE_SUBMIT', await getGuardSettings());
+  if (!subGate.ok) {
+    const pending = req.deviations.filter((d) => d.requiresEvidence && !d.evidenceAttachmentId && !d.waivedBy);
+    await prisma.auditEvent.create({ data: { requestId: req.id, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — ${pending.length} booking deviation(s) need offline-approval evidence or an approved waiver (§8): ${pending.map((d) => d.scopeRef ?? d.field).join(', ')}` } });
+    revalidatePath(`/claims/${claimId}`);
+    return;
+  }
   const steps = buildClaimRoute(asClaimLike(claim), req, claimWfOpts(await getSettings()));
 
   await prisma.claimApprovalStep.deleteMany({ where: { claimId } });
@@ -127,6 +138,23 @@ export async function submitClaim(claimId: string) {
   await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: { status } });
   const autoDoa = steps.find((s) => s.autoGranted);
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submitted — routed ${steps.map((s) => s.roleType).join(' → ')}${autoDoa ? ` (DOA auto-granted from ${req.authorisationNo})` : ''}` } });
+  revalidatePath(`/claims/${claimId}`);
+}
+
+/** §8 The claim approver waives the offline-approval evidence requirement for a booking deviation, with
+ *  a MANDATORY reason (recorded on the deviation and audited). A waiver without a reason is rejected. */
+export async function waiveEvidence(deviationId: string, claimId: string, fd: FormData) {
+  const persona = await currentPersonaId();
+  const reason = String(fd.get('reason') ?? '').trim();
+  const dev = await prisma.bookingDeviation.findUnique({ where: { id: deviationId } });
+  if (!dev) return;
+  if (!reason) {
+    await prisma.auditEvent.create({ data: { requestId: dev.requestId, actorId: persona, kind: 'STATUS', summary: `Evidence waiver rejected — a reason is required (deviation "${dev.field}")` } });
+    revalidatePath(`/claims/${claimId}`);
+    return;
+  }
+  await prisma.bookingDeviation.update({ where: { id: deviationId }, data: { waivedBy: persona, waivedAt: new Date(), waiverReason: reason } });
+  await prisma.auditEvent.create({ data: { requestId: dev.requestId, actorId: persona, kind: 'STATUS', summary: `Offline-approval evidence WAIVED for deviation "${dev.field}" by ${EcsIdentity.employee(persona)?.name ?? persona}: ${reason}` } });
   revalidatePath(`/claims/${claimId}`);
 }
 

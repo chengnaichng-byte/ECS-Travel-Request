@@ -67,7 +67,7 @@ function model(name, desc, fields, notes) {
 out.push(new Paragraph({ spacing: { before: 1800, after: 0 }, children: [new TextRun({ text: 'NTU Travel & Expense Claim System', bold: true, color: RED, size: 26 })] }));
 out.push(new Paragraph({ spacing: { before: 120, after: 0 }, children: [new TextRun({ text: 'Travel Request: Data Dictionary', bold: true, color: NAVY, size: 60 })] }));
 out.push(new Paragraph({ spacing: { before: 160, after: 0 }, children: [new TextRun({ text: 'Prototype reference: business objects, datapoints, keys and relationships. Not the target physical design.', color: '4a4e63', size: 24 })] }));
-out.push(new Paragraph({ spacing: { before: 500 }, border: { top: { style: BorderStyle.SINGLE, size: 12, color: 'eceaf3' } }, children: [new TextRun({ text: `Generated from the prototype schema · 33 models · 6 November 2026`, color: MUTE, size: 18 })] }));
+out.push(new Paragraph({ spacing: { before: 500 }, border: { top: { style: BorderStyle.SINGLE, size: 12, color: 'eceaf3' } }, children: [new TextRun({ text: `Generated from the prototype schema · 33 models · 10 November 2026`, color: MUTE, size: 18 })] }));
 const boxP = (t, b) => new Paragraph({ spacing: { after: 60 }, shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'FBF8EF' }, border: { left: { style: BorderStyle.SINGLE, size: 18, color: 'C8A24A' } }, indent: { left: 140 }, children: [new TextRun({ text: t, bold: !!b, size: b ? 19 : 16, color: b ? '7A5A00' : '444444' })] });
 out.push(boxP('Note to readers: prototype reference only', true));
 out.push(boxP('This document describes the data model of the Pre-Trip Travel Request prototype. It is shared as a reference for the business objects, datapoints and rules the module must support. It is not the target physical design.', false));
@@ -115,6 +115,11 @@ model('ModuleSettings',
     ['roRequirement', 'Text', '', 'N', '"INDIVIDUAL_ONLY"', 'RO decision point: ALWAYS | INDIVIDUAL_ONLY | NEVER (§51).'],
     ['teAutoGrantTolerancePct', 'Integer', '', 'N', '10', 'TE-claim DOA auto-grant tolerance, % over the approved estimate (§51).'],
     ['teAutoGrantToleranceAbsSgd', 'Integer', '', 'N', '500', 'TE-claim DOA auto-grant tolerance, SGD over the approved estimate (§51).'],
+    ['deviationThresholdPct', 'Integer', '', 'N', '10', '§6.4 booking-deviation materiality, % over the approved category amount (airfare/accommodation). The approved amount is a reference, not a booking limit. A category amount is material (ReviewAtClaim) only when over BOTH this % and the SGD below. Distinct gate from teAutoGrantTolerance* (claim DOA auto-grant).'],
+    ['deviationThresholdAbsSgd', 'Integer', '', 'N', '500', '§6.4 booking-deviation materiality, SGD over the approved category amount. Defaults aligned with teAutoGrantToleranceAbsSgd.'],
+    ['maxDateShiftDaysBefore', 'Integer', '', 'N', '3', '§6.4 online booking may move a travel date up to N days EARLIER than approved (within validity); beyond is a material DATES deviation. Carried to the TMC as allowedDateShift.'],
+    ['maxDateShiftDaysAfter', 'Integer', '', 'N', '3', '§6.4 online booking may move a travel date up to N days LATER than approved (within validity); beyond is a material DATES deviation.'],
+    ['evidenceRequiredFor', 'Text', '', 'N', '"CLASS,DATES,ROUTE,CATEGORY_AMOUNT"', '§8 comma-list of deviation types that require offline-approval evidence before the claim can be submitted (CLASS | DATES | ROUTE | CATEGORY_AMOUNT). The te.evidence guard blocks claim submission until each such deviation has evidence or an approved waiver. Empty = no evidence gate.'],
     ['crossBaThresholdSgd', 'Integer', '', 'N', '500', 'DEPRECATED, retained column, no longer used.'],
     ['selfBookingEnabled', 'Boolean', '', 'N', 'true', 'Allow travellers to self-book (§13.17).'],
     ['selfApprovalLimitSgd', 'Integer', '', 'N', '0', 'Amount at/below which a traveller-approver self-approves (0 = never).'],
@@ -218,7 +223,7 @@ model('TravelRequest',
     ['approvalAmountSgd', 'Decimal', '', 'Y', '-', 'Amount-basis result in SGD that routing is sized on (§13.4).'],
     ['bookingDeadline', 'DateTime', '', 'Y', '-', 'Deadline to book.'],
     ['authorisationExpiry', 'DateTime', '', 'Y', '-', 'Expiry of the travel authorisation.'],
-    ['approvedBreakdownJson', 'Text', '', 'Y', '-', 'v1.3 / B2 immutable approved-breakdown snapshot (JSON), frozen at final approval. Holds the approved canonical booking instruction(s), one per traveller for a group, with the approved itinerary (routes + dates), per-segment approved amounts (approvedAmountSgd / approvedTotalSgd), the cost-ceiling breakdown (airfare / accommodation + ceilingByBillTo), and the frozen airfare / accommodation category totals. The outbound hand-off and the booking-deviation check read this snapshot; they never recompute from the live request. The approved request cannot change: at booking the traveller may shift dates (the TMC returns the actual dates and fare) but not the route; a route that cannot be fulfilled as approved is returned not booked and needs a fresh TR/TA. A material amendment re-approves and writes a fresh snapshot.'],
+    ['approvedBreakdownJson', 'Text', '', 'Y', '-', 'v1.3 / B2 immutable approved-breakdown snapshot (JSON), frozen at final approval. Holds the approved canonical booking instruction(s), one per traveller for a group, with the approved itinerary (routes + dates), per-segment approved amounts (approvedAmountSgd / approvedTotalSgd), the cost-ceiling breakdown (airfare / accommodation + ceilingByBillTo), and the frozen airfare / accommodation category totals. The outbound hand-off and the booking-deviation check read this snapshot; they never recompute from the live request. The approved request cannot change: at booking the traveller may shift dates (the TMC returns the actual dates and fare) but not the route. The snapshot is FINAL after approval; there is no in-system re-approval. To change an approved-but-unbooked trip the traveller RECALLS it (status Approved → Draft, which clears this snapshot and withdraws the pending TMC instruction); re-approval writes a fresh snapshot on the same retained TA. The "re-approve and re-snapshot" rule applies only before the TR is first approved.'],
     ['currentVersion', 'Integer', '', 'N', '0', 'Latest snapshot version number.'],
     ['createdAt', 'DateTime', '', 'N', 'now()', 'Row creation timestamp.'],
     ['updatedAt', 'DateTime', '', 'N', 'auto', 'Auto-updated on every change.'],
@@ -582,18 +587,23 @@ model('BookingSegment',
   ]);
 
 model('BookingDeviation',
-  'An approval-to-booking variance, used to decide whether re-approval is needed (§6.4, AC10). v1.3 the check runs at category and segment / PNR level, and each deviation records its scope (level, scopeRef, pnr). A segment-only airfare breach is non-material (LogOnly); it becomes material (Reapproval) only when the airfare category limit is also exceeded.',
+  'A booked-vs-approved variance (§6.4, AC10). The approved amount is a REFERENCE, not a booking limit, so nothing blocks a booking; a MATERIAL deviation is reviewed at CLAIM approval (there is no in-system re-approval after the TR is approved). The check runs at category (airfare / accommodation amounts, travel dates) and segment / PNR (per-PNR airfare, cabin class, route) level, against the frozen approval snapshot. A segment-only airfare breach is non-material (LogOnly) unless the airfare category is also over threshold; class, route and date deviations are always material.',
   [
     ['id', 'Text', 'PK', 'N', 'cuid()', 'Surrogate key.'],
     ['requestId', 'Text', 'FK', 'N', '-', '→ TravelRequest.id (cascade delete).'],
-    ['field', 'Text', '', 'N', '-', 'Human-readable label of what deviated (e.g. "Airfare", "Airfare segment (PNR ...: SIN-HND)").'],
-    ['approvedValue', 'Text', '', 'Y', '-', 'The approved value (SGD, from the frozen approval snapshot).'],
-    ['bookedValue', 'Text', '', 'Y', '-', 'The booked value (SGD, from the TMC feed).'],
-    ['material', 'Boolean', '', 'N', 'false', 'Material (needs reapproval) vs logged for the record only. A segment-only airfare breach is non-material unless the airfare category is also breached (v1.3 item 1).'],
-    ['action', 'Text', '', 'Y', '-', 'Reapproval | LogOnly | UpdateBooking.'],
-    ['level', 'Text', '', 'Y', '-', 'v1.3 the scope level that breached: TOTAL | CATEGORY | SEGMENT.'],
-    ['scopeRef', 'Text', '', 'Y', '-', 'v1.3 the exact scope: AIRFARE | ACCOMMODATION (category), or AIR:SIN-HND[,HND-KIX] (segment, by route).'],
-    ['pnr', 'Text', '', 'Y', '-', 'v1.3 the booked PNR a SEGMENT deviation is on; null at CATEGORY / TOTAL level.'],
+    ['field', 'Text', '', 'N', '-', 'Human-readable label of what deviated (e.g. "Airfare", "Airfare segment (PNR ...: SIN-HND)", "Cabin class above approved ...").'],
+    ['approvedValue', 'Text', '', 'Y', '-', 'The approved value from the frozen snapshot (SGD for amounts, class name for a class deviation, ISO date for a date deviation, routes for a route deviation).'],
+    ['bookedValue', 'Text', '', 'Y', '-', 'The booked value from the TMC feed (same units as approvedValue).'],
+    ['material', 'Boolean', '', 'N', 'false', 'Material (reviewed at claim) vs logged for the record only. A segment-only airfare breach is non-material unless the airfare category is also over threshold; class / route / date deviations are always material.'],
+    ['action', 'Text', '', 'Y', '-', 'ReviewAtClaim (material, flagged to the claim approver) | LogOnly (non-material) | UpdateBooking.'],
+    ['level', 'Text', '', 'Y', '-', 'The scope level that deviated: TOTAL | CATEGORY | SEGMENT.'],
+    ['scopeRef', 'Text', '', 'Y', '-', 'The exact scope: AIRFARE | ACCOMMODATION | DATES (category), or AIR:SIN-HND[,HND-KIX] | CLASS:SIN-HND | ROUTE:SIN-HND (segment).'],
+    ['pnr', 'Text', '', 'Y', '-', 'The booked PNR a SEGMENT deviation is on; null at CATEGORY / TOTAL level.'],
+    ['requiresEvidence', 'Boolean', '', 'N', 'false', '§8 set when the deviation type is in ModuleSettings.evidenceRequiredFor. Claim submission (te.evidence guard) is blocked until the evidence is attached or waived.'],
+    ['evidenceAttachmentId', 'Text', 'FK*', 'Y', '-', '§8 → Attachment.id of the linked OFFLINE_APPROVAL_EVIDENCE upload (logical FK).'],
+    ['waivedBy', 'Text', 'ref', 'Y', '-', '§8 claim approver who waived the evidence requirement (employee id).'],
+    ['waivedAt', 'DateTime', '', 'Y', '-', '§8 when the waiver was recorded.'],
+    ['waiverReason', 'Text', '', 'Y', '-', '§8 mandatory reason recorded with a waiver (audited). A waiver without a reason is rejected.'],
   ]);
 
 model('TravelExpenseClaim',
@@ -695,7 +705,8 @@ model('Attachment',
   [
     ['id', 'Text', 'PK', 'N', 'cuid()', 'Surrogate key.'],
     ['requestId', 'Text', 'FK', 'N', '-', '→ TravelRequest.id (cascade delete).'],
-    ['docType', 'Text', '', 'N', '-', 'Quotation | Conference Invitation | Approval Evidence | Other.'],
+    ['docType', 'Text', '', 'N', '-', 'Quotation | Conference Invitation | Approval Evidence | OFFLINE_APPROVAL_EVIDENCE | Other.'],
+    ['deviationId', 'Text', 'FK*', 'Y', '-', '§8 set when docType = OFFLINE_APPROVAL_EVIDENCE: the BookingDeviation this evidence supports (logical FK).'],
     ['fileName', 'Text', '', 'N', '-', 'Original file name.'],
     ['sizeKb', 'Integer', '', 'N', '0', 'File size (KB).'],
     ['contentType', 'Text', '', 'Y', '-', 'MIME type of the stored bytes.'],
@@ -839,13 +850,14 @@ push(appxTable(['Column', 'Allowed values'], [4900, 10498], [
   ['BookingCharge.type', 'AIRFARE · ACCOMMODATION · FEE · CAR · VISA'],
   ['BookingCharge.gstCode', 'IZ · IO · I9 · P9 (SAP tax codes)'],
   ['BookingSegment.type / segmentStatus', 'AIR · HOTEL  /  GDS codes HK · UN · TK · …'],
-  ['BookingDeviation.action', 'Reapproval · LogOnly · UpdateBooking'],
+  ['BookingDeviation.action', 'ReviewAtClaim · LogOnly · UpdateBooking'],
+  ['BookingDeviation.level / scopeRef', 'TOTAL · CATEGORY · SEGMENT  /  AIRFARE · ACCOMMODATION · DATES · AIR:<route> · CLASS:<route> · ROUTE:<route>'],
   ['TravelExpenseClaim.chargingMode', 'MAIN · CLAIM · ITEM'],
   ['TravelExpenseClaim.status', 'Draft · Submitted'],
   ['TEExpenseLine.receiptType', 'LOCAL_GST · FOREIGN_NO_GST · NO_RECEIPT'],
-  ['IntegrationMessage.direction / kind', 'OUTBOUND · INBOUND  /  TMC_HANDOFF · TMC_RESPONSE'],
+  ['IntegrationMessage.direction / kind', 'OUTBOUND · INBOUND  /  TMC_HANDOFF · TMC_RESPONSE · TMC_RECALL (withdraw, §6.4) · TMC_CANCEL · SAP_AIRFARE_POST'],
   ['AuditEvent.kind', 'CREATE · SUBMIT · APPROVE · REJECT · SENDBACK · AMEND · INTEGRATION · TE_LINK · STATUS · COMMENT'],
-  ['Attachment.docType', 'Quotation · Conference Invitation · Approval Evidence · Other'],
+  ['Attachment.docType', 'Quotation · Conference Invitation · Approval Evidence · OFFLINE_APPROVAL_EVIDENCE · Other'],
 ]));
 
 // ===== APPENDIX B, ERD =====

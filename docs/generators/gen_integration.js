@@ -38,7 +38,7 @@ const boxP = (t, b) => new Paragraph({ spacing: { after: 60 }, shading: { type: 
 out.push(new Paragraph({ spacing: { before: 1800 }, children: [new TextRun({ text: 'NTU Travel & Expense Claim System', bold: true, color: RED, size: 26 })] }));
 out.push(new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: 'Travel Request: Integration Contract', bold: true, color: NAVY, size: 56 })] }));
 out.push(new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: 'Prototype reference: TMC integration boundary, covering the outbound booking instruction, inbound booking and charge feed, message guards, status vocabularies and the TE-claim sync. Not the target integration design.', color: '4a4e63', size: 23 })] }));
-out.push(new Paragraph({ spacing: { before: 500, after: 160 }, border: { top: { style: BorderStyle.SINGLE, size: 12, color: 'eceaf3' } }, children: [new TextRun({ text: `Contract version ecs-pretrip-contract/1.3 · provider-neutral canonical model · 6 November 2026`, color: MUTE, size: 18 })] }));
+out.push(new Paragraph({ spacing: { before: 500, after: 160 }, border: { top: { style: BorderStyle.SINGLE, size: 12, color: 'eceaf3' } }, children: [new TextRun({ text: `Contract version ecs-pretrip-contract/1.3 · provider-neutral canonical model · 10 November 2026`, color: MUTE, size: 18 })] }));
 out.push(boxP('Note to readers: prototype reference only', true));
 out.push(boxP('This document describes how the Pre-Trip Travel Request prototype simulates the TMC, ECS and SAP integration. It is shared as a reference for the business intent: payloads, guards, status mapping, CTA posting and claim sync. It is not the target integration design.', false));
 out.push(boxP('The prototype uses mock ECS services and a simulated TMC feed. Transport, authentication, error handling, retries, monitoring and other non-functional requirements are not covered and are to be designed by the vendor.', false));
@@ -102,6 +102,10 @@ TBL(T(['Key', 'Rule', 'Notes'], [2400, 4600, 8398], [
   ['te.claimable', 'Approval status ∈ { Approved, Closed }', 'Only create / sync a claim from a request in these statuses.'],
   ['te.authorised', 'Travel Authorisation no. is set', 'Require a TA before a claim can be raised.'],
 ], { mono: true }));
+H2('TE-submit guard (submitClaim), must hold to submit the claim');
+TBL(T(['Key', 'Rule', 'Notes'], [2400, 4600, 8398], [
+  ['te.evidence', 'Offline-approval evidence complete', '§8 every booking deviation that requires offline-approval evidence (ModuleSettings.evidenceRequiredFor) has a linked evidence attachment OR an approved waiver. Self-booked trips have no booking to compare, so this passes vacuously. Enforced in submitClaim; a blocked submit is logged, not performed.'],
+], { mono: true }));
 
 // ===== 4 OUTBOUND =====
 H1('4 · Outbound booking instruction (Send to TMC)');
@@ -114,9 +118,10 @@ TBL(T(['Contract key', 'Label', 'Source', 'Sent', 'Notes'], [2100, 2500, 2900, 1
   ['bookingMethod', 'Booking method / channel', 'req.bookingMethod', 'Core', 'Routes to the correct TMC channel.'],
   ['travellers', 'All group travellers', 'req.travellers[]', 'Toggle · on', 'Group hand-off carries every traveller (§13.14).'],
   ['bookingDeadline', 'Booking deadline', 'req.bookingDeadline', 'Toggle · on', '-'],
-  ['costCeiling', 'Approved cost ceiling (SGD)', 'Σ airfare + accommodation', 'Toggle · on', 'Booking must stay within this ceiling.'],
-  ['costCeilingBreakdown', 'Cost-ceiling breakdown', 'EstimatedExpense by category + hotel billTo', 'Toggle · on', 'v1.3 Per-category ceilings (airfare, accommodation) and the CTA / traveller split; adds approvedAmountSgd per AIR leg and approvedTotalSgd per HOTEL stay.'],
-  ['tripType', 'Trip type', 'req.tripType', 'Toggle · on', 'v1.3 ROUND_TRIP, ONE_WAY or MULTI_CITY.'],
+  ['costCeiling', 'Approved cost ceiling (SGD)', 'Σ airfare + accommodation', 'Toggle · on', 'The approved REFERENCE amount for the TMC and the claim approver. It is NOT a hard limit at booking; the actual fare is charged and a material gap is reviewed at claim (§6.4).'],
+  ['costCeilingBreakdown', 'Cost-ceiling breakdown', 'EstimatedExpense by category + hotel billTo', 'Toggle · on', 'Per-category reference amounts (airfare, accommodation) and the CTA / traveller split; adds approvedAmountSgd per AIR leg and approvedTotalSgd per HOTEL stay. Reference amounts, not booking limits.'],
+  ['tripType', 'Trip type', 'req.tripType', 'Toggle · on', 'ROUND_TRIP, ONE_WAY or MULTI_CITY.'],
+  ['allowedDateShift', 'Allowed date shift (days)', 'ModuleSettings.maxDateShiftDaysBefore / After', 'Toggle · on', '§6.4 { daysBefore, daysAfter }: at online booking the route and cabin cannot change; a travel date may move within approved ± these days (and within validity). The TMC tool can enforce it where supported; a booking outside the window is accepted but raises a material DATES deviation.'],
   ['approvedExceptions', 'Approved policy exceptions', 'policyChecks(Exception)', 'Toggle · on', 'Authorises e.g. an approved class upgrade at booking.'],
   ['tripPurpose', 'Travel purpose', 'req.purposeId', 'Toggle · on', '§4.6 required in the approved-request hand-off.'],
   ['eventDates', 'Event / conference dates', 'req.eventStartDate / eventEndDate', 'Toggle · on', 'May differ from travel dates.'],
@@ -145,7 +150,8 @@ TBL(T(['Field', 'Type', 'Notes'], [2900, 3400, 9098], [
   ['bookingMethod', 'string', 'TMC channel.'],
   ['bookingDeadline / approvedCostCeilingSgd / approvedExceptions', 'string?|null / number? / string[]?', 'Omitted when the contract toggle is off.'],
   ['travelPurpose / eventStartDate / eventEndDate / approvalValidUntil', 'string?/string?|null', '§4.6 approved-request context.'],
-  ['tripType', "'ROUND_TRIP'|'ONE_WAY'|'MULTI_CITY'", 'v1.3 trip classification (tripType toggle).'],
+  ['tripType', "'ROUND_TRIP'|'ONE_WAY'|'MULTI_CITY'", 'Trip classification (tripType toggle).'],
+  ['allowedDateShift', '{ daysBefore, daysAfter }', '§6.4 online date-shift allowance (allowedDateShift toggle). Route and cabin are fixed at booking; dates may move within this window and within validity.'],
   ['costCeilingBreakdown', '{ approvedAirfareCeilingSgd, approvedAccommodationCeilingSgd, ceilingByBillTo:{ ctaSgd, travellerSgd } }', 'v1.3 per-category and per-channel split of approvedCostCeilingSgd; reconciles to the overall ceiling.'],
   ['charging', '{ code, type, businessArea?, companyCode?, percent, isResearch, primary }[]', '§29 cost-object enrichment.'],
   ['approvals', '{ role, approver, decidedAt }[]', 'Approval metadata.'],
@@ -181,8 +187,8 @@ P('A single approval emits one instruction PER traveller under a GroupFanoutOutb
 
 // ===== 5 INBOUND =====
 H1('5 · Inbound booking confirmation (from TMC)');
-P('The TMC returns a CanonicalInbound per PNR. ECS maps the OBT booking-record status to its own lifecycle, persists the booking, segments and charges, and raises a booking deviation (§6.4) when the booked amounts exceed the approved limits. The approved baseline is read from the frozen approval snapshot (§4, approvedBreakdownJson), not recomputed, so an edit after approval cannot move it. v1.3 the deviation check runs at CATEGORY level (airfare and accommodation each against their own limit) and at SEGMENT / PNR level (each booked PNR’s airfare against the approved legs it fulfils, matched by route), not only the combined total. For a multi-PNR trip each PNR is matched to the approved segments it fulfils. Routes do not change at booking (a route that cannot be fulfilled as approved is returned not booked, §4), so a segment is only ever a fare gap on the same route.');
-P([new TextRun({ text: 'Airfare category is the primary control. ', bold: true, size: 19, color: NAVY }), new TextRun({ text: 'Because per-leg apportionment is a prototype assumption (§4.2), a per-leg (segment) airfare breach ON ITS OWN is non-material and is recorded as LogOnly; it becomes material (Reapproval) only when the airfare category limit is ALSO exceeded. Category breaches (airfare, accommodation) are always material. Hotel segment checks are unchanged.', size: 19, color: '333333' })]);
+P('The TMC returns a CanonicalInbound per PNR. ECS maps the OBT booking-record status to its own lifecycle, persists the booking, segments and charges, and records a booking deviation (§6.4) where the booked itinerary differs materially from the approved reference. The approved amount is a REFERENCE, not a booking limit: a booking is never blocked, and a material deviation is REVIEWED AT CLAIM approval (there is no in-system re-approval after the TR is approved, see §5A). The approved baseline is read from the frozen approval snapshot (§4, approvedBreakdownJson), not recomputed, so an edit after approval cannot move it. The check runs at CATEGORY level (airfare and accommodation amounts, each against its own threshold; travel dates against the allowed shift) and at SEGMENT / PNR level (each booked PNR’s airfare against the approved legs it fulfils by route; booked cabin class; booked route). Routes do not change at booking (a route that cannot be fulfilled as approved is returned not booked, §4), so a segment is only ever a fare gap on the same route; a changed route or a higher cabin without an approved exception is flagged defensively.');
+P([new TextRun({ text: 'Materiality. ', bold: true, size: 19, color: NAVY }), new TextRun({ text: 'A category amount (airfare or accommodation) is material only when the booked amount exceeds the approved reference by MORE than BOTH the percentage AND the absolute threshold (ModuleSettings.deviationThresholdPct / deviationThresholdAbsSgd). Because per-leg apportionment is a prototype assumption (§4.2), a per-leg (segment) airfare breach ON ITS OWN is non-material and is recorded as LogOnly; it becomes material only when the airfare category is ALSO over threshold. A booked cabin above the approved class without a matching approved exception, a changed route, and a travel date outside the allowed shift or the approval validity are always material. Material = action ReviewAtClaim (flagged to the claim approver); non-material = action LogOnly (recorded for the record).', size: 19, color: '333333' })]);
 H2('5.1 CanonicalInbound payload');
 TBL(T(['Field', 'Type', 'Notes'], [2900, 3100, 9398], [
   ['meta', 'InboundMeta?', 'Provenance header; correlationId ties it to the outbound.'],
@@ -231,16 +237,29 @@ BUL('TA (authorisationNumber) → one or more PNRs (a multi-city trip is commonl
 BUL('PNR → segments: each segment carries segmentRef, pnr, and (air) segmentStatus, ticketNumber, couponNumber.');
 BUL('Charge → fulfilment: an InboundCharge carries pnr, and for air the ticketNumber + couponNumber; a hotel charge carries the segmentRef / confirmation. So charge → coupon/segment → PNR → TA is fully walkable.');
 P('Retrieval is TA-keyed: bookingsForAuthorisation(req) returns the full set { authorisationNo, pnrCount, bookings[], totalFareSgd }. A self-booked trip returns an empty set (the claimant enters actuals manually).');
+H2('5A After approval (confirmed business rules)');
+P('NTU Finance has confirmed how changes and deviations are handled after a Travel Request is approved. In plain language:');
+BUL('1. Before approval the TR can be edited and re-approved in the system (send back, amend, resubmit). The approval snapshot (approvedBreakdownJson) is written once, at final approval.');
+BUL('2. After approval the TR is locked. The TA is issued and sent to the TMC. There is no in-system re-approval after this point.');
+BUL('3. Online booking: only dates can change, within a configurable limit (allowedDateShift). Route, cabin class and all other approved details cannot change; hotel nights may follow the date change.');
+BUL('4. Agent-assisted booking: any exception the TMC agent makes, and any approval it needs, is handled offline.');
+BUL('5. The fare is based on the actual booking and can differ from the approved amount. Bookings are NOT blocked by the approved amount.');
+BUL('6. The deviation between booked and approved is reviewed at CLAIM approval, not re-approved on the TR.');
+BUL('7. Where a deviation needs offline approval, the traveller attaches the offline-approval evidence before the claim can be submitted (claim-stage control, §8).');
+BUL('8. Recall: until a segment is ticketed, the traveller may recall the TA. ECS withdraws the pending instruction from the TMC, clears the approval snapshot and reverts the TR to an editable Draft; the TA number is retained and re-issued on re-approval (one TR = one TA). This replaces in-system post-approval amendment.');
 H2('5.5 Booking deviation record (§6.4)');
-P('Each deviation is persisted as a BookingDeviation row scoped so a category, segment or PNR overspend can be told apart, not only a free-text label. level + scopeRef + pnr carry the scope; material + action carry how it is handled (see the material rule above).');
+P('Each deviation is persisted as a BookingDeviation row scoped so a category, segment, PNR, class, route or date variance can be told apart, not only a free-text label. level + scopeRef + pnr carry the scope; material + action carry how it is handled at claim (see Materiality above).');
 TBL(T(['Field', 'Type', 'Notes'], [2600, 3400, 9398], [
   ['field', 'string', 'Human-readable label, e.g. "Airfare" or "Airfare segment (PNR ...: SIN-HND, HND-KIX)".'],
-  ['approvedValue / bookedValue', 'string', 'Approved (from the frozen snapshot) vs booked (from the feed), SGD.'],
-  ['level', "'TOTAL'|'CATEGORY'|'SEGMENT'", 'The scope level that breached.'],
-  ['scopeRef', 'string', 'The exact scope: AIRFARE | ACCOMMODATION (category), or AIR:SIN-HND[,HND-KIX] (segment, by route).'],
+  ['approvedValue / bookedValue', 'string', 'Approved (from the frozen snapshot) vs booked (from the feed): SGD for amounts, class names for a class deviation, ISO dates for a date deviation, routes for a route deviation.'],
+  ['level', "'TOTAL'|'CATEGORY'|'SEGMENT'", 'The scope level that deviated.'],
+  ['scopeRef', 'string', 'The exact scope: AIRFARE | ACCOMMODATION | DATES (category); AIR:SIN-HND[,HND-KIX] | CLASS:SIN-HND | ROUTE:SIN-HND (segment).'],
   ['pnr', 'string | null', 'The booked PNR a SEGMENT deviation is on; null at CATEGORY / TOTAL level.'],
-  ['material', 'boolean', 'Needs reapproval vs logged for the record only. A segment-only airfare breach is non-material unless the airfare category is also breached.'],
-  ['action', "'Reapproval'|'LogOnly'|'UpdateBooking'", 'Reapproval (material), LogOnly (non-material segment breach), or UpdateBooking.'],
+  ['material', 'boolean', 'Material (reviewed at claim) vs logged for the record only. A segment-only airfare breach is non-material unless the airfare category is also over threshold; class, route and date deviations are always material.'],
+  ['action', "'ReviewAtClaim'|'LogOnly'|'UpdateBooking'", 'ReviewAtClaim (material, flagged to the claim approver), LogOnly (non-material segment breach), or UpdateBooking.'],
+  ['requiresEvidence', 'boolean', '§8 set when the deviation type is in ModuleSettings.evidenceRequiredFor (CLASS | DATES | ROUTE | CATEGORY_AMOUNT). Claim submission is blocked (te.evidence) until the evidence is attached or waived.'],
+  ['evidenceAttachmentId', 'string | null', 'The linked OFFLINE_APPROVAL_EVIDENCE attachment once the traveller uploads it against the request.'],
+  ['waivedBy / waivedAt / waiverReason', 'string? / date? / string?', 'Set when the claim approver waives the evidence requirement, with a mandatory reason (audited).'],
 ], { mono: true }));
 
 // ===== 6 CTA CHARGES =====
@@ -272,6 +291,8 @@ TBL(T(['Value', 'Value'], [7699, 7699], [
   ['NO_LONGER_REQUIRED', 'FARE_EXPIRED'],
   ['FORCE_MAJEURE', '-'],
 ], { boldFirst: false }));
+H2('Recall / withdraw (before booking)');
+P('Until a segment is ticketed the traveller may RECALL an approved TR (§5A rule 8). ECS emits an outbound withdraw message to the TMC: IntegrationMessage kind TMC_RECALL, payload { meta, mode:"WITHDRAW", authorisationNumber, reason }, so the agent does not book the withdrawn instruction, then reverts the TR to an editable Draft and clears the approval snapshot. The TA number is retained and re-issued on re-approval. Any inbound confirmation that arrives after a recall is rejected by the inbound guard, since the booking status is no longer "sent". A recall differs from a cancellation: a cancellation reverses a booking that was already made (fees / refund); a recall withdraws an instruction before any booking exists.');
 
 // ===== 8 TE SYNC =====
 H1('8 · Sync to expense claim (TE, §13.8)');
@@ -295,6 +316,14 @@ TBL(T(['Line', 'Default treatment', 'Rule'], [2600, 2600, 10198], [
   ['Other', 'EDITABLE', '-'],
   ['Booked amounts (TMC feed)', 'REFERENCE', 'Inbound actuals for estimate-to-actual; set Excluded for self-booked trips.'],
 ], { boldFirst: false }));
+H2('8.3 Offline-approval evidence at claim submission (§6.4 / §8)');
+P('A booked-vs-approved deviation is reviewed at claim approval, not re-approved on the TR (§5A). Where a material deviation is of a type that needs offline approval, the traveller must attach the offline-approval evidence before the claim can be submitted. This is the claim-stage control that pairs with the booking-stage deviation check.');
+BUL('Configuration: ModuleSettings.evidenceRequiredFor is a comma-list of deviation types that need evidence. Default: CLASS, DATES, ROUTE, CATEGORY_AMOUNT (a material airfare / accommodation amount). Empty disables the gate.');
+BUL('Flag: when an inbound booking raises a material deviation of a listed type, ECS sets BookingDeviation.requiresEvidence and notifies the traveller. Upload is allowed straight away and blocks nothing at this stage.');
+BUL('Evidence: the traveller uploads an OFFLINE_APPROVAL_EVIDENCE attachment against the request; it links to the specific deviation (BookingDeviation.evidenceAttachmentId). A traveller may also attach evidence voluntarily when nothing was flagged.');
+BUL('Submission gate: the te.evidence guard (§3) blocks submitClaim until every requiresEvidence deviation has a linked attachment OR an approved waiver. Self-booked trips have no TMC booking to compare, so they are never gated.');
+BUL('Waiver: the claim approver (or a Travel / System Administrator) may waive the requirement for a deviation, only with a MANDATORY reason. ECS records waivedBy / waivedAt / waiverReason and logs an AuditEvent; a waiver without a reason is rejected.');
+BUL('Claim approval screen: shows approved vs booked, the deviation scope, and the linked evidence or waiver for each deviation.');
 
 // ===== 9 OVERRIDES =====
 H1('9 · Admin overrides & resolution');
@@ -325,8 +354,15 @@ TBL(T(['Area', 'Change'], [4200, 11198], [
   ['CTA posting', 'Confirmed: the Pre-Trip module posts CTA charges to SAP on receipt (ctaPostingTiming = ON_RECEIPT). ECS does not post CTA charges; the claim carries them for reference only. The AT_CLAIM option is retired.'],
   ['TE sync', 'No change to treatments. CTA amounts remain Reference in the claim; traveller-paid hotel remains Editable.'],
   ['Approval snapshot (B2)', 'The approved breakdown and itinerary are now frozen at final approval (TravelRequest.approvedBreakdownJson). The outbound instruction and the booking-deviation check read this snapshot rather than recomputing from the live request. The approved request cannot change: at booking only the dates and the actual fare flex; a route that cannot be fulfilled as approved is returned not booked and needs a fresh TR/TA.'],
-  ['Deviation scope', 'A BookingDeviation now records level (TOTAL / CATEGORY / SEGMENT), scopeRef (e.g. AIRFARE, ACCOMMODATION, AIR:SIN-HND) and pnr. A segment-only airfare breach is LogOnly (non-material); it becomes material (Reapproval) only when the airfare category limit is also exceeded.'],
+  ['Deviation scope', 'A BookingDeviation now records level (TOTAL / CATEGORY / SEGMENT), scopeRef (AIRFARE, ACCOMMODATION, DATES, AIR:SIN-HND, CLASS:SIN-HND, ROUTE:SIN-HND) and pnr. A segment-only airfare breach is LogOnly (non-material); it becomes material (ReviewAtClaim) only when the airfare category is also over threshold.'],
   ['Per-leg apportionment', 'Documented as a prototype assumption (§4.2, §5) for the vendor to confirm: approvedAmountSgd per AIR leg is a duration-weighted split for governance only, and the airfare category ceiling is the primary control.'],
+  ['Post-approval model', 'NTU Finance confirmed: the TR is locked after approval, with no in-system re-approval. The approved amount is a REFERENCE, not a booking limit, so bookings are never blocked (costCeiling / costCeilingBreakdown / per-segment amounts are reference amounts). A material booked-vs-approved deviation is reviewed at CLAIM approval (§5A).'],
+  ['Deviation actions', 'The booking-deviation action is now ReviewAtClaim for a material deviation and LogOnly for a non-material one (the former in-system re-approval action is retired). The approval snapshot is final after approval; the "material amendment re-approves and re-snapshots" wording applies only before approval.'],
+  ['Date-shift limit', 'Added ModuleSettings.maxDateShiftDaysBefore / maxDateShiftDaysAfter and the toggleable outbound field allowedDateShift { daysBefore, daysAfter }. A booked date outside approved ± the limit, or outside the approval validity, is a material DATES deviation (level CATEGORY).'],
+  ['Amount threshold', 'Added ModuleSettings.deviationThresholdPct / deviationThresholdAbsSgd. A category amount is material only when the booked amount exceeds the approved reference by more than BOTH the % and the SGD threshold. Distinct gate from teAutoGrantTolerance* (claim DOA auto-grant); defaults aligned (10% / SGD 500).'],
+  ['Class & route checks', 'A booked cabin above the approved class without a matching approved exception is a material deviation (scopeRef CLASS:<route>); a booked route not in the approved itinerary is a material deviation (scopeRef ROUTE:<route>). The class check was restored after the earlier rewording dropped it.'],
+  ['Recall', 'An approved TR may be recalled (reverted to an editable Draft) until a segment is ticketed. ECS emits a TMC_RECALL withdraw, clears the approval snapshot, and re-issues on the same TA at re-approval. Replaces in-system post-approval amendment (§5A rule 8, §7).'],
+  ['Offline-approval evidence', 'Added the claim-submission evidence gate (§8.3). ModuleSettings.evidenceRequiredFor lists the deviation types that need offline-approval evidence; a material deviation of a listed type sets BookingDeviation.requiresEvidence. A new te.evidence guard (TE_SUBMIT flow) blocks submitClaim until each such deviation has a linked OFFLINE_APPROVAL_EVIDENCE attachment or an approved waiver (waivedBy / waivedAt / waiverReason, mandatory reason). Self-booked trips are exempt.'],
 ]));
 
 // ===== BUILD =====

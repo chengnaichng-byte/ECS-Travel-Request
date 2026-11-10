@@ -1,0 +1,8 @@
+{
+  "name": "ecs-pretrip-doc-generators",
+  "private": true,
+  "description": "Generators for the NTU Travel Request developer Word docs (Integration Contract, Data Dictionary). Run on demand; not part of the prototype runtime.",
+  "devDependencies": {
+    "docx": "9.15.2"
+  }
+}

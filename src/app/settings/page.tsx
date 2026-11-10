@@ -36,6 +36,8 @@ export default async function SettingsPage() {
                     </label>
                   ) : d.kind === 'number' ? (
                     <input type="number" name={d.key} defaultValue={Number(s[d.key])} className="field w-48" />
+                  ) : d.kind === 'text' ? (
+                    <input type="text" name={d.key} defaultValue={String(s[d.key] ?? '')} className="field w-64" />
                   ) : (
                     <select name={d.key} defaultValue={String(s[d.key])} className="field w-48">
                       {'options' in d && d.options?.map((o) => <option key={o} value={o}>{o}</option>)}

@@ -102,7 +102,7 @@ function requestPersonal(req: FullRequest): boolean {
 }
 
 /** Single canonical outbound (individual request, or the Integration-Contract preview). */
-export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?: OutboundMeta): CanonicalOutbound {
+export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?: OutboundMeta, dateShift?: { daysBefore: number; daysAfter: number }): CanonicalOutbound {
   // DD-19 hotel payment channel — CTA (central-billed) vs TRAVELLER (employee pays & claims).
   // Airfare is always TMC/central; this flag tells the TMC who to bill for the room.
   const hotelBillTo: 'CTA' | 'TRAVELLER' = lineSettlement(req, EXPENSE_CATEGORY.Accommodation) === 'CENTRAL' ? 'CTA' : 'TRAVELLER';
@@ -132,7 +132,7 @@ export function assembleOutbound(req: FullRequest, enabled?: Set<string>, meta?:
     bookingFor: g.bookingFor, guest: 'guest' in g ? g.guest : undefined,
     travellers: req.travellers, bookingMethod: req.bookingMethod, bookingDeadline: req.bookingDeadline,
     approvedCostCeilingSgd: ceiling, approvedExceptions: exceptions, legs: legsWithAmt, accommodation: acc,
-    tripType: req.tripType as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY', costCeilingBreakdown: breakdown,
+    tripType: req.tripType as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY', costCeilingBreakdown: breakdown, allowedDateShift: dateShift,
     travelPurpose: EcsReference.travelPurpose(req.purposeId ?? '')?.name,
     eventStartDate: req.eventStartDate, eventEndDate: req.eventEndDate, approvalValidUntil: req.authorisationExpiry,
     charging: chargingBlock(req), approvals: approvalsBlock(req),
@@ -160,8 +160,9 @@ export function assembleOutboundInstructions(
   req: FullRequest,
   enabled?: Set<string>,
   meta?: OutboundMeta,
+  dateShift?: { daysBefore: number; daysAfter: number },
 ): { mode: 'SINGLE' | 'GROUP_FANOUT'; instructions: CanonicalOutbound[] } {
-  if (!req.isGroup) return { mode: 'SINGLE', instructions: [assembleOutbound(req, enabled, meta)] };
+  if (!req.isGroup) return { mode: 'SINGLE', instructions: [assembleOutbound(req, enabled, meta, dateShift)] };
 
   const on = (k: string) => !enabled || enabled.has(k);
   const shares = computeTravellerShares(req);
@@ -218,6 +219,7 @@ export function assembleOutboundInstructions(
     if (on('bookingDeadline')) out.bookingDeadline = req.bookingDeadline ? req.bookingDeadline.toISOString().slice(0, 10) : null;
     if (on('costCeiling')) { out.costShareSgd = Math.round(share?.totalSgd ?? 0); out.approvedCostCeilingSgd = r2(airfareT + accommodationT); }
     if (on('tripType') && req.tripType) out.tripType = req.tripType as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
+    if (on('allowedDateShift') && dateShift) out.allowedDateShift = dateShift;
     if (on('costCeilingBreakdown')) out.costCeilingBreakdown = breakdownT;
     // Per-traveller exceptions (plus any request-level exceptions that carry no traveller).
     if (on('approvedExceptions')) {
@@ -257,8 +259,8 @@ export interface ApprovedSnapshot {
 
 /** v1.3 / B2 Build the approved snapshot from the approved request. Called once at final approval;
  *  thereafter the outbound hand-off and the deviation check read the stored snapshot, never recompute. */
-export function buildApprovedSnapshot(req: FullRequest, enabled?: Set<string>): ApprovedSnapshot {
-  const { mode, instructions } = assembleOutboundInstructions(req, enabled);
+export function buildApprovedSnapshot(req: FullRequest, enabled?: Set<string>, dateShift?: { daysBefore: number; daysAfter: number }): ApprovedSnapshot {
+  const { mode, instructions } = assembleOutboundInstructions(req, enabled, undefined, dateShift);
   const approvedAirfareSgd = r2(req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0));
   const approvedAccommodationSgd = r2(req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0));
   return { mode, instructions, approvedAirfareSgd, approvedAccommodationSgd };

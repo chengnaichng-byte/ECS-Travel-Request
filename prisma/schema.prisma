@@ -33,6 +33,14 @@ model ModuleSettings {
   roRequirement          String  @default("INDIVIDUAL_ONLY") // §51 RO decision point: ALWAYS | INDIVIDUAL_ONLY (drop for group) | NEVER
   teAutoGrantTolerancePct Int    @default(10)     // §51 TE claim DOA auto-grant tolerance (% over approved)
   teAutoGrantToleranceAbsSgd Int @default(500)    // §51 TE claim DOA auto-grant tolerance (SGD over approved)
+  // §6.4 Post-approval booking-deviation materiality (admin-editable). Approved amount is a REFERENCE,
+  // not a booking limit; a booked category amount is MATERIAL (reviewed at CLAIM, never re-approved
+  // in-system) only when over BOTH the % and the SGD. Distinct gate from teAutoGrantTolerance*.
+  deviationThresholdPct     Int  @default(10)     // §6.4 booking-deviation materiality, % over approved category amount
+  deviationThresholdAbsSgd  Int  @default(500)    // §6.4 booking-deviation materiality, SGD over approved category amount
+  maxDateShiftDaysBefore    Int  @default(3)      // §6.4 online booking may move a date up to N days earlier than approved (within validity); beyond = material DATES deviation
+  maxDateShiftDaysAfter     Int  @default(3)      // §6.4 online booking may move a date up to N days later than approved (within validity); beyond = material DATES deviation
+  evidenceRequiredFor       String @default("CLASS,DATES,ROUTE,CATEGORY_AMOUNT") // §6.4/§8 comma-list of deviation types needing offline-approval evidence before claim submission (CLASS | DATES | ROUTE | CATEGORY_AMOUNT). Empty = no evidence gate.
   crossBaThresholdSgd    Int     @default(500)    // DEPRECATED — retained column, no longer used. Cross-charge & cross-BA authority is the DOA's (highest-share charging account), not a separate approver, so there is no cross-BA concurrence step.
   selfBookingEnabled     Boolean @default(true)   // §13.17
   // §43 Settings breadth
@@ -586,8 +594,16 @@ model BookingDeviation {
   // v1.3 deviation scope — which level breached and the exact scope, so a category, segment or PNR
   // overspend can be told apart (not just a free-text field).
   level         String?                     // TOTAL | CATEGORY | SEGMENT
-  scopeRef      String?                     // AIRFARE | ACCOMMODATION | AIR:SIN-HND | HOTEL:TYO
+  scopeRef      String?                     // AIRFARE | ACCOMMODATION | DATES | AIR:SIN-HND | CLASS:SIN-HND | ROUTE:SIN-HND
   pnr           String?                     // the booked PNR a SEGMENT deviation is on (null at CATEGORY/TOTAL level)
+  // §8 offline-approval evidence at claim submission. When the deviation's type is in
+  // ModuleSettings.evidenceRequiredFor, requiresEvidence is set and claim submission is blocked (te.evidence
+  // guard) until an evidence attachment is linked OR the claim approver records a waiver with a reason.
+  requiresEvidence     Boolean @default(false)
+  evidenceAttachmentId String?                 // → Attachment.id of the linked OFFLINE_APPROVAL_EVIDENCE upload
+  waivedBy             String?                 // claim approver who waived the evidence requirement (employee id)
+  waivedAt             DateTime?
+  waiverReason         String?                 // mandatory reason recorded with a waiver (audited)
 }
 
 /// Mock TE claim (§4.4, §13.8) — draft claim created from an approved request
@@ -698,7 +714,8 @@ model Attachment {
   id            String  @id @default(cuid())
   requestId     String
   request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  docType       String                      // Quotation | Conference Invitation | Approval Evidence | Other
+  docType       String                      // Quotation | Conference Invitation | Approval Evidence | OFFLINE_APPROVAL_EVIDENCE | Other
+  deviationId   String?                     // §8 set when docType = OFFLINE_APPROVAL_EVIDENCE: the BookingDeviation this evidence supports
   fileName      String
   sizeKb        Int     @default(0)
   contentType   String?                     // §2 real upload — MIME type of the stored bytes

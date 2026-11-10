@@ -50,6 +50,11 @@ export interface CanonicalOutbound {
   approvedExceptions?: string[];      // omitted when excluded from the contract
   // v1.3 trip classification carried to the TMC (toggleable contract field, default on).
   tripType?: 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';  // sourced from TravelRequest.tripType
+  // §6.4 online-booking date-shift allowance (toggleable contract field allowedDateShift, default on).
+  // The approved route and cabin cannot change at booking; dates may move within approved ± these days
+  // (and within the approval validity). The TMC's online tool can enforce it where it supports that; a
+  // booking outside the window is accepted but raises a material DATES deviation reviewed at claim.
+  allowedDateShift?: { daysBefore: number; daysAfter: number };
   // §4.6 approved-request context required in the ECS-led hand-off
   travelPurpose?: string;             // purpose name
   eventStartDate?: string | null;     // event / conference dates (may differ from travel dates)

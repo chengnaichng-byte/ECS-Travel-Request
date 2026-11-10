@@ -35,7 +35,7 @@ export const STATUS_TRANSITIONS: Record<string, string[]> = {
   [REQUEST_STATUS.PendingDean]: [REQUEST_STATUS.PendingProvost, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.PendingProvost]: [REQUEST_STATUS.PendingDOA, REQUEST_STATUS.SentBack],
   [REQUEST_STATUS.PendingDOA]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack],
-  [REQUEST_STATUS.Approved]: [REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Cancelled, REQUEST_STATUS.Expired, REQUEST_STATUS.Closed],
+  [REQUEST_STATUS.Approved]: [REQUEST_STATUS.Draft, REQUEST_STATUS.AmendmentInProgress, REQUEST_STATUS.Cancelled, REQUEST_STATUS.Expired, REQUEST_STATUS.Closed], // §13.x Approved → Draft = RECALL (before booking)
   [REQUEST_STATUS.AmendmentInProgress]: [REQUEST_STATUS.Approved, REQUEST_STATUS.SentBack, REQUEST_STATUS.Cancelled],
   [REQUEST_STATUS.SentBack]: [REQUEST_STATUS.Draft, REQUEST_STATUS.Withdrawn],
   [REQUEST_STATUS.Expired]: [REQUEST_STATUS.PendingRO, REQUEST_STATUS.PendingDOA, REQUEST_STATUS.Cancelled],
@@ -69,6 +69,19 @@ export const TMC_INFLIGHT_STATUSES: string[] = [
   BOOKING_STATUS.InProgress,
   BOOKING_STATUS.TravellerActionRequired,
   BOOKING_STATUS.PartiallyBooked,
+];
+
+/** §13.x Booking statuses from which an approved TR may be RECALLED (reverted to an editable Draft) —
+ *  only before any segment is ticketed. Excludes Partially Booked / Booked (something is ticketed →
+ *  that is cancellation territory, with fees/refunds, not a recall). Recall replaces in-system
+ *  post-approval amendment: the approved TR is otherwise locked. */
+export const RECALLABLE_BOOKING_STATUSES: string[] = [
+  BOOKING_STATUS.NotSent,
+  BOOKING_STATUS.SentToTMC,
+  BOOKING_STATUS.ReceivedByTMC,
+  BOOKING_STATUS.InProgress,
+  BOOKING_STATUS.TravellerActionRequired,
+  BOOKING_STATUS.Failed,            // a failed booking is un-booked → recall to edit / re-raise
 ];
 
 /** §6.3 policy outcome. */

@@ -21,6 +21,20 @@ export const moduleSettingsDefaults = {
   roRequirement: 'INDIVIDUAL_ONLY' as 'ALWAYS' | 'INDIVIDUAL_ONLY' | 'NEVER', // §51 RO decision point
   teAutoGrantTolerancePct: 10,      // §51 TE claim DOA auto-grant tolerance (% over approved)
   teAutoGrantToleranceAbsSgd: 500,  // §51 TE claim DOA auto-grant tolerance (SGD over approved)
+  // §6.4 Post-approval booking-deviation materiality (admin-editable). The approved amount is a
+  // REFERENCE, not a booking limit; a booked category amount (airfare / accommodation) is MATERIAL
+  // (reviewed at CLAIM approval, never re-approved in-system) only when it exceeds the approved
+  // category amount by MORE than BOTH the % and the SGD amount. Distinct gate from teAutoGrantTolerance*
+  // (claim DOA auto-grant headroom); defaults aligned (10% / SGD 500). See the data dictionary.
+  deviationThresholdPct: 10,
+  deviationThresholdAbsSgd: 500,
+  // §6.4 Online-booking date-shift limit: booked travel dates may move within approved ± these days
+  // (and within the approval validity). Outside the window is a material DATES deviation.
+  maxDateShiftDaysBefore: 3,
+  maxDateShiftDaysAfter: 3,
+  // §6.4/§8 Deviation types that require offline-approval evidence before the claim can be submitted.
+  // CLASS, DATES, ROUTE and CATEGORY_AMOUNT (a material airfare/accommodation amount). Empty = no gate.
+  evidenceRequiredFor: 'CLASS,DATES,ROUTE,CATEGORY_AMOUNT',
   selfBookingEnabled: true,         // §13.17
   selfApprovalLimitSgd: 5000,       // §43 self-approval limit (0 = never); the research PI self-approval band
   researchPiSelfApproval: true,     // #1 research WBS raised for a PI traveller ≤ limit → self-approved (PI is the DOA)
@@ -52,6 +66,16 @@ export const decisionCatalogue = [
     effect: 'On a TE claim, the DOA step is auto-granted from the approved Travel Request when the claim total is within this % over the approved amount (and within the SGD cap), with no new policy exception and no new expense type (§51).' },
   { key: 'teAutoGrantToleranceAbsSgd', label: 'TE claim DOA auto-grant tolerance (SGD)', kind: 'number',
     effect: 'Absolute SGD cap for the TE claim DOA auto-grant tolerance above (§51).' },
+  { key: 'deviationThresholdPct', label: 'Booking deviation threshold (%)', kind: 'number',
+    effect: 'A booked category amount (airfare or accommodation) is a material deviation — highlighted to the claim approver (ReviewAtClaim) — only when it exceeds the approved category amount by more than this % AND more than the SGD amount below. The approved amount is a reference, not a booking limit; bookings are never blocked (§6.4).' },
+  { key: 'deviationThresholdAbsSgd', label: 'Booking deviation threshold (SGD)', kind: 'number',
+    effect: 'The absolute arm of the booking-deviation threshold; both this and the % must be exceeded for a material category amount deviation. Distinct from the TE claim DOA auto-grant tolerance above (that governs auto-approval at claim; this governs materiality of the booked-vs-approved gap) (§6.4).' },
+  { key: 'maxDateShiftDaysBefore', label: 'Max booking date shift before approved (days)', kind: 'number',
+    effect: 'Online booking may move a travel date up to this many days earlier than approved (and within the approval validity). Beyond this is a material DATES deviation reviewed at claim (§6.4).' },
+  { key: 'maxDateShiftDaysAfter', label: 'Max booking date shift after approved (days)', kind: 'number',
+    effect: 'Online booking may move a travel date up to this many days later than approved (and within the approval validity). Beyond this is a material DATES deviation reviewed at claim (§6.4).' },
+  { key: 'evidenceRequiredFor', label: 'Deviation types needing offline-approval evidence', kind: 'text',
+    effect: 'Comma-separated deviation types (CLASS, DATES, ROUTE, CATEGORY_AMOUNT) that require the traveller to attach offline-approval evidence before the claim can be submitted. When a booking raises a material deviation of a listed type, the claim is blocked until evidence is attached or the claim approver records a waiver with a reason. Empty = no evidence gate (§6.4/§8).' },
   { key: 'sameRouteResearch', label: 'Same route for research & non-research', kind: 'boolean',
     effect: 'If off, research-charged requests route to the Research DOA line.' },
   { key: 'researchPiSelfApproval', label: 'Research PI self-approval', kind: 'boolean',

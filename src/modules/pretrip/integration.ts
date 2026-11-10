@@ -77,7 +77,7 @@ export async function getGuardSettings(): Promise<ResolvedGuard[]> {
 }
 
 /** Minimal request context a guard reads. */
-export interface GuardContext { status: string; bookingStatus: string; bookingMethod: string | null; authorisationNo: string | null }
+export interface GuardContext { status: string; bookingStatus: string; bookingMethod: string | null; authorisationNo: string | null; evidenceComplete?: boolean }
 
 function paramValue(ctx: GuardContext, param: GuardParam): string | null {
   switch (param) {
@@ -85,12 +85,14 @@ function paramValue(ctx: GuardContext, param: GuardParam): string | null {
     case 'bookingStatus': return ctx.bookingStatus;
     case 'bookingMethod': return ctx.bookingMethod;
     case 'authorisationNo': return ctx.authorisationNo;
+    case 'evidenceComplete': return ctx.evidenceComplete ? 'yes' : 'no';
   }
 }
 
 function guardPasses(g: ResolvedGuard, ctx: GuardContext): boolean {
   const v = paramValue(ctx, g.param);
   if (g.op === 'isSet') return v != null && v !== '';
+  if (g.op === 'isTrue') return v === 'yes';
   if (g.op === 'eq') return v === g.value;
   if (g.op === 'in') return Array.isArray(g.value) && v != null && g.value.includes(v);
   return true;

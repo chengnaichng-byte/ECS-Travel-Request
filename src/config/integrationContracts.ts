@@ -48,11 +48,13 @@ export const CONTRACT_FIELDS: ContractField[] = [
   { key: 'bookingDeadline', group: 'Booking header', label: 'Booking deadline', source: 'req.bookingDeadline',
     tmc: 'toggle', defaultTmc: true },
   { key: 'costCeiling', group: 'Booking header', label: 'Approved cost ceiling (SGD)', source: 'Σ airfare + accommodation',
-    tmc: 'toggle', defaultTmc: true, note: 'Booking must stay within this ceiling.' },
+    tmc: 'toggle', defaultTmc: true, note: 'The approved reference amount for the TMC and the claim approver. It is NOT a hard limit at booking; the actual fare is charged and a material gap is reviewed at claim (§6.4).' },
   { key: 'costCeilingBreakdown', group: 'Booking header', label: 'Cost-ceiling breakdown (airfare / accommodation / bill-to)', source: 'EstimatedExpense by category + hotel billTo',
-    tmc: 'toggle', defaultTmc: true, note: 'v1.3 splits the ceiling by category and payment channel (CTA vs traveller); AIR segments carry approvedAmountSgd (apportioned by leg duration), HOTEL carry approvedTotalSgd. Reconciles to approvedCostCeilingSgd.' },
+    tmc: 'toggle', defaultTmc: true, note: 'Splits the reference ceiling by category and payment channel (CTA vs traveller); AIR segments carry approvedAmountSgd (apportioned by leg duration), HOTEL carry approvedTotalSgd. Reference amounts, not booking limits; reconcile to approvedCostCeilingSgd.' },
   { key: 'tripType', group: 'Booking header', label: 'Trip type', source: 'req.tripType',
-    tmc: 'toggle', defaultTmc: true, note: 'v1.3 ROUND_TRIP | ONE_WAY | MULTI_CITY.' },
+    tmc: 'toggle', defaultTmc: true, note: 'ROUND_TRIP | ONE_WAY | MULTI_CITY.' },
+  { key: 'allowedDateShift', group: 'Booking header', label: 'Allowed date shift (days)', source: 'ModuleSettings.maxDateShiftDaysBefore / After',
+    tmc: 'toggle', defaultTmc: true, note: '§6.4 { daysBefore, daysAfter } — online booking may move a travel date within approved ± these days (and within validity); route and cabin cannot change. A booking outside the window is accepted but raises a material DATES deviation.' },
   { key: 'approvedExceptions', group: 'Booking header', label: 'Approved policy exceptions', source: 'policyChecks(Exception)',
     tmc: 'toggle', defaultTmc: true, note: 'Authorises e.g. an approved class upgrade at booking.' },
   { key: 'tripPurpose', group: 'Booking header', label: 'Travel purpose', source: 'req.purposeId',
@@ -141,9 +143,9 @@ export const CONTRACT_FIELDS: ContractField[] = [
 // declarative predicate (param · operator · value); the admin can enable/disable it and,
 // where marked editable, change the value. Evaluated in `evaluateFlow` (integration.ts)
 // and enforced in `handoffToTmc` (OUTBOUND) and `receiveBooking` (INBOUND).
-export type GuardFlow = 'OUTBOUND' | 'INBOUND' | 'TE_SYNC';
-export type GuardOp = 'eq' | 'in' | 'isSet';
-export type GuardParam = 'status' | 'bookingStatus' | 'bookingMethod' | 'authorisationNo';
+export type GuardFlow = 'OUTBOUND' | 'INBOUND' | 'TE_SYNC' | 'TE_SUBMIT';
+export type GuardOp = 'eq' | 'in' | 'isSet' | 'isTrue';
+export type GuardParam = 'status' | 'bookingStatus' | 'bookingMethod' | 'authorisationNo' | 'evidenceComplete';
 
 export interface ContractGuard {
   key: string;
@@ -160,6 +162,7 @@ export const GUARD_PARAM_LABELS: Record<GuardParam, string> = {
   bookingStatus: 'Booking status',
   bookingMethod: 'Booking method',
   authorisationNo: 'Travel Authorisation no.',
+  evidenceComplete: 'Offline-approval evidence complete',
 };
 
 // Selectable values per parameter — the choices offered when editing a guard's value.
@@ -169,11 +172,12 @@ export const GUARD_PARAM_OPTIONS: Record<GuardParam, string[]> = {
   bookingStatus: Object.values(BOOKING_STATUS),
   bookingMethod: Object.values(BOOKING_METHOD),
   authorisationNo: [],
+  evidenceComplete: [],
 };
 
-/** A guard's value is editable unless it tests mere presence (`isSet`). */
+/** A guard's value is editable unless it tests mere presence (`isSet`) or a computed boolean (`isTrue`). */
 export function guardEditable(g: ContractGuard): boolean {
-  return g.op !== 'isSet';
+  return g.op !== 'isSet' && g.op !== 'isTrue';
 }
 
 // Methods that route to the TMC (self-booked / no-booking are never sent).
@@ -201,4 +205,7 @@ export const CONTRACT_GUARDS: ContractGuard[] = [
     value: [REQUEST_STATUS.Approved, REQUEST_STATUS.Closed], note: 'Only create / sync a TE claim from a request in these statuses.' },
   { key: 'te.authorised', flow: 'TE_SYNC', label: 'Travel Authorisation issued', param: 'authorisationNo', op: 'isSet',
     note: 'Require a TA number before an expense claim can be raised against the request.' },
+  // ---- Submit ECS Expense Claim: block submission until offline-approval evidence is complete ----
+  { key: 'te.evidence', flow: 'TE_SUBMIT', label: 'Offline-approval evidence attached', param: 'evidenceComplete', op: 'isTrue',
+    note: '§8 block claim submission until every booking deviation that requires offline-approval evidence (ModuleSettings.evidenceRequiredFor) has a linked evidence attachment OR an approved waiver. Self-booked trips have no TMC booking to compare, so this passes vacuously.' },
 ];

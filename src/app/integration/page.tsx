@@ -45,20 +45,24 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
 
   // Deterministic preview provenance (a real send stamps a fresh UUID + timestamp).
   const previewMeta = req ? { messageId: `preview-${req.requestNumber}`, sentAt: req.updatedAt.toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION } : undefined;
-  const outbound = req ? assembleOutbound(req, tmcEnabledSet(resolved), previewMeta) : null;
+  const outbound = req ? assembleOutbound(req, tmcEnabledSet(resolved), previewMeta, { daysBefore: settings.maxDateShiftDaysBefore, daysAfter: settings.maxDateShiftDaysAfter }) : null;
   // Deterministic inbound preview — the simulated TMC confirmation, so the per-charge CTA
   // datapoints the feed carries for the SAP posting (DD-31) are visible beside the outbound.
   const inbound = outbound ? simulateInbound(outbound, { chargeDate: req?.updatedAt.toISOString().slice(0, 10) ?? null }, { messageId: `preview-in-${req?.requestNumber}`, receivedAt: req?.updatedAt.toISOString() ?? '', correlationId: previewMeta?.messageId ?? null, sourceStatus: req?.status ?? '', contractVersion: CONTRACT_VERSION }) : null;
   const prep = req ? prepopulateClaim(req, req.travellerId, settings.airfareTreatment, prepopContract(resolved)) : null;
+  // §8 claim-submission evidence gate: complete when every deviation needing evidence has an attachment or a waiver.
+  const evidenceComplete = req ? req.deviations.filter((dv) => dv.requiresEvidence).every((dv) => !!dv.evidenceAttachmentId || !!dv.waivedBy) : true;
   const outGate = req ? evaluateFlow(req, 'OUTBOUND', guards) : null;
   const inGate = req ? evaluateFlow(req, 'INBOUND', guards) : null;
   const teGate = req ? evaluateFlow(req, 'TE_SYNC', guards) : null;
+  const submitGate = req ? evaluateFlow({ ...req, evidenceComplete }, 'TE_SUBMIT', guards) : null;
 
   const tmcFields = CONTRACT_FIELDS.filter((f) => f.tmc);
   const teFields = CONTRACT_FIELDS.filter((f) => f.te);
   const outGuards = guards.filter((g) => g.flow === 'OUTBOUND');
   const inGuards = guards.filter((g) => g.flow === 'INBOUND');
   const teGuards = guards.filter((g) => g.flow === 'TE_SYNC');
+  const submitGuards = guards.filter((g) => g.flow === 'TE_SUBMIT');
 
   return (
     <div className="w-full space-y-5">
@@ -147,7 +151,7 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
       <form action={saveContractGuards} className="space-y-5">
         <Card title="C · Parameter filters — when to send / receive / sync (§13.8–§13.9)">
           <p className="text-xs text-[var(--ecs-muted)] mb-3">Message-level gates for each boundary — the TMC (send/receive) and ECS (expense-claim sync). <strong>All enabled conditions in a flow must hold</strong> before that message fires — e.g. a request is not sent to the TMC, and no claim is created in ECS, until it is <em>Approved</em>. Enforced in the hand-off / receive / create-claim actions; a blocked attempt is logged, not performed.</p>
-          {[{ title: 'Send to TMC (outbound)', rows: outGuards }, { title: 'Receive from TMC (inbound)', rows: inGuards }, { title: 'Sync to ECS Expense Claim (TE)', rows: teGuards }].map((sec) => (
+          {[{ title: 'Send to TMC (outbound)', rows: outGuards }, { title: 'Receive from TMC (inbound)', rows: inGuards }, { title: 'Sync to ECS Expense Claim (TE)', rows: teGuards }, { title: 'Submit ECS Expense Claim (§8 evidence)', rows: submitGuards }].map((sec) => (
             <div key={sec.title} className="mb-4 last:mb-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ecs-muted)] mb-1">{sec.title}</div>
               <div className="overflow-x-auto">
@@ -244,7 +248,7 @@ export default async function IntegrationContractsPage({ searchParams }: { searc
 
             {/* Eligibility from the parameter filters */}
             <div className="grid md:grid-cols-3 gap-3 mb-5">
-              {[{ title: 'Send to TMC', gate: outGate }, { title: 'Receive from TMC', gate: inGate }, { title: 'Sync to ECS claim', gate: teGate }].map(({ title, gate }) => (
+              {[{ title: 'Send to TMC', gate: outGate }, { title: 'Receive from TMC', gate: inGate }, { title: 'Sync to ECS claim', gate: teGate }, { title: 'Submit ECS claim', gate: submitGate }].map(({ title, gate }) => (
                 <div key={title} className={`rounded border p-3 ${gate?.ok ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
                   <div className="text-sm font-semibold mb-1">{title}: {gate?.ok ? <span className="text-emerald-700">Eligible ✓</span> : <span className="text-amber-800">Blocked ✕</span>}</div>
                   <ul className="text-xs space-y-0.5">

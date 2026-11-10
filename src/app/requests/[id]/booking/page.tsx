@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, amendAfterFailedBooking, cancelRequest, receiveCancellation, refreshBookingsFromTmc } from '@/modules/pretrip/actions';
+import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, recallRequest, cancelRequest, receiveCancellation, refreshBookingsFromTmc, uploadDeviationEvidence } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
@@ -14,7 +14,7 @@ import { taLineRef } from '@/modules/pretrip/groupLines';
 import { memberName } from '@/modules/pretrip/traveller';
 import { assessHandoffRouting, channelLabel } from '@/modules/pretrip/handoffRouting';
 import { tmcProvider } from '@/data/tmcProviders';
-import { BOOKING_STATUS, TMC_INFLIGHT_STATUSES } from '@/shared/enums';
+import { BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, REQUEST_STATUS } from '@/shared/enums';
 import { Card, KV, Empty } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +34,9 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   const cancelMsg = req.messages.find((m) => m.kind === 'TMC_CANCEL');
   const cancelConfirmMsg = req.messages.find((m) => m.kind === 'TMC_CANCEL_CONFIRM');
   const cancellationInFlight = req.bookingStatus === BOOKING_STATUS.CancellationRequested;
+  // §13.x Recall — an approved TR may be recalled (reverted to an editable Draft) until a segment is
+  // ticketed. The approved TR is otherwise locked (no in-system re-approval after approval).
+  const canRecall = req.status === REQUEST_STATUS.Approved && RECALLABLE_BOOKING_STATUSES.includes(req.bookingStatus);
   const bookings = req.bookings;
   // §36 direct airfare posting is offered only when the setting selects it and a booking exists.
   const canPostSap = settings.airfareTreatment === 'DIRECT_SAP' && req.bookingStatus === BOOKING_STATUS.Booked && !sapPost;
@@ -120,7 +123,7 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
             </p>
             <div className="flex flex-wrap gap-2">
               <form action={resendToTmc.bind(null, id)}><button className="btn-secondary">Re-send to TMC (retry as-is)</button></form>
-              <form action={amendAfterFailedBooking.bind(null, id)}><button className="btn-secondary">Amend itinerary &amp; re-route</button></form>
+              <form action={recallRequest.bind(null, id)}><button className="btn-secondary">Recall &amp; edit (revert to draft)</button></form>
               <form action={cancelRequest.bind(null, id)}><button className="btn-danger">Cancel &amp; raise a new request</button></form>
             </div>
             <p className="text-xs text-amber-800 mt-2">For an urgent trip the TMC will usually contact the traveller directly; once a replacement is booked, cancel this request so no two authorisations stay live — the duplicate check blocks a re-raise until this one is cancelled or amended.</p>
@@ -137,6 +140,16 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         )}
         {canPostSap && (
           <form action={postAirfareToSap.bind(null, id)}><button className="btn-secondary">Post airfare to ERP (SAP)</button></form>
+        )}
+        {canRecall && req.bookingStatus !== BOOKING_STATUS.Failed && (
+          <form action={recallRequest.bind(null, id)} className="flex items-end gap-2 w-full border border-[var(--ecs-border)] rounded p-3 bg-[var(--ecs-panel-2)]">
+            <div>
+              <div className="text-sm font-semibold text-[var(--ecs-navy)]">Recall (before booking)</div>
+              <label className="label mt-1">Reason (optional)</label>
+              <input name="reason" className="field w-64" placeholder="e.g. travel dates changed" />
+            </div>
+            <button className="btn-secondary" title="Withdraw the pending TMC instruction and revert this request to Draft for editing. Allowed only before a segment is ticketed; the TA is re-issued on re-approval.">Recall request (revert to draft)</button>
+          </form>
         )}
         <Link href={`/requests/${id}`} className="btn-ghost">← Back to request</Link>
       </div>
@@ -261,15 +274,31 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
 
         <Card title="Booking Reconciliation (TR-15) — deviations">
           {req.deviations.length === 0 ? <Empty>No deviations.</Empty> : (
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {req.deviations.map((d) => (
                 <li key={d.id} className="text-sm flex items-start gap-2">
                   <span className={d.material ? 'pill-exc' : 'pill-info'}>{d.material ? 'Material' : 'Log only'}</span>
-                  <div>
-                    <strong>{d.field}</strong>: approved {d.approvedValue} → booked {d.bookedValue}.{' '}
-                    <span className="text-[var(--ecs-muted)]">
-                      {[d.level, d.scopeRef, d.pnr ? `PNR ${d.pnr}` : null, `Action: ${d.action}`].filter(Boolean).join(' · ')}
-                    </span>
+                  <div className="min-w-0">
+                    <div>
+                      <strong>{d.field}</strong>: approved {d.approvedValue} → booked {d.bookedValue}.{' '}
+                      <span className="text-[var(--ecs-muted)]">
+                        {[d.level, d.scopeRef, d.pnr ? `PNR ${d.pnr}` : null, `Action: ${d.action}`].filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
+                    {d.requiresEvidence && (
+                      d.evidenceAttachmentId ? (
+                        <div className="text-xs text-emerald-700 mt-0.5">✓ Offline-approval evidence attached.</div>
+                      ) : d.waivedBy ? (
+                        <div className="text-xs text-amber-800 mt-0.5">Evidence requirement waived by the claim approver{d.waiverReason ? ` — ${d.waiverReason}` : ''}.</div>
+                      ) : (
+                        <form action={uploadDeviationEvidence.bind(null, d.id)} className="mt-1 flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-amber-50 p-2">
+                          <span className="pill-warn">Evidence required (§8)</span>
+                          <span className="text-xs text-amber-900">Attach the offline approval before this trip's claim can be submitted.</span>
+                          <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" className="text-xs" />
+                          <button className="btn-secondary text-xs">Upload evidence</button>
+                        </form>
+                      )
+                    )}
                   </div>
                 </li>
               ))}

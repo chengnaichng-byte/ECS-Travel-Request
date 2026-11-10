@@ -21,7 +21,7 @@ import { sharedLegs, effectiveLegs, travellerNightsAtCity, computeTravellerShare
 import { findBlockingDuplicates, findDuplicateRequests } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
+import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember } from './traveller';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
@@ -41,7 +41,7 @@ import { assignGroupLineNos } from './groupLines';
 import { assembleOutboundInstructions, buildApprovedSnapshot, outboundFromSnapshot, snapshotApprovedAirSegments, type ApprovedSnapshot } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
-import { computeBookingDeviations, type ApprovedAirSegment } from './bookingDeviation';
+import { computeBookingDeviations, evidenceTypeFor, type ApprovedAirSegment } from './bookingDeviation';
 import { resolveTmcProvider } from './tmcRouting';
 import { bookingsForAuthorisation } from './tmcRetrieval';
 import { assessHandoffRouting, channelLabel } from './handoffRouting';
@@ -126,7 +126,7 @@ async function finalizeApproval(id: string) {
     // v1.3 / B2 Freeze the approved breakdown + itinerary (per-traveller canonical instructions).
     // The approved TR cannot change after this: the outbound hand-off and the booking-deviation
     // check read this snapshot, never recompute. A material amendment re-approves and rewrites it.
-    const snap = buildApprovedSnapshot(approved, tmcEnabledSet(await getContractSettings()));
+    const snap = buildApprovedSnapshot(approved, tmcEnabledSet(await getContractSettings()), { daysBefore: settings.maxDateShiftDaysBefore, daysAfter: settings.maxDateShiftDaysAfter });
     await prisma.travelRequest.update({ where: { id }, data: { approvedBreakdownJson: JSON.stringify(snap) } });
   }
   await audit(id, 'STATUS', reapproval ? `Amendment reapproved — Travel Authorisation ${authNo} retained` : `Final approval — Travel Authorisation ${authNo} issued`);
@@ -1595,6 +1595,41 @@ export async function withdrawRequest(id: string) {
   redirect(`/requests/${id}`);
 }
 
+/** §13.x Recall an approved-but-UNBOOKED Travel Request. Until a segment is ticketed the traveller may
+ *  recall the TA: the TMC is told to WITHDRAW the pending instruction, the approval snapshot is cleared,
+ *  and the TR reverts to an editable Draft. The TA number is retained and re-issued on re-approval
+ *  (one TR = one TA, §13.3). This REPLACES in-system post-approval amendment — the approved TR is
+ *  otherwise locked (NTU Finance: no re-approval after approval). A later inbound for this TA is then
+ *  rejected by the inbound guard, since the booking status is no longer "sent". */
+export async function recallRequest(id: string, fd?: FormData) {
+  const req = await loadRequest(id);
+  if (!req) return;
+  const persona = await currentPersonaId();
+  if (!canEditRequest(persona, req)) { await audit(id, 'STATUS', `Recall blocked — ${EcsIdentity.employee(persona)?.name ?? persona} is not authorised`); return; }
+  if (!(req.status === REQUEST_STATUS.Approved && RECALLABLE_BOOKING_STATUSES.includes(req.bookingStatus))) {
+    await audit(id, 'STATUS', `Recall blocked — request is ${req.status} / booking ${req.bookingStatus} (a ticketed booking cannot be recalled)`);
+    revalidatePath(`/requests/${id}/booking`);
+    return;
+  }
+  const reason = fd ? str(fd, 'reason') : '';
+  // Withdraw the pending instruction from the TMC (idempotent in the mock) when one was already sent.
+  if (req.bookingStatus !== BOOKING_STATUS.NotSent) {
+    const { provider } = resolveTmcProvider(req);
+    const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: provider.id };
+    await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_RECALL', tmcProviderId: provider.id, payload: JSON.stringify({ meta, mode: 'WITHDRAW', authorisationNumber: req.authorisationNo ?? '', reason: reason || 'Recalled by traveller before booking' }, null, 2) } });
+  }
+  // Revert to an editable Draft: clear the approval snapshot + validity window (re-approval re-snapshots
+  // and re-issues on the SAME TA number, retained for audit continuity). Pending approval steps for the
+  // next cycle are created fresh on resubmit.
+  await prisma.travelRequest.update({ where: { id }, data: {
+    status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
+    approvedBreakdownJson: null, authorisationExpiry: null, bookingDeadline: null,
+  } });
+  await audit(id, 'STATUS', `Recalled before booking — Travel Authorisation ${req.authorisationNo ?? ''} withdrawn from the TMC; reverted to Draft for editing${reason ? ` (${reason})` : ''}`);
+  revalidatePath(`/requests/${id}/booking`);
+  redirect(`/requests/${id}/trip`);
+}
+
 /** Send-back reopens the same request in Draft for editing (§13.2). */
 export async function reopenDraft(id: string) {
   const req = await loadRequest(id);
@@ -1830,11 +1865,12 @@ export async function receiveBooking(id: string, fd: FormData) {
     return [{ travellerId, lineNo, inbound: applyTrace(sim) }];
   });
 
-  // §6.4 / v1.3 booking-deviation checks (AC10) — at CATEGORY and SEGMENT/PNR level (bookingDeviation.ts).
-  // v1.3 / B2 the approved baseline (category totals + per-segment approved amounts) is read from the
-  // FROZEN approval snapshot, not recomputed from the live request, so an edit after approval cannot
-  // move the baseline. Falls back to the outbound message + live expenses for a pre-v1.3 request.
-  const tol = EcsPolicy.tolerances();
+  // §6.4 booking-deviation checks (AC10) — CATEGORY (airfare/accommodation amounts, travel dates) and
+  // SEGMENT/PNR (per-PNR airfare, cabin class, route). The approved baseline is read from the FROZEN
+  // approval snapshot (B2), not recomputed, so an edit after approval cannot move it; it falls back to
+  // the outbound message + live expenses for a pre-snapshot request. The approved amount is a reference,
+  // not a limit — nothing here blocks the booking; material deviations are flagged for CLAIM review.
+  const settings = await getSettings();
   const snap: ApprovedSnapshot | null = req.approvedBreakdownJson ? JSON.parse(req.approvedBreakdownJson) : null;
   const approvedAirSegments = ((snap
     ? snapshotApprovedAirSegments(snap)
@@ -1844,12 +1880,17 @@ export async function receiveBooking(id: string, fd: FormData) {
   ) as ApprovedAirSegment[]).filter((s) => s.type === 'AIR');
   const approvedAirfareSgd = snap ? snap.approvedAirfareSgd : req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare).reduce((s, e) => s + e.sgdAmount, 0);
   const approvedAccommodationSgd = snap ? snap.approvedAccommodationSgd : req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Accommodation).reduce((s, e) => s + e.sgdAmount, 0);
+  const classRankByName = Object.fromEntries(EcsReference.travelClasses().map((c) => [c.name, c.rank]));
+  const hasApprovedClassException = req.policyChecks.some((c) => c.code === 'CLASS' && c.outcome === POLICY_OUTCOME.Exception);
   const deviations = computeBookingDeviations({
     approvedAirfareSgd,
     approvedAccommodationSgd,
     approvedAirSegments,
     booked: inbounds.map((b) => ({ pnr: b.inbound.pnr, fareSgd: b.inbound.fareSgd, taxesSgd: b.inbound.taxesSgd, feesSgd: b.inbound.feesSgd, segments: b.inbound.segments })),
-    tol: { bookingFarePct: tol.bookingFarePct, bookingFareAbsSgd: tol.bookingFareAbsSgd },
+    threshold: { pct: settings.deviationThresholdPct, absSgd: settings.deviationThresholdAbsSgd },
+    classRankByName, hasApprovedClassException,
+    dateShift: { daysBefore: settings.maxDateShiftDaysBefore, daysAfter: settings.maxDateShiftDaysAfter },
+    validityEnd: req.authorisationExpiry ? req.authorisationExpiry.toISOString().slice(0, 10) : null,
   });
 
   const inboundMeta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: outbound.meta?.messageId ?? null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: providerId };
@@ -1879,7 +1920,10 @@ export async function receiveBooking(id: string, fd: FormData) {
         await tx.bookingCharge.create({ data: { bookingId: booking.id, type: c.type, expenseTypeId: c.expenseTypeId, amountSgd: c.amountSgd, gstCode: c.gstCode, gstAmountSgd: c.gstAmountSgd, gstClaimable: c.gstClaimable ?? true, pnr: c.pnr ?? inbound.pnr, ticketNumber: c.ticketNumber ?? null, segmentRef: c.segmentRef ?? null } });
       }
     }
-    for (const d of deviations) await tx.bookingDeviation.create({ data: { requestId: id, field: d.field, approvedValue: d.approved.toFixed(0), bookedValue: d.booked.toFixed(0), material: d.material, action: d.action, level: d.level, scopeRef: d.scopeRef, pnr: d.pnr } });
+    // §8 flag deviations whose type needs offline-approval evidence before the claim can be submitted.
+    const evReq = (settings.evidenceRequiredFor || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const needsEvidence = (scopeRef: string, material: boolean) => { const t = material ? evidenceTypeFor(scopeRef) : null; return t != null && evReq.includes(t); };
+    for (const d of deviations) await tx.bookingDeviation.create({ data: { requestId: id, field: d.field, approvedValue: d.approvedValue, bookedValue: d.bookedValue, material: d.material, action: d.action, level: d.level, scopeRef: d.scopeRef, pnr: d.pnr, requiresEvidence: needsEvidence(d.scopeRef, d.material) } });
     await tx.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   });
   await audit(id, 'INTEGRATION', isFanout
@@ -1887,6 +1931,11 @@ export async function receiveBooking(id: string, fd: FormData) {
     : inbounds.length > 1
       ? `Inbound received — ${inbounds.length} PNRs (${inbounds.map((b) => b.inbound.pnr).join(', ')})`
       : `Inbound booking received — PNR ${inbounds[0].inbound.pnr}`);
+  // §8 notify the traveller when a deviation needs offline-approval evidence (claim submission is blocked
+  // until it is attached or the approver waives it). Upload is allowed straight away; nothing is blocked here.
+  const evReqTypes = (settings.evidenceRequiredFor || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const evCount = deviations.filter((d) => { const t = d.material ? evidenceTypeFor(d.scopeRef) : null; return t != null && evReqTypes.includes(t); }).length;
+  if (evCount > 0) await audit(id, 'STATUS', `Offline-approval evidence required for ${evCount} booking deviation(s) — upload against the request before the claim can be submitted (§8)`);
   await postCtaChargesForRequest(id);   // DD-31 post settled CTA charges to SAP on receipt
   revalidatePath(`/requests/${id}/booking`);
 }
@@ -2073,6 +2122,28 @@ export async function addAttachment(id: string, fd: FormData) {
   });
   await audit(id, 'AMEND', `Attachment added: ${fileName}`);
   revalidatePath(`/requests/${id}`);
+}
+
+/** §8 Upload offline-approval evidence against a specific booking deviation. The attachment is linked
+ *  to the deviation (both directions); the deviation then satisfies the claim-submission evidence gate.
+ *  Upload is allowed straight away and blocks nothing at this stage. */
+export async function uploadDeviationEvidence(deviationId: string, fd: FormData) {
+  const persona = await currentPersonaId();
+  const dev = await prisma.bookingDeviation.findUnique({ where: { id: deviationId } });
+  if (!dev) return;
+  const id = dev.requestId;
+  const file = fd.get('file');
+  const ALLOWED = ['application/pdf', 'image/png', 'image/jpeg'];
+  const maxMb = (await getSettings()).attachmentMaxMb;
+  if (!(file && typeof file === 'object' && 'arrayBuffer' in file && (file as File).size > 0)) { await audit(id, 'AMEND', 'Evidence upload skipped — no file chosen'); revalidatePath(`/requests/${id}/booking`); return; }
+  const f = file as File;
+  if (!ALLOWED.includes(f.type)) { await audit(id, 'AMEND', `Evidence rejected — unsupported type ${f.type || 'unknown'} (PDF/PNG/JPEG only)`); revalidatePath(`/requests/${id}/booking`); return; }
+  if (f.size > maxMb * 1024 * 1024) { await audit(id, 'AMEND', `Evidence rejected — ${(f.size / 1048576).toFixed(1)} MB exceeds the ${maxMb} MB limit`); revalidatePath(`/requests/${id}/booking`); return; }
+  const bytes = Buffer.from(await f.arrayBuffer());
+  const att = await prisma.attachment.create({ data: { requestId: id, docType: 'OFFLINE_APPROVAL_EVIDENCE', deviationId, fileName: f.name, sizeKb: Math.max(1, Math.round(f.size / 1024)), contentType: f.type, content: bytes, uploadedById: persona } });
+  await prisma.bookingDeviation.update({ where: { id: deviationId }, data: { evidenceAttachmentId: att.id } });
+  await audit(id, 'AMEND', `Offline-approval evidence attached for deviation "${dev.field}": ${f.name}`);
+  revalidatePath(`/requests/${id}/booking`);
 }
 
 /** Attach a file from a UNIQUELY-named field under a fixed docType — for evidence uploaders that
