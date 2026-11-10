@@ -7,7 +7,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, setHotelSettlement, updateAirfare, updateAccommodation, updateOther } from '@/modules/pretrip/actions';
+import { addAirfare, addAirfareLegs, addAccommodation, addOther, deleteExpense, setHotelSettlement, updateAirfare, updateAccommodation, updateOther, dismissAirfareAlert } from '@/modules/pretrip/actions';
 import { EcsReference, EcsIdentity, EcsPolicy } from '@/shared/ecs/services';
 import { CityCapHint } from '@/components/CityCapHint';
 import { memberName, isNonEmployeeMember, isStudentMember } from '@/modules/pretrip/traveller';
@@ -113,6 +113,9 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
   // Live policy outcome per expense type — airfare above the derived entitlement, or accommodation
   // above the city cap — so the estimate shows the deviation without waiting for a policy run.
   const outcomeFor = makeOutcomeFor(req);
+  // §4.5/§13.20 itinerary-airfare overwrite alert — the Trip-step amount replaced a manual edit here.
+  let airfareAlerts: string[] = [];
+  try { airfareAlerts = req.airfareSyncAlert ? JSON.parse(req.airfareSyncAlert) : []; } catch { airfareAlerts = []; }
   // §13.14 group traveller options for individual lines, with an "All travellers" fan-out
   // (creates one line per traveller in a single submit) to speed up group request creation.
   const gTravellers: [string, string][] = [
@@ -154,6 +157,18 @@ export default async function EstimatesStep({ params, searchParams }: { params: 
     <div>
       <Stepper id={id} active="estimates" requestNumber={req.requestNumber} status={req.status} />
       {error && <div className="card p-3 mb-4 text-sm text-red-800 bg-red-50 border-red-200">{error}</div>}
+      {airfareAlerts.length > 0 && (
+        <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="font-semibold mb-1">Airfare updated from the Trip step</div>
+              <ul className="list-disc list-inside space-y-0.5">{airfareAlerts.map((a, i) => <li key={i}>{a}</li>)}</ul>
+              <p className="text-xs mt-1">The amount entered in the itinerary section stays the master and re-applies when the trip is saved. To keep a different figure, change it on the Trip step.</p>
+            </div>
+            {canEdit && <form action={dismissAirfareAlert.bind(null, id)}><button className="btn-ghost text-xs whitespace-nowrap">Dismiss</button></form>}
+          </div>
+        </div>
+      )}
       <DuplicateWarning req={req} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request's estimates.</div>}
       <ProvenanceLegend className="mb-4" />

@@ -374,6 +374,9 @@ export async function saveTrip(id: string, fd: FormData) {
   const nonTermOn = str(fd, 'nonTerm') === 'on';
   const endD = dateOrNull(fd, 'endDate');
   const nonTermDeclaredVal = req0 ? await deriveNonTermDeclared(req0, start, endD, nonTermOn) : false;
+  // §4.5/§13.20 per-journey airfare estimate (SGD) entered on the Trip step — empty/0 clears it.
+  const airfareRaw = str(fd, 'airfareEstimateSgd').trim();
+  const airfareEstimateSgd = airfareRaw ? (Number.isFinite(parseFloat(airfareRaw)) ? Math.max(0, parseFloat(airfareRaw)) : null) : null;
 
   // §13.20 The TMS cannot book a GROUP online when travellers fly different itineraries (their own
   // legs). If any traveller already holds a per-traveller itinerary and the submitted method is TMC
@@ -411,6 +414,8 @@ export async function saveTrip(id: string, fd: FormData) {
       // §13.x non-term research flag — DERIVED from the teaching calendar (fallback to attestation
       // outside the calendar); emergency is auto-determined at submit.
       nonTermDeclared: nonTermDeclaredVal,
+      // §4.5/§13.20 Trip-step airfare estimate — seeds the per-traveller Airfare line(s) below.
+      airfareEstimateSgd,
     },
   });
   // §13.14 Group: set each traveller's booked class to their OWN entitlement for this itinerary
@@ -489,6 +494,7 @@ export async function saveTrip(id: string, fd: FormData) {
   const newSig = `${start?.getTime() ?? 0}:${end?.getTime() ?? 0}:${legSig(newLegs)}`;
   await syncAutoEstimates(id, oldSig !== newSig);
   await syncPurposeItems(id); // §4.4 pre-create the purpose's declarable cost items (staff) as placeholders
+  await syncItineraryAirfare(id); // §4.5/§13.20 seed/refresh the Airfare line(s) from the Trip-step estimate
   if (draft) { await audit(id, 'STATUS', 'Saved as draft'); revalidatePath('/dashboard'); redirect('/dashboard'); }
   // §13.x Overlapping-trip gate — advancing past the Trip step requires the itinerary to be clear of
   // any LIVE authorisation for the same traveller. This uses findDuplicateRequests (the same traveller
@@ -631,7 +637,13 @@ export async function saveTravellerItinerary(id: string, employeeId: string, fd:
     // from this traveller's ODA (same rule as the shared itinerary, §4.5).
     await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: employeeId, seq: seq++, originCode: l.originCode, destCode: l.destCode, departDate: dep, arriveDate: arr, transportMode: 'AIR', nights: 0, isPersonal: !!l.isPersonal } });
   }
+  // §4.5/§13.20 this member's own airfare estimate (SGD) from their itinerary row — empty/0 → null
+  // (follow the shared request-level figure). Cleared when they revert to the shared itinerary.
+  const afRaw = str(fd, 'airfareEstimateSgd').trim();
+  const afSgd = legs.length && afRaw ? (Number.isFinite(parseFloat(afRaw)) ? Math.max(0, parseFloat(afRaw)) : null) : null;
+  await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId }, data: { airfareEstimateSgd: afSgd } });
   await syncAutoEstimates(id, true);
+  await syncItineraryAirfare(id);
   const who = EcsIdentity.employee(employeeId)?.name ?? employeeId;
   await audit(id, 'AMEND', legs.length
     ? `Per-traveller itinerary set for ${who} (${legs.length} leg${legs.length > 1 ? 's' : ''})`
@@ -987,6 +999,89 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   }
   for (const e of autoOda) if (!wantOda.has(key(e.travellerId, e.oda?.legSeq))) await prisma.estimatedExpense.delete({ where: { id: e.id } });
 
+  revalidatePath(`/requests/${id}/estimates`);
+}
+
+/** §4.5/§13.20 Seed / refresh the Airfare line(s) from the Trip-step airfare estimate. One fare per
+ *  journey: an individual request gets one airfare line; a group gets one per traveller, each seeded
+ *  with that traveller's own figure (their per-traveller itinerary row) or, failing that, the shared
+ *  request-level figure. The Trip-step amount is the MASTER — every trip save re-applies it over any
+ *  manual Estimates edit and records an alert (airfareSyncAlert) naming each line whose manual figure
+ *  was replaced; a line the traveller removed is re-created on the next save. The line itself is an
+ *  ordinary (editable / removable) airfare line — NOT autoDerived, which would lock it — marked
+ *  itinerary-sourced via itinerarySgd. Lines fly the entitlement (M6 entitlement split applies); a
+ *  class upgrade is an Estimates-side edit. Clearing the Trip field drops a still-untouched line. */
+export async function syncItineraryAirfare(id: string) {
+  const req = await loadRequest(id);
+  if (!req) return;
+  const now = new Date();
+  const onDate = req.startDate ?? now;
+  const upliftRates = await listUpliftRates();
+  const m6Codes = await m6GroupCodes();
+  const money = (n: number) => `SGD ${Math.round(n).toLocaleString('en-SG')}`;
+  const nameOf = (tid: string | null): string => {
+    if (!tid) return EcsIdentity.employee(req.travellerId ?? '')?.name ?? 'the traveller';
+    const t = req.travellers.find((x) => x.employeeId === tid);
+    if (t && isNonEmployeeMember(t)) return t.guestName ?? tid;
+    return EcsIdentity.employee(tid)?.name ?? tid;
+  };
+
+  type Scope = { tid: string | null; empId: string; amount: number | null; entitledClassId: string };
+  const scopes: Scope[] = req.isGroup
+    ? req.travellers.map((t) => ({
+        tid: t.employeeId, empId: t.employeeId,
+        amount: (t.airfareEstimateSgd ?? req.airfareEstimateSgd) ?? null,
+        entitledClassId: t.chosenClassId ?? t.entitledClassId ?? 'TC-ECO',
+      }))
+    : [{ tid: null, empId: req.travellerId ?? 'E-TRAV', amount: req.airfareEstimateSgd ?? null, entitledClassId: req.entitledClassId ?? req.travelClassId ?? 'TC-ECO' }];
+
+  // Itinerary-sourced airfare lines are those carrying itinerarySgd (manual addAirfare lines don't).
+  const airfareLines = req.expenses.filter((e) => e.category === EXPENSE_CATEGORY.Airfare);
+  const seeded = airfareLines.filter((e) => e.itinerarySgd != null);
+  const alerts: string[] = [];
+  for (const s of scopes) {
+    let existing = seeded.find((e) => (e.travellerId ?? '') === (s.tid ?? ''));
+    // ADOPT a sole pre-existing airfare line for this scope (manual / demo-seeded, itinerarySgd=null)
+    // rather than add a parallel line — the itinerary field governs "the" airfare line. Only when there
+    // is exactly one (a multi-leg traveller with several airfare lines keeps them; a new line is made).
+    if (!existing && s.amount != null && s.amount > 0) {
+      const orphans = airfareLines.filter((e) => e.itinerarySgd == null && (e.travellerId ?? '') === (s.tid ?? ''));
+      if (orphans.length === 1) existing = orphans[0];
+    }
+    if (s.amount == null || s.amount <= 0) {
+      // Trip field cleared for this scope — drop the seeded line, unless the traveller edited it.
+      if (existing && existing.sgdAmount === existing.itinerarySgd) await prisma.estimatedExpense.delete({ where: { id: existing.id } });
+      continue;
+    }
+    const legs = effectiveLegs(req, s.tid ?? undefined).filter((l) => !l.isPersonal).sort((a, b) => a.seq - b.seq);
+    const origin = legs[0]?.originCode ?? 'SIN';
+    const dest = legs.find((l) => (EcsReference.airport(l.destCode)?.cityCode ?? l.destCode) !== 'SIN')?.destCode ?? legs[0]?.destCode ?? '';
+    const economyBase = m6EconomyBaseSgd(upliftRates, m6Codes, { fareSgd: s.amount, employeeId: s.empId, entitledClassId: s.entitledClassId, proposedClassId: s.entitledClassId, onDate });
+    const data = {
+      currency: 'SGD', foreignAmount: s.amount, sgdAmount: s.amount, estimateBasis: 'QUOTED',
+      originCode: origin, destCode: dest, proposedClassId: s.entitledClassId, fareCeiling: s.amount,
+      entitlementFareSgd: economyBase, upgradeFunding: economyBase != null ? 'NTU' : null,
+      itinerarySgd: s.amount,
+    };
+    if (existing) {
+      // sgdAmount drifting from itinerarySgd means the line was edited in Estimates — re-applying the
+      // Trip-step figure replaces that edit, so flag it (only when the value actually changes).
+      if (existing.sgdAmount !== existing.itinerarySgd && existing.sgdAmount !== s.amount) {
+        alerts.push(`${nameOf(s.tid)}: airfare reset to ${money(s.amount)} from the Trip step — the Estimates figure of ${money(existing.sgdAmount)} was replaced.`);
+      }
+      await prisma.estimatedExpense.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', autoDerived: false, handoffStatus: 'Pending', travellerId: s.tid, ...data } });
+    }
+  }
+  await prisma.travelRequest.update({ where: { id }, data: { airfareSyncAlert: alerts.length ? JSON.stringify(alerts) : null } });
+  revalidatePath(`/requests/${id}/estimates`);
+}
+
+/** Clear the itinerary-airfare overwrite banner once the traveller has seen it. */
+export async function dismissAirfareAlert(id: string) {
+  if (!(await requireEdit(id))) return;
+  await prisma.travelRequest.update({ where: { id }, data: { airfareSyncAlert: null } });
   revalidatePath(`/requests/${id}/estimates`);
 }
 

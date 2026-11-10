@@ -68,6 +68,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
     name: memberName(t),
     legs: req.legs.filter((l) => l.travellerId === t.employeeId).sort((a, b) => a.seq - b.seq)
       .map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), isPersonal: l.isPersonal })),
+    airfareEstimateSgd: t.airfareEstimateSgd,
     action: saveTravellerItinerary.bind(null, id, t.employeeId),
   })) : [];
 
@@ -154,6 +155,8 @@ export default async function TripStep({ params, searchParams }: { params: Promi
         action={saveTrip.bind(null, id)}
         header={purposeCard}
         perTravellerCard={perTravellerCard}
+        initialAirfareSgd={req.airfareEstimateSgd != null ? String(req.airfareEstimateSgd) : ''}
+        isGroup={req.isGroup}
         airports={airports.map((a) => ({ code: a.code, name: a.name }))}
         airportMeta={airportMeta}
         initialTripType={tripType}

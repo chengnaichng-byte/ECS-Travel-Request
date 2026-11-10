@@ -67,6 +67,7 @@ export function TripPlanner({
   initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
   continueHref, disabled, conflicts, footer,
   action, header, perTravellerCard, saveFormId = 'trip-form',
+  initialAirfareSgd = '', isGroup = false,
 }: {
   airports: Opt[];
   airportMeta: Record<string, AirportMeta>;
@@ -75,6 +76,9 @@ export function TripPlanner({
   initialStart: string; initialEnd: string; initialEventStart: string; initialEventEnd: string; initialPersonalStart: string; initialPersonalEnd: string;
   continueHref: string;
   disabled?: boolean;
+  // §4.5/§13.20 per-journey airfare estimate (SGD). Seeds the Airfare line(s) on the Estimates step.
+  initialAirfareSgd?: string;
+  isGroup?: boolean;
   // Live requests sharing a traveller — the Trip step runs the duplicate/overlap check against the
   // itinerary being entered and shows it in the validation panel (not only at the Submit gate).
   conflicts?: TravellerConflict[];
@@ -319,6 +323,18 @@ export function TripPlanner({
             {multi && !disabled && <button type="button" className="btn-secondary mt-2" onClick={addLeg}>＋ Add leg</button>}
             <p className="text-xs text-[var(--ecs-muted)] mt-2">
               Airports are the shared ECS Location master (IATA) — the same reference the TMC books against; each leg&apos;s code is carried verbatim into the booking instruction. In production this master is synced from the TMC/GDS airport feed. The main destination (for ODA defaults and class entitlement) is the longest-stay country — and the longest-stay city within it — derived from the legs on save.
+            </p>
+          </div>
+
+          {/* §4.5/§13.20 Estimated airfare — seeds the Airfare line(s) on the Estimates step. */}
+          <div>
+            <label className="label">Estimated airfare{isGroup ? ' (SGD, per traveller)' : ' (SGD)'}</label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[var(--ecs-muted)]">SGD</span>
+              <input type="number" min="0" step="1" name="airfareEstimateSgd" defaultValue={initialAirfareSgd} disabled={disabled} className="field w-48" placeholder="e.g. 1200" />
+            </div>
+            <p className="text-xs text-[var(--ecs-muted)] mt-1">
+              Optional. Seeds an Airfare line on the Estimates step{isGroup ? ' for each traveller' : ''} at the entitled class — you can edit or remove it there. This amount stays the master: re-saving the trip re-applies it and flags any Estimates edit it replaced.{isGroup ? ' A traveller with their own itinerary sets their own fare in the Per-traveller itineraries section below.' : ''}
             </p>
           </div>
 

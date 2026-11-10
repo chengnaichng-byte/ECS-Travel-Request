@@ -153,6 +153,13 @@ model TravelRequest {
   bookingMethod     String?                         // §2.2 TMC channel sub-method (TMC_ONLINE | AGENT_ASSISTED | OFFLINE), only when arranged via a TMC
   chargingMode      String   @default("REQUEST")    // §17 REQUEST (whole-request split) | LINE (cross-charge per cost line)
   hotelSettlement   String   @default("INDIVIDUAL")  // DD-19 hotel payment channel: INDIVIDUAL (employee pays & claims) | CTA (central-billed, reference-only). Requestor choice, gated to TMC arrangements. Airfare is always central; this covers hotel only.
+  // §4.5/§13.20 Itinerary-entered airfare estimate. The Trip step captures a per-journey airfare
+  // amount (SGD) that SEEDS one Airfare line per traveller on the Estimates step (syncItineraryAirfare);
+  // a deviating group member's own figure lives on their TravelRequestTraveller row. The Trip-step
+  // amount stays the master — re-saving the trip re-applies it and, when it overwrote a manual
+  // Estimates edit, records a message in airfareSyncAlert (a JSON array shown + dismissed on Estimates).
+  airfareEstimateSgd Float?
+  airfareSyncAlert   String?
 
   // Derived approval routing snapshot
   approvalAmountSgd  Float?                         // amount basis result (SGD, §13.4)
@@ -255,6 +262,9 @@ model TravelRequestTraveller {
   ownStartDate    DateTime?
   ownEndDate      DateTime?
   legOverrideNote String?
+  // §4.5/§13.20 this member's own itinerary-entered airfare estimate (SGD), set on their per-traveller
+  // itinerary row. Null = follow the request-level airfareEstimateSgd. Seeds their Airfare line.
+  airfareEstimateSgd Float?
 }
 
 /// §7.1 / §13.1 immutable submitted/approved snapshots
@@ -320,6 +330,10 @@ model EstimatedExpense {
   proposedClassId String?
   fareCeiling    Float?
   handoffStatus  String?
+  // §4.5/§13.20 itinerary-seeded airfare: the last airfare amount written from the Trip step. Present
+  // only on an itinerary-sourced airfare line (alongside autoDerived). A manual Estimates edit moves
+  // sgdAmount away from this value; syncItineraryAirfare uses the difference to alert on an overwrite.
+  itinerarySgd   Float?
   // #7/#14 travel-class upgrade. entitlementFareSgd is DERIVED (Model B): entitlement = sgdAmount / (1 + upliftPct(step)),
   // so delta = sgdAmount - entitlement. It is stored here so every downstream reader works unchanged.
   entitlementFareSgd Float?                  // derived entitlement-class fare; delta = sgdAmount - this

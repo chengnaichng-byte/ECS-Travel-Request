@@ -8,7 +8,7 @@
 import { useState } from 'react';
 
 interface Leg { originCode: string; destCode: string; departDate: string; arriveDate: string; isPersonal: boolean }
-export interface ItineraryMember { employeeId: string; name: string; legs: Leg[]; action: (fd: FormData) => Promise<void> }
+export interface ItineraryMember { employeeId: string; name: string; legs: Leg[]; airfareEstimateSgd?: number | null; action: (fd: FormData) => Promise<void> }
 
 // Nights at a leg's destination are AUTO-COMPUTED from the dates — the stay lasts from arriving at
 // this leg's destination until the next leg departs (the last leg home has no onward departure → 0).
@@ -43,6 +43,7 @@ function MemberRow({ m, airports }: { m: ItineraryMember; airports: [string, str
   const addLeg = () => setLegs((ls) => [...ls, blank(ls[ls.length - 1]?.destCode || 'SIN')]);
   const delLeg = (i: number) => setLegs((ls) => ls.filter((_, j) => j !== i));
   const move = (i: number, dir: -1 | 1) => setLegs((ls) => { const j = i + dir; if (j < 0 || j >= ls.length) return ls; const c = [...ls]; [c[i], c[j]] = [c[j], c[i]]; return c; });
+  const [airfare, setAirfare] = useState(m.airfareEstimateSgd != null ? String(m.airfareEstimateSgd) : '');
   const json = JSON.stringify(legs.filter((l) => l.originCode && l.destCode).map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: l.departDate, arriveDate: l.arriveDate, isPersonal: l.isPersonal })));
 
   return (
@@ -81,10 +82,15 @@ function MemberRow({ m, airports }: { m: ItineraryMember; airports: [string, str
               </tbody>
             </table>
           </div>
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-end gap-2 pt-1">
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-[var(--ecs-muted)] block mb-0.5">Estimated airfare (SGD)</label>
+              <input type="number" min="0" step="1" name="airfareEstimateSgd" value={airfare} onChange={(e) => setAirfare(e.target.value)} className="field w-40" placeholder="e.g. 1400" />
+            </div>
             <button type="button" onClick={addLeg} className="btn-secondary text-xs">＋ Add leg</button>
             <button className="btn-primary text-xs">Save itinerary</button>
           </div>
+          <p className="text-[11px] text-[var(--ecs-muted)]">Seeds this traveller&apos;s Airfare line on the Estimates step (overrides the shared amount). Editable there; this figure re-applies on save.</p>
         </form>
       )}
 
