@@ -8,6 +8,7 @@ import { CONTRACT_FIELDS, CONTRACT_GUARDS } from '@/config/integrationContracts'
 import { evaluateFlow } from '@/modules/pretrip/integration';
 import { isResearchByCharging } from '@/modules/pretrip/research';
 import { resolveClaimTraveller } from '@/modules/te/claimRemit';
+import { recallEligible } from '@/modules/pretrip/booking';
 import { RECALLABLE_BOOKING_STATUSES, STATUS_TRANSITIONS, BOOKING_STATUS, REQUEST_STATUS } from '@/shared/enums';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -344,6 +345,15 @@ function mixedGrpReq(): FullRequest {
   ok('claim: a requestor who is neither member nor delegate is blocked', blocked.travellerId === null);
   const indiv = resolveClaimTraveller(['E-5', null], 'E-5', []);
   ok('claim: individual request, the traveller claims', indiv.travellerId === 'E-5' && indiv.onBehalf === false);
+}
+
+// ---------- GRP-8: recall available during approval and approved-unbooked, not once booked ----------
+{
+  const RB = RECALLABLE_BOOKING_STATUSES;
+  ok('recall: pending (in approval) is recallable', recallEligible('Pending DOA Approval', BOOKING_STATUS.NotSent, RB) === true);
+  ok('recall: approved + unbooked is recallable', recallEligible(REQUEST_STATUS.Approved, BOOKING_STATUS.NotSent, RB) === true);
+  ok('recall: approved + booked is NOT recallable', recallEligible(REQUEST_STATUS.Approved, BOOKING_STATUS.Booked, RB) === false);
+  ok('recall: a draft is not recallable', recallEligible(REQUEST_STATUS.Draft, BOOKING_STATUS.NotSent, RB) === false);
 }
 
 console.log(log.join('\n'));

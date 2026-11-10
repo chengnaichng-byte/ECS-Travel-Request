@@ -10,6 +10,8 @@ import { currentPersonaId } from '@/shared/session';
 import { computeSummary } from '@/modules/pretrip/pricing';
 import { RequestChrome } from '@/components/RequestChrome';
 import { RequestFullDetails } from '@/components/RequestFullDetails';
+import { canEditRequest } from '@/modules/pretrip/guards';
+import { recallRequest } from '@/modules/pretrip/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +29,14 @@ export default async function RequestDetailsPage({ params }: { params: Promise<{
   return (
     <div className="w-full space-y-5">
       <RequestChrome req={req} id={id} persona={persona} settings={settings} />
+
+      {/* §GRP-8 recall during approval — revert to Draft to add or remove a group member, then resubmit. */}
+      {canEditRequest(persona, req) && req.status.startsWith('Pending') && (
+        <div className="card p-3 flex flex-wrap items-center justify-between gap-3 bg-[var(--ecs-panel-2)]">
+          <div className="text-sm text-[var(--ecs-muted)]">This request is in approval. To change the trip or the group membership{req.isGroup ? ' (add or remove a member)' : ''}, recall it to Draft. It will go through approval again on resubmission.</div>
+          <form action={recallRequest.bind(null, id)}><button className="btn-secondary whitespace-nowrap">Recall to Draft</button></form>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-3 border-t border-[var(--ecs-border)] pt-4">
         <h2 className="text-sm font-semibold text-[var(--ecs-muted)] uppercase tracking-wide">Full Details</h2>

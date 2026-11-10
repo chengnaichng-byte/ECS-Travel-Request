@@ -22,7 +22,7 @@ import { findBlockingDuplicates, findDuplicateRequests } from './duplicates';
 import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './amend';
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
-import { isTmcArrangement, providerFromArrangement } from './booking';
+import { isTmcArrangement, providerFromArrangement, recallEligible } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember } from './traveller';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
 import { ruleActive } from '@/config/policyRules';
@@ -1740,7 +1740,10 @@ export async function recallRequest(id: string, fd?: FormData) {
   if (!req) return;
   const persona = await currentPersonaId();
   if (!canEditRequest(persona, req)) { await audit(id, 'STATUS', `Recall blocked — ${EcsIdentity.employee(persona)?.name ?? persona} is not authorised`); return; }
-  if (!(req.status === REQUEST_STATUS.Approved && RECALLABLE_BOOKING_STATUSES.includes(req.bookingStatus))) {
+  // §GRP-8 recall is available while the request is still IN approval (Pending-*), as well as after
+  // approval while unbooked. A ticketed booking cannot be recalled.
+  const inApproval = req.status.startsWith('Pending');
+  if (!recallEligible(req.status, req.bookingStatus, RECALLABLE_BOOKING_STATUSES)) {
     await audit(id, 'STATUS', `Recall blocked — request is ${req.status} / booking ${req.bookingStatus} (a ticketed booking cannot be recalled)`);
     revalidatePath(`/requests/${id}/booking`);
     return;
@@ -1759,7 +1762,12 @@ export async function recallRequest(id: string, fd?: FormData) {
     status: REQUEST_STATUS.Draft, bookingStatus: BOOKING_STATUS.NotSent,
     approvedBreakdownJson: null, authorisationExpiry: null, bookingDeadline: null,
   } });
-  await audit(id, 'STATUS', `Recalled before booking — Travel Authorisation ${req.authorisationNo ?? ''} withdrawn from the TMC; reverted to Draft for editing${reason ? ` (${reason})` : ''}`);
+  // §GRP-8 a request recalled during approval has live Pending steps — skip them so a fresh route is
+  // built on resubmit (an approved request has none pending; this is a harmless no-op there).
+  await prisma.approvalStep.updateMany({ where: { requestId: id, status: 'Pending' }, data: { status: 'Skipped' } });
+  await audit(id, 'STATUS', inApproval
+    ? `Recalled during approval — reverted to Draft for editing (e.g. to add or remove a group member)${reason ? ` (${reason})` : ''}`
+    : `Recalled before booking — Travel Authorisation ${req.authorisationNo ?? ''} withdrawn from the TMC; reverted to Draft for editing${reason ? ` (${reason})` : ''}`);
   revalidatePath(`/requests/${id}/booking`);
   redirect(`/requests/${id}/trip`);
 }
