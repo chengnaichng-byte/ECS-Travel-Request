@@ -33,7 +33,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     drafts: { label: 'Drafts to finish', pred: (r) => r.status === REQUEST_STATUS.Draft || r.status === REQUEST_STATUS.SentBack },
     pending: { label: 'Awaiting approval', pred: (r) => r.status.startsWith('Pending') },
     unbooked: { label: 'Approved, not booked', pred: (r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus === BOOKING_STATUS.NotSent },
-    toclaim: { label: 'Completed, to claim', pred: (r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus !== BOOKING_STATUS.NotSent && !(r.claims && r.claims.length) },
+    toclaim: { label: 'Trips to claim', pred: (r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus !== BOOKING_STATUS.NotSent && !(r.claims && r.claims.length) },
     upcoming: { label: 'Upcoming trips', pred: (r) => r.status === REQUEST_STATUS.Approved && !!r.startDate && r.startDate >= today0 },
   };
   const activeView = view && VIEWS[view] ? VIEWS[view] : null;

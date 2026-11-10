@@ -85,7 +85,7 @@ export default async function Home() {
     { key: 'drafts', label: 'Drafts to finish', value: drafts.length, ink: '#854f0b' },
     { key: 'pending', label: 'Awaiting approval', value: pending.length, ink: '#185fa5' },
     { key: 'unbooked', label: 'Approved, not booked', value: approvedUnbooked.length, ink: '#0f6e56' },
-    { key: 'toclaim', label: 'Completed, to claim', value: toClaim.length, ink: '#993556' },
+    { key: 'toclaim', label: 'Trips to claim', value: toClaim.length, ink: '#993556' },
     { key: 'upcoming', label: 'Upcoming trips', value: upcoming.length, ink: '#3c3489' },
   ];
 
