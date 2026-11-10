@@ -4,8 +4,9 @@
 // systems (ECS, TMC, Workday) are grouped and marked as opening elsewhere. Per-tile permission gating.
 import Link from 'next/link';
 import { currentPersona, currentPersonaId } from '@/shared/session';
-import { ROLE, REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
+import { ROLE, REQUEST_STATUS, BOOKING_STATUS, APPROVER_ROLE } from '@/shared/enums';
 import { listRequests } from '@/modules/pretrip/queries';
+import { prisma } from '@/shared/db';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
 
@@ -14,8 +15,8 @@ export const dynamic = 'force-dynamic';
 const ECS_URL = 'https://apps.ntu.edu.sg/ECS';
 const ECS_REPORTING_URL = 'https://apps.ntu.edu.sg/ECS/ReportingDashboard';
 
-type State = 'live' | 'ecs' | 'soon';
-interface Tile { title: string; desc: string; href: string; external?: boolean; state: State; tint: string; ink: string; icon: React.ReactNode; show: boolean; group: string }
+type State = 'live' | 'ecs' | 'soon' | 'ext';
+interface Tile { title: string; desc: string; href: string; state: State; tint: string; ink: string; icon: React.ReactNode; show: boolean; group: string; count?: number }
 
 const I = (d: string) => <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: d }} />;
 const ICON = {
@@ -28,17 +29,25 @@ const ICON = {
   policy: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3.5s-2.5 0-4 1.5L13.5 8.5 5.2 6.8c-.6-.1-.9.1-1.1.5l-.3.5c-.2.4-.1.9.3 1.1L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 2.3 4.8c.2.4.7.5 1.1.3l.5-.3c.4-.2.6-.5.5-1.1z"/>',
+  exception: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  additional: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
+  chart: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
 };
 
 function statHref(key: string) { return `/dashboard?view=${key}`; }
+
+const Badge = ({ children }: { children: React.ReactNode }) => <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] border border-[var(--ecs-border)] text-[var(--ecs-muted)]">{children}</span>;
+const ExtIcon = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>;
 
 function TileCard({ t }: { t: Tile }) {
   const inner = (
     <>
       <span className="absolute top-3.5 right-3.5">
-        {t.state === 'live' && <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ecs-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>}
-        {t.state === 'ecs' && <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] border border-[var(--ecs-border)] text-[var(--ecs-muted)]"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>ECS</span>}
-        {t.state === 'soon' && <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] border border-[var(--ecs-border)] text-[var(--ecs-muted)]"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Soon</span>}
+        {t.count != null && <span className={`inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full text-[12px] font-semibold ${t.count ? 'bg-[var(--ecs-navy)] text-white' : 'bg-[var(--ecs-panel)] text-[var(--ecs-muted)] border border-[var(--ecs-border)]'}`}>{t.count}</span>}
+        {t.count == null && t.state === 'live' && <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ecs-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>}
+        {t.count == null && t.state === 'ecs' && <Badge><ExtIcon />ECS</Badge>}
+        {t.count == null && t.state === 'ext' && <Badge><ExtIcon />Opens elsewhere</Badge>}
+        {t.count == null && t.state === 'soon' && <Badge><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Soon</Badge>}
       </span>
       <span className="inline-flex items-center justify-center w-10 h-10 rounded-[10px]" style={{ background: t.tint, color: t.ink }}>{t.icon}</span>
       <div>
@@ -49,7 +58,8 @@ function TileCard({ t }: { t: Tile }) {
   );
   const base = 'relative flex flex-col gap-2.5 min-h-[118px] rounded-xl border border-[var(--ecs-border)] bg-white p-4';
   if (t.state === 'live') return <Link href={t.href} className={`${base} hover:border-[var(--ecs-navy-2)] hover:shadow-sm transition`}>{inner}</Link>;
-  if (t.state === 'ecs') return <a href={t.href} target="_blank" rel="noopener noreferrer" className={`${base} hover:border-[var(--ecs-navy-2)] transition`} title="Opens the ECS expense-claim system">{inner}</a>;
+  if (t.state === 'ecs') return <a href={t.href} target="_blank" rel="noopener noreferrer" className={`${base} hover:border-[var(--ecs-navy-2)] transition`} title="Opens in ECS">{inner}</a>;
+  if (t.state === 'ext') return <a href={t.href} target="_blank" rel="noopener noreferrer" className={`${base} hover:border-[var(--ecs-navy-2)] transition`} title="Opens the TMC online booking tool (URL set per deployment)">{inner}</a>;
   return <div className={`${base} cursor-not-allowed`} aria-disabled="true" title="Not yet built in this prototype">{inner}</div>;
 }
 
@@ -83,30 +93,49 @@ export default async function Home() {
   const nextDest = next ? (EcsReference.city(next.destCity ?? '')?.name ?? next.destCountry ?? 'Destination to be set') : null;
   const fmt = (d: Date | null) => d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
+  // §13.22 Awaiting-my-approval tiles (approvers only): split the pending-my-approval queue by the
+  // CURRENT pending step's role type. listRequests omits approval steps, so query directly here.
+  const approvalCounts = { rodoa: 0, exception: 0, additional: 0 };
+  if (isApprover) {
+    const approverReqs = await prisma.travelRequest.findMany({
+      where: { approvalSteps: { some: { approverId: personaId, status: 'Pending' } } },
+      select: { approvalSteps: { select: { seq: true, status: true, approverId: true, roleType: true }, orderBy: { seq: 'asc' } } },
+    });
+    for (const r of approverReqs) {
+      const cur = r.approvalSteps.find((s) => s.status === 'Pending'); // first pending (seq asc) = the active step
+      if (cur && cur.approverId === personaId) {
+        const b = cur.roleType === APPROVER_ROLE.Exception ? 'exception' : cur.roleType === APPROVER_ROLE.AdditionalApprover ? 'additional' : 'rodoa';
+        approvalCounts[b]++;
+      }
+    }
+  }
+  const isFinance = EcsIdentity.hasRole(personaId, 'FINANCE_VIEWER');
+  const showReports = isAdmin || isApprover || isFinance;
+  const TMC_URL = '#'; // TMC online booking tool — URL set per deployment
+
   const tiles: Tile[] = [
+    // Awaiting my approval (approvers only) — three step-type tiles with live counts
+    { group: 'Awaiting my approval', title: 'RO / DOA', desc: 'Reporting officer and DOA steps', href: '/approvals?role=rodoa', state: 'live', count: approvalCounts.rodoa, tint: '#e6f1fb', ink: '#185fa5', icon: I(ICON.approve), show: isApprover },
+    { group: 'Awaiting my approval', title: 'Exception', desc: 'Policy exception approvals', href: '/approvals?role=exception', state: 'live', count: approvalCounts.exception, tint: '#faeeda', ink: '#854f0b', icon: I(ICON.exception), show: isApprover },
+    { group: 'Awaiting my approval', title: 'Additional approval', desc: 'Requestor-added approver steps', href: '/approvals?role=additional', state: 'live', count: approvalCounts.additional, tint: '#eeedfe', ink: '#3c3489', icon: I(ICON.additional), show: isApprover },
     // Plan & request
     { group: 'Plan & request', title: 'Raise a travel request', desc: 'Start a new pre-trip request', href: '/requests/new', state: 'live', tint: '#e6f1fb', ink: '#185fa5', icon: I(ICON.raiseTR), show: true },
     { group: 'Plan & request', title: 'My travel requests', desc: 'Track status, approvals and bookings', href: '/dashboard', state: 'live', tint: '#e1f5ee', ink: '#0f6e56', icon: I(ICON.myTR), show: true },
     { group: 'Plan & request', title: 'Find a policy', desc: 'Travel policy and your entitlements', href: '/policy', state: 'live', tint: '#eaf3de', ink: '#3b6d11', icon: I(ICON.policy), show: true },
-    // Approvals (approver only)
-    { group: 'Approvals', title: 'Awaiting my approval', desc: 'Requests waiting on your decision', href: '/approvals', state: 'live', tint: '#faeeda', ink: '#854f0b', icon: I(ICON.approve), show: isApprover },
+    // Book & travel
+    { group: 'Book & travel', title: 'Book your trip (TMC)', desc: 'Online booking tool, once approved', href: TMC_URL, state: 'ext', tint: '#e6f1fb', ink: '#185fa5', icon: I(ICON.plane), show: true },
     // Claim & settle
-    { group: 'Claim & settle', title: 'Raise an expense claim', desc: 'Travel (TE) or general (GE) claim', href: ECS_URL, external: true, state: 'ecs', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.receipt), show: true },
-    { group: 'Claim & settle', title: 'My claims', desc: 'Track your TE and GE claims', href: ECS_URL, external: true, state: 'ecs', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.wallet), show: true },
+    { group: 'Claim & settle', title: 'Raise an expense claim', desc: 'Travel (TE) or general (GE) claim', href: ECS_URL, state: 'ecs', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.receipt), show: true },
+    { group: 'Claim & settle', title: 'My claims', desc: 'Track your TE and GE claims', href: ECS_URL, state: 'ecs', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.wallet), show: true },
     // Your account
     { group: 'Your account', title: 'My profile', desc: 'Your details, grade and default charging', href: '/staff-profile', state: 'live', tint: '#eeedfe', ink: '#3c3489', icon: I(ICON.user), show: true },
     { group: 'Your account', title: 'Announcements', desc: 'Travel notices and policy updates', href: '#', state: 'soon', tint: '#fcf3d6', ink: '#7a5a00', icon: I(ICON.megaphone), show: true },
+    // Reports (approvers / admin / finance) — the single ECS reporting hub
+    { group: 'Reports', title: 'Reporting Dashboard', desc: 'All reports: admin, finance and CTA', href: ECS_REPORTING_URL, state: 'ecs', tint: '#eaf3de', ink: '#3b6d11', icon: I(ICON.chart), show: showReports },
   ];
-  const groups = ['Plan & request', 'Approvals', 'Claim & settle', 'Your account']
+  const groups = ['Awaiting my approval', 'Plan & request', 'Book & travel', 'Claim & settle', 'Your account', 'Reports']
     .map((g) => ({ g, items: tiles.filter((t) => t.group === g && t.show) }))
     .filter((x) => x.items.length);
-
-  const extSystems = [
-    { label: 'ECS claim system', note: 'Expense claims (TE / GE)', href: ECS_URL, live: true },
-    { label: 'Reporting Dashboard', note: 'Existing ECS reports', href: ECS_REPORTING_URL, live: true },
-    { label: 'Travel booking (TMC)', note: 'Online booking tool', href: '#', live: false },
-    { label: 'Workday', note: 'Cost objects & charging', href: '#', live: false },
-  ];
 
   return (
     <div className="w-full max-w-6xl">
@@ -150,28 +179,8 @@ export default async function Home() {
         ))}
       </div>
 
-      {/* Other systems — links that leave this app. */}
-      <section className="mt-7">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ecs-muted)] mb-2">Other systems</h2>
-        <div className="flex flex-wrap gap-2">
-          {extSystems.map((x) => x.live ? (
-            <a key={x.label} href={x.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-[var(--ecs-border)] bg-white px-3 py-2 text-sm hover:border-[var(--ecs-navy-2)] transition">
-              <span className="font-medium text-[var(--ecs-navy)]">{x.label}</span>
-              <span className="text-xs text-[var(--ecs-muted)]">{x.note}</span>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ecs-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6" /><path d="M10 14 21 3" /></svg>
-            </a>
-          ) : (
-            <span key={x.label} className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--ecs-border)] bg-[var(--ecs-panel)] px-3 py-2 text-sm cursor-default" title="External system — link configured per deployment">
-              <span className="font-medium text-[var(--ecs-muted)]">{x.label}</span>
-              <span className="text-xs text-[var(--ecs-muted)]">{x.note}</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--ecs-border)] text-[var(--ecs-muted)]">per deployment</span>
-            </span>
-          ))}
-        </div>
-      </section>
-
-      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--ecs-muted)]">
-        <span className="inline-flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>ECS = opens in the claim system.</span>
+      <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--ecs-muted)]">
+        <span className="inline-flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>ECS = opens in ECS.</span>
         <span className="inline-flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Soon = not yet built.</span>
         <span>Use the menu button (top-left) to collapse or open the side menu.</span>
       </div>

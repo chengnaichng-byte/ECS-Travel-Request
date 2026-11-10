@@ -18,9 +18,13 @@ import { SortableTable } from '@/components/SortableTable';
 export const dynamic = 'force-dynamic';
 function fmtDate(d: Date | null) { return d ? d.toISOString().slice(0, 10) : '—'; }
 
-export default async function Approvals({ searchParams }: { searchParams: Promise<{ tab?: string; status?: string }> }) {
-  const { tab, status } = await searchParams;
+export default async function Approvals({ searchParams }: { searchParams: Promise<{ tab?: string; status?: string; role?: string }> }) {
+  const { tab, status, role } = await searchParams;
   const activeTab = tab === 'claims' ? 'claims' : 'requests';
+  // §13.22 home approval tiles deep-link by step type: ?role=rodoa|exception|additional narrows the
+  // pending-my-approval queue to that kind of step.
+  const ROLE_VIEWS: Record<string, string> = { rodoa: 'RO / DOA', exception: 'Exception', additional: 'Additional approval' };
+  const roleFilter = role && ROLE_VIEWS[role] ? role : null;
   // Status filter on the Travel Requests tab — default is the actionable queue (pending my
   // approval); the approver can widen it to what they have approved (incl. auto-granted) or to
   // every request they are a named approver on.
@@ -55,9 +59,15 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
     return !!s && (s.comments ?? '').includes('self-approved on submission');
   };
   const mine = approverReqs.filter(isMyPending);
+  // Bucket a request by its CURRENT pending step's role type (matches the home approval tiles).
+  const stepBucket = (r: typeof approverReqs[number]) => {
+    const rt = r.approvalSteps.find((s) => s.status === 'Pending')?.roleType ?? '';
+    return rt === 'EXCEPTION' ? 'exception' : rt === 'ADDITIONAL_APPROVER' ? 'additional' : 'rodoa';
+  };
+  const minePending = roleFilter ? mine.filter((r) => stepBucket(r) === roleFilter) : mine;
   const shown = reqFilter === 'approved' ? approverReqs.filter((r) => !!myDecidedStep(r))
     : reqFilter === 'all' ? approverReqs
-    : mine;
+    : minePending;
   const sentBack = await prisma.travelRequest.count({ where: { status: 'Sent Back' } });
   const reqCardTitle = reqFilter === 'approved' ? `Travel Requests approved by you (${shown.length})`
     : reqFilter === 'all' ? `Travel Requests where you are an approver (${shown.length})`
@@ -124,6 +134,12 @@ export default async function Approvals({ searchParams }: { searchParams: Promis
               </Link>
             ))}
           </div>
+          {roleFilter && reqFilter === 'pending' && (
+            <div className="flex items-center justify-between gap-3 mb-3 text-xs rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel)] px-3 py-2">
+              <span className="text-[var(--ecs-navy)]">Showing <strong>{ROLE_VIEWS[roleFilter]}</strong> steps pending your approval ({minePending.length})</span>
+              <Link href="/approvals?tab=requests" className="btn-ghost text-xs">Clear</Link>
+            </div>
+          )}
           {shown.length === 0 ? (
             <Empty>{reqFilter === 'approved'
               ? `No requests approved by you (as ${EcsIdentity.employee(persona)?.name}) yet.`
