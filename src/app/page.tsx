@@ -4,7 +4,7 @@
 // systems (ECS, TMC, Workday) are grouped and marked as opening elsewhere. Per-tile permission gating.
 import Link from 'next/link';
 import { currentPersona, currentPersonaId } from '@/shared/session';
-import { ROLE, REQUEST_STATUS, BOOKING_STATUS, APPROVER_ROLE } from '@/shared/enums';
+import { ROLE, REQUEST_STATUS, BOOKING_STATUS, APPROVER_ROLE, CLAIM_STATUS } from '@/shared/enums';
 import { listRequests } from '@/modules/pretrip/queries';
 import { prisma } from '@/shared/db';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
@@ -81,12 +81,25 @@ export default async function Home() {
   const upcoming = scoped.filter((r) => r.status === REQUEST_STATUS.Approved && r.startDate && r.startDate >= today0)
     .sort((a, b) => (a.startDate!.getTime()) - (b.startDate!.getTime()));
 
+  // §13.22 Claim-side stats — the traveller's own expense claims (the TE claims the prototype holds),
+  // so the band spans the whole ECS journey (request -> book -> travel -> claim), not just the TR.
+  const myClaims = await prisma.travelExpenseClaim.findMany({
+    where: { claimantId: personaId },
+    select: { id: true, status: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const claimsToFinish = myClaims.filter((c) => c.status === CLAIM_STATUS.Draft || c.status === CLAIM_STATUS.SentBack);
+  const claimsPending = myClaims.filter((c) => c.status.startsWith('Pending'));
+
+  // Journey order: travel-request stages, then claim stages. Each card deep-links where it can.
   const stats = [
-    { key: 'drafts', label: 'Drafts to finish', value: drafts.length, ink: '#854f0b' },
-    { key: 'pending', label: 'Awaiting approval', value: pending.length, ink: '#185fa5' },
-    { key: 'unbooked', label: 'Approved, not booked', value: approvedUnbooked.length, ink: '#0f6e56' },
-    { key: 'toclaim', label: 'Trips to claim', value: toClaim.length, ink: '#993556' },
-    { key: 'upcoming', label: 'Upcoming trips', value: upcoming.length, ink: '#3c3489' },
+    { label: 'Drafts to finish', value: drafts.length, ink: '#854f0b', href: statHref('drafts') },
+    { label: 'Awaiting approval', value: pending.length, ink: '#185fa5', href: statHref('pending') },
+    { label: 'Approved, not booked', value: approvedUnbooked.length, ink: '#0f6e56', href: statHref('unbooked') },
+    { label: 'Upcoming trips', value: upcoming.length, ink: '#3c3489', href: statHref('upcoming') },
+    { label: 'Trips to claim', value: toClaim.length, ink: '#993556', href: statHref('toclaim') },
+    { label: 'Claims to finish', value: claimsToFinish.length, ink: '#993556', href: claimsToFinish[0] ? `/claims/${claimsToFinish[0].id}` : null },
+    { label: 'Claims awaiting approval', value: claimsPending.length, ink: '#993556', href: claimsPending[0] ? `/claims/${claimsPending[0].id}` : null },
   ];
 
   const next = upcoming[0];
@@ -141,17 +154,23 @@ export default async function Home() {
     <div className="w-full max-w-6xl">
       <div className="mb-5">
         <h1 className="text-2xl font-semibold text-[var(--ecs-navy)]">{greeting}, {persona.name}</h1>
-        <p className="text-sm text-[var(--ecs-muted)] mt-0.5">{persona.title}{persona.roles.length ? ` · ${persona.roles[0]}` : ''} — here is where your trips stand.</p>
+        <p className="text-sm text-[var(--ecs-muted)] mt-0.5">{persona.title}{persona.roles.length ? ` · ${persona.roles[0]}` : ''} — here is where your trips and claims stand.</p>
       </div>
 
-      {/* Live status band — click a count to open that bucket on the dashboard. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
-        {stats.map((s) => (
-          <Link key={s.key} href={statHref(s.key)} className="group rounded-xl border border-[var(--ecs-border)] bg-white p-4 hover:border-[var(--ecs-navy-2)] hover:shadow-sm transition">
-            <div className="text-3xl font-semibold tabular-nums" style={{ color: s.value ? s.ink : 'var(--ecs-muted)' }}>{s.value}</div>
-            <div className="text-xs text-[var(--ecs-muted)] mt-1 leading-snug">{s.label}</div>
-          </Link>
-        ))}
+      {/* Live status band — travel-request and claim stages across the journey. Click a count to open it. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
+        {stats.map((s) => {
+          const inner = (
+            <>
+              <div className="text-3xl font-semibold tabular-nums" style={{ color: s.value ? s.ink : 'var(--ecs-muted)' }}>{s.value}</div>
+              <div className="text-xs text-[var(--ecs-muted)] mt-1 leading-snug">{s.label}</div>
+            </>
+          );
+          const cls = 'rounded-xl border border-[var(--ecs-border)] bg-white p-4';
+          return s.href
+            ? <Link key={s.label} href={s.href} className={`${cls} hover:border-[var(--ecs-navy-2)] hover:shadow-sm transition`}>{inner}</Link>
+            : <div key={s.label} className={cls}>{inner}</div>;
+        })}
       </div>
 
       {/* Upcoming-trip card — the soonest approved trip. */}
