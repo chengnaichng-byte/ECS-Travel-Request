@@ -99,7 +99,7 @@ export interface GroupFanoutOutbound {
   meta?: OutboundMeta;
   mode: 'GROUP_FANOUT';
   authorisationNumber: string;
-  groupType?: 'STAFF' | 'STUDENT' | 'MIXED' | null;  // v1.3 sourced from TravelRequest.groupType
+  groupType?: 'STAFF' | 'STUDENT' | 'MIXED' | 'GUEST' | null;  // v1.3 sourced from TravelRequest.groupType
   instructionCount: number;
   instructions: CanonicalOutbound[];
 }

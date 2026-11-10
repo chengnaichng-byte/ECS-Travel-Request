@@ -32,7 +32,7 @@ export default async function Dashboard() {
     return {
       id: r.id, requestNumber: r.requestNumber, type: r.isEmergency ? 'E' : 'S',
       kind: r.travellerType === 'GUEST' ? 'GST' : r.isGroup ? 'GRP' : 'IND',
-      groupType: r.groupType as 'STAFF' | 'STUDENT' | 'MIXED' | null,
+      groupType: r.groupType as 'STAFF' | 'STUDENT' | 'MIXED' | 'GUEST' | null,
       ba: EcsCharging.code(r.allocations[0]?.chargingCode ?? '')?.businessArea ?? '—',
       traveller: r.groupType === 'STUDENT'
         ? `${r.travellers.length} students`

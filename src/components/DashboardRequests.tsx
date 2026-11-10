@@ -8,7 +8,7 @@ import { StatusPill } from '@/components/StatusPill';
 import { useTableSort, SortableTh } from '@/components/tableSort';
 
 export interface DashRow {
-  id: string; requestNumber: string; type: 'S' | 'E'; kind: 'IND' | 'GRP' | 'GST'; groupType?: 'STAFF' | 'STUDENT' | 'MIXED' | null;
+  id: string; requestNumber: string; type: 'S' | 'E'; kind: 'IND' | 'GRP' | 'GST'; groupType?: 'STAFF' | 'STUDENT' | 'MIXED' | 'GUEST' | null;
   ba: string; traveller: string; requestor: string; purpose: string; dest: string; dates: string; ntu: string;
   exceptions: number; status: string; bookingStatus: string;
   startSort: string | null; ntuSort: number;   // raw values for date / cost sorting (not the formatted strings)
@@ -56,10 +56,11 @@ export function DashboardRequests({ rows }: { rows: DashRow[] }) {
   const TypePill = ({ t }: { t: 'S' | 'E' }) => t === 'E'
     ? <span className="pill-exc" title="Emergency — book first, raise/approve later (DD-23)">E</span>
     : <span className="pill-info" title="Standard">S</span>;
-  const KindPill = ({ k, gt }: { k: 'IND' | 'GRP' | 'GST'; gt?: 'STAFF' | 'STUDENT' | 'MIXED' | null }) => {
-    const sub = k === 'GRP' && gt === 'STUDENT' ? 'Student' : k === 'GRP' && gt === 'MIXED' ? 'Mixed' : k === 'GRP' && gt === 'STAFF' ? 'Staff' : '';
+  const KindPill = ({ k, gt }: { k: 'IND' | 'GRP' | 'GST'; gt?: 'STAFF' | 'STUDENT' | 'MIXED' | 'GUEST' | null }) => {
+    const sub = k !== 'GRP' ? '' : gt === 'STUDENT' ? 'Student' : gt === 'MIXED' ? 'Mixed' : gt === 'GUEST' ? 'Guest' : gt === 'STAFF' ? 'Staff' : '';
     const label = k === 'GRP' ? `${sub ? sub + ' ' : ''}group booking` : k === 'GST' ? 'Guest booking' : 'Individual booking';
-    return <span className="pill-navy" title={label}>{k}{sub ? `·${sub === 'Student' ? 'Stu' : sub === 'Mixed' ? 'Mix' : 'Staff'}` : ''}</span>;
+    const abbr: Record<string, string> = { Student: 'Stu', Mixed: 'Mix', Guest: 'Gst', Staff: 'Staff' };
+    return <span className="pill-navy" title={label}>{k}{sub ? `·${abbr[sub]}` : ''}</span>;
   };
 
   return (

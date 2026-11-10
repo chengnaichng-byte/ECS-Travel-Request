@@ -2252,6 +2252,7 @@ export async function createGroupDraft(fd: FormData) {
 
   const hasStaff = travellerIds.length > 0;
   const hasStudent = students.length > 0;
+  const hasGuest = guests.length > 0;
   const total = travellerIds.length + students.length + guests.length;
 
   // §13.14 student members require the student-group setting; §8 guest mixing requires its own setting;
@@ -2284,9 +2285,11 @@ export async function createGroupDraft(fd: FormData) {
     isRequestor: false, confirmed: true, sharePct, // §13.13 host confirms the guest offline
   }));
 
-  // Derived label: staff + students → MIXED; students only → STUDENT; otherwise STAFF (guests never
-  // change the label — a staff+guest group is still STAFF, a student+guest group still STUDENT).
-  const groupType = hasStaff && hasStudent ? 'MIXED' : hasStudent ? 'STUDENT' : 'STAFF';
+  // §13.14/§8 Derived label — MIXED is the catch-all for any mix of ≥2 member categories
+  // (employee / student / guest); a single-category group is STAFF, STUDENT or GUEST. So an
+  // employee+guest, student+guest or all-three group is MIXED; a student+guest group needs no staff.
+  const cats = [hasStaff, hasStudent, hasGuest].filter(Boolean).length;
+  const groupType = cats >= 2 ? 'MIXED' : hasStudent ? 'STUDENT' : hasGuest ? 'GUEST' : 'STAFF';
   // Routing anchors on an employee member when present; department falls back to the host's.
   const primary = travellerIds[0] ?? requestorId;
   const primaryDept = EcsIdentity.employee(travellerIds[0] ?? '')?.departmentId ?? EcsIdentity.employee(requestorId)?.departmentId;
@@ -2306,7 +2309,7 @@ export async function createGroupDraft(fd: FormData) {
   if (travellerIds.length) parts.push(`${travellerIds.length} staff`);
   if (students.length) parts.push(`${students.length} student${students.length > 1 ? 's' : ''} (uploaded, not validated)`);
   if (guests.length) parts.push(`${guests.length} guest${guests.length > 1 ? 's' : ''}`);
-  const kindLabel = groupType === 'MIXED' ? 'Mixed' : groupType === 'STUDENT' ? 'Student' : 'Staff';
+  const kindLabel = groupType === 'MIXED' ? 'Mixed' : groupType === 'STUDENT' ? 'Student' : groupType === 'GUEST' ? 'Guest' : 'Staff';
   await audit(req.id, 'CREATE', `${kindLabel} group draft ${requestNumber} created — ${parts.join(', ')}`, requestorId);
   redirect(`/requests/${req.id}/trip`);
 }

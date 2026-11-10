@@ -1,8 +1,10 @@
 'use client';
-// TR-02 create form — Individual / Group / Guest (§13.14, §8). A GROUP is either a STAFF group
-// (employees from the ECS directory) or a STUDENT group (an uploaded, non-validated list — name /
-// email / student id / programme). Guests are NOT mixed into a group (policy): a guest travels on
-// its own Guest request. The charging account is chosen on THIS screen (defaulted from the profile,
+// TR-02 create form — Individual / Group / Guest (§13.14, §8). A GROUP roster may combine employees
+// (from the ECS directory), students (an uploaded, non-validated list) and guests (uploaded non-
+// employees: name / email / organisation), in any mix of >=2 members — employee-only, employee+student,
+// employee+guest, all three, or students+guests with no staff. Student mixing is gated by the mixed-
+// group setting and guest mixing by groupGuestMixAllowed; the one-traveller Guest tab is for a lone
+// guest. The charging account is chosen on THIS screen (defaulted from the profile,
 // overridable); its isResearch flag drives the Travel Classification badge and, downstream, research
 // routing and non-term eligibility.
 import { useState, useRef } from 'react';
@@ -12,6 +14,7 @@ interface Charging { code: string; name: string; overridden?: boolean; workday?:
 interface Account { code: string; name: string; isResearch: boolean }
 interface Opt { id: string; name: string; title: string; dept: string; email?: string; delegated: boolean; roName?: string | null; charging?: Charging | null }
 interface StudentRow { name: string; email: string; studentId: string; programme: string }
+interface GuestRow { name: string; email: string; org: string }
 const MODE_LABEL = { individual: 'Individual', group: 'Group', guest: 'Guest' } as const;
 type Mode = keyof typeof MODE_LABEL;
 type GroupKind = 'staff' | 'student';
@@ -65,9 +68,9 @@ function TravelClassification({ isResearch }: { isResearch: boolean }) {
   );
 }
 
-export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, studentGroupEnabled, mixedGroupEnabled, requestorCharging, chargingAccounts, entityName }: {
+export function NewRequestForm({ persona, isRequestor, options, groupOptions, groupMax, groupEnabled, studentGroupEnabled, mixedGroupEnabled, groupGuestMixAllowed, requestorCharging, chargingAccounts, entityName }: {
   persona: { name: string; title: string }; isRequestor: boolean;
-  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; studentGroupEnabled: boolean; mixedGroupEnabled: boolean;
+  options: Opt[]; groupOptions: Opt[]; groupMax: number; groupEnabled: boolean; studentGroupEnabled: boolean; mixedGroupEnabled: boolean; groupGuestMixAllowed: boolean;
   requestorCharging?: Charging | null; chargingAccounts: Account[]; entityName: string;
 }) {
   const [mode, setMode] = useState<Mode>('individual');
@@ -114,14 +117,29 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
   const studentOver = studentTotal > groupMax;
   const studentTooFew = studentTotal < 2;
 
+  // §8 Guest-member state (uploaded, non-validated guest rows — name / email / organisation). Like
+  // students, guests carry no cost share and file no claim; passport/DOB are collected later by the TMC.
+  const [guests, setGuests] = useState<GuestRow[]>([]);
+  const [guestTab, setGuestTab] = useState<MemberTab>('search');
+  const [guestNote, setGuestNote] = useState<string>('');
+  const [guestErrors, setGuestErrors] = useState<string[]>([]);
+  const guestFileRef = useRef<HTMLInputElement>(null);
+  const setGuest = (i: number, p: Partial<GuestRow>) => setGuests((g) => g.map((r, j) => j === i ? { ...r, ...p } : r));
+  const addGuest = () => setGuests((g) => [...g, { name: '', email: '', org: '' }]);
+  const delGuest = (i: number) => setGuests((g) => g.filter((_, j) => j !== i));
+  const namedGuests = guests.filter((g) => g.name.trim());
+  const guestTotal = namedGuests.length;
+
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const total = selected.size;
   const over = total > groupMax;
   const tooFew = total < 2;
-  // §13.14 mixed group — when enabled, the staff group form also accepts students (uploaded,
-  // non-validated) in the same roster, so the party total counts staff + students.
+  // §13.14/§8 mixed group — the group roster may combine employees, students (when the mixed-group
+  // setting is on) and guests (when guest-mixing is on), so the party total counts all three. A group
+  // may be any mix of >=2 categories, and students + guests may form a group with no staff.
   const studentsIncluded = mixedGroupEnabled && studentGroupEnabled;
-  const grpTotal = total + (studentsIncluded ? studentTotal : 0);
+  const guestsIncluded = groupGuestMixAllowed;
+  const grpTotal = total + (studentsIncluded ? studentTotal : 0) + (guestsIncluded ? guestTotal : 0);
   const grpOver = grpTotal > groupMax;
   const grpTooFew = grpTotal < 2;
 
@@ -236,6 +254,50 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
     XLSX.writeFile(wb, 'student-group-template.xlsx');
   };
 
+  const onGuestExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await importGuests(file);
+    if (guestFileRef.current) guestFileRef.current.value = '';
+  };
+  const importGuests = async (file: File) => {
+    setGuestNote(''); setGuestErrors([]);
+    if (file.size > MAX_UPLOAD_BYTES) { setGuestErrors([`File is too large (${(file.size / 1048576).toFixed(1)} MB). Maximum is 5 MB.`]); return; }
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      const pick = (row: Record<string, string>, ...keys: string[]) => { for (const k of keys) { const v = row[k]; if (v != null && String(v).trim()) return String(v).trim(); } return ''; };
+      const next: GuestRow[] = [...guests];
+      const errs: string[] = [];
+      let n = 0;
+      rows.forEach((raw, i) => {
+        const row: Record<string, string> = {};
+        for (const [k, v] of Object.entries(raw)) row[k.trim().toLowerCase()] = v == null ? '' : String(v);
+        const name = pick(row, 'name', 'guest name', 'full name');
+        const email = pick(row, 'email', 'e-mail', 'guest email');
+        const org = pick(row, 'organisation', 'organization', 'home organisation', 'org', 'affiliation', 'institution');
+        if (!name && !email && !org) return;
+        if (!name) { errs.push(`Row ${i + 2}: a guest needs a name.`); return; }
+        if (!next.some((g) => g.name.trim().toLowerCase() === name.toLowerCase())) { next.push({ name, email, org }); n++; }
+      });
+      setGuests(next);
+      setGuestErrors(errs);
+      setGuestNote(n ? `Imported ${n} guest${n > 1 ? 's' : ''} from ${file.name}.` : `No new guests found in ${file.name}.`);
+    } catch (err) {
+      setGuestErrors([`Could not read the file — ${(err as Error).message}. Expected .xlsx, .xls or .csv.`]);
+    }
+  };
+  const downloadGuestTemplate = async () => {
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet([
+      { Name: 'Prof Maria Santos', Email: 'maria.santos@example.edu', Organisation: 'MIT' },
+    ], { header: ['Name', 'Email', 'Organisation'] });
+    ws['!cols'] = [{ wch: 24 }, { wch: 30 }, { wch: 24 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Guests');
+    XLSX.writeFile(wb, 'guest-group-template.xlsx');
+  };
+
   // Shared: RO (read-only) + Charging Account (editable dropdown) + Travel Classification badge.
   const ChargingBlock = ({ roValue, roHint }: { roValue: React.ReactNode; roHint: string }) => (
     <>
@@ -311,6 +373,49 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                     <td className="td"><input className="field" placeholder="Matric no." value={s.studentId} onChange={(e) => setStudent(i, { studentId: e.target.value })} /></td>
                     <td className="td"><input className="field" placeholder="Programme" value={s.programme} onChange={(e) => setStudent(i, { programme: e.target.value })} /></td>
                     <td className="td"><button type="button" className="btn-ghost text-xs" onClick={() => delStudent(i)} aria-label="Remove">✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // §8 guest-member entry card (manual rows or Excel bulk-upload; uploaded, not validated) — mirrors
+  // the student card. Guests capture name / email / organisation; passport/DOB come via the TMC link.
+  const guestMembersCard = (heading: string) => (
+    <div className="card mt-4">
+      <div className="card-head flex items-center justify-between"><span>{heading}</span><span className="text-xs font-normal text-[var(--ecs-muted)]">Guests carry no cost share and file no claim; Economy applies unless an exception is approved</span></div>
+      <div className="p-4">
+        <div className="flex gap-5 border-b border-[var(--ecs-border)] mb-4">
+          <SubTab active={guestTab === 'search'} onClick={() => setGuestTab('search')}>Add manually</SubTab>
+          <SubTab active={guestTab === 'bulk'} onClick={() => setGuestTab('bulk')}>Bulk add from Excel</SubTab>
+        </div>
+        {guestTab === 'bulk' ? (
+          <>
+            <Upload onPick={() => guestFileRef.current?.click()} onTemplate={downloadGuestTemplate} inputRef={guestFileRef} onChange={onGuestExcel} />
+            {guestNote && <p className="text-xs text-[var(--ecs-navy-2)] mt-2">{guestNote}</p>}
+            {guestErrors.length > 0 && <ul className="text-xs text-[var(--ecs-red)] mt-1 list-disc pl-4">{guestErrors.map((er, i) => <li key={i}>{er}</li>)}</ul>}
+          </>
+        ) : (
+          <button type="button" className="btn-secondary text-sm" onClick={addGuest}>＋ Add guest</button>
+        )}
+        <div className="text-sm font-semibold text-[var(--ecs-navy)] mt-5 mb-2">Guests — non-employees ({guestTotal})</div>
+        {guests.length === 0 ? (
+          <div className="rounded-md border border-[var(--ecs-border)] p-8 text-center text-sm text-[var(--ecs-muted)]">No guests added yet. Add manually or use bulk add. Passport / date of birth are collected later by the TMC (§8, DD-21).</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Home organisation</th><th className="th">Actions</th></tr></thead>
+              <tbody>
+                {guests.map((g, i) => (
+                  <tr key={i}>
+                    <td className="td"><input className="field" placeholder="Guest name" value={g.name} onChange={(e) => setGuest(i, { name: e.target.value })} /></td>
+                    <td className="td"><input className="field" placeholder="Email (optional)" value={g.email} onChange={(e) => setGuest(i, { email: e.target.value })} /></td>
+                    <td className="td"><input className="field" placeholder="e.g. MIT" value={g.org} onChange={(e) => setGuest(i, { org: e.target.value })} /></td>
+                    <td className="td"><button type="button" className="btn-ghost text-xs" onClick={() => delGuest(i)} aria-label="Remove">✕</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -417,9 +522,10 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
           ) : (
             <form action={createGroupDraft}>
               {studentsIncluded && <input type="hidden" name="studentsJson" value={JSON.stringify(namedStudents.map((s) => ({ name: s.name.trim(), email: s.email.trim(), studentId: s.studentId.trim(), programme: s.programme.trim() })))} />}
+              {guestsIncluded && <input type="hidden" name="guestsJson" value={JSON.stringify(namedGuests.map((g) => ({ name: g.name.trim(), email: g.email.trim(), org: g.org.trim() })))} />}
               {[...selected].map((id) => <input key={id} type="hidden" name="travellerIds" value={id} />)}
               <div className="card">
-                <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${grpOver ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{grpTotal} of {groupMax} {studentsIncluded ? 'members' : 'travellers'}</span></div>
+                <div className="card-head flex items-center justify-between"><span>Group Travellers</span><span className={`text-xs font-normal ${grpOver ? 'text-[var(--ecs-red)]' : 'text-[var(--ecs-muted)]'}`}>{grpTotal} of {groupMax} {(studentsIncluded || guestsIncluded) ? 'members' : 'travellers'}</span></div>
                 <div className="p-4 space-y-4">
                   <div>
                     <label className="label">Requestor (you)</label>
@@ -496,12 +602,16 @@ export function NewRequestForm({ persona, isRequestor, options, groupOptions, gr
                     </div>
                   )}
 
-                  <p className="text-xs text-[var(--ecs-muted)] mt-3">Each employee confirms their inclusion (§13.13). Approved once on the group total; the DOA is derived from the highest charging department. The requestor holds no cost share (§13.14).{studentsIncluded ? ' You can add students below — uploaded, not validated; like guests they carry no cost share, file no claim and receive no ODA (§13.14).' : ' Guests are not added to a group — raise a separate Guest / non-employee request (§8).'}</p>
+                  <p className="text-xs text-[var(--ecs-muted)] mt-3">Each employee confirms their inclusion (§13.13). Approved once on the group total; the DOA is derived from the highest charging department. The requestor holds no cost share (§13.14).{(studentsIncluded || guestsIncluded) ? ` You can add ${[studentsIncluded && 'students', guestsIncluded && 'guests'].filter(Boolean).join(' and ')} below — uploaded, not validated; they carry no cost share, file no claim and receive no ODA. A group may be any mix of at least two members, including ${guestsIncluded ? 'students and guests without staff ' : ''}(§13.14 / §8).` : ' Guests are not added to a group — raise a separate Guest / non-employee request (§8).'}</p>
                 </div>
               </div>
               {studentsIncluded && (<>
                 {studentMembersCard('Add students (optional)')}
                 <p className="text-xs text-[var(--ecs-muted)] mt-3">Students are uploaded and not validated; the coordinator confirms the party offline (§13.13).</p>
+              </>)}
+              {guestsIncluded && (<>
+                {guestMembersCard('Add guests (optional)')}
+                <p className="text-xs text-[var(--ecs-muted)] mt-3">Guests are non-employees (no ECS profile); the host confirms them offline (§13.13). Economy class applies unless an exception is approved (§8).</p>
               </>)}
               {grpOver && <p className="text-xs text-[var(--ecs-red)] mt-1">Over the limit — remove {grpTotal - groupMax} member{grpTotal - groupMax > 1 ? 's' : ''}.</p>}
               <div className="mt-4 flex items-center justify-end gap-3">

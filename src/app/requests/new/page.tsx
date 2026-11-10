@@ -82,6 +82,7 @@ export default async function NewRequest({ searchParams }: { searchParams: Promi
         groupEnabled={settings.groupTravelEnabled}
         studentGroupEnabled={settings.studentGroupEnabled}
         mixedGroupEnabled={settings.mixedGroupEnabled}
+        groupGuestMixAllowed={settings.groupGuestMixAllowed}
         requestorCharging={requestorCharging}
         chargingAccounts={chargingAccounts}
         entityName={entityName}

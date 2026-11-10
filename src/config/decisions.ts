@@ -13,7 +13,7 @@ export const moduleSettingsDefaults = {
   approvalAmountBasis: 'NET_NTU' as 'GROSS' | 'NET_NTU' | 'MAJOR_COST' | 'ALLOCATION',
   groupTravelEnabled: true,         // §13.14
   groupMaxTravellers: 10,           // §13.14 TMC group-booking size limit (incl. guests)
-  groupGuestMixAllowed: false,      // §8/DD-13 CFO review — groups are employees-only; guests use a separate request
+  groupGuestMixAllowed: true,       // §8/§13.14 allow guests as members of a group (alongside employees and/or students). Off = guests must use a separate guest request.
   mixedGroupEnabled: true,          // §13.14 may ONE group mix staff + students (+ guests)? on by default
   groupSubItineraries: false,       // §13.20 allow per-traveller sub-itineraries (deviations) in a group; off = one shared itinerary
   purposeDrivenItems: true,         // §4.4 travel purpose auto-populates its full cost-item set (staff) on Estimates; off = ODA + accommodation only
@@ -104,8 +104,8 @@ export const decisionCatalogue = [
     effect: 'When on, a guest travel-class upgrade routes through a Dean (or dean-equivalent) recommendation step BEFORE the Provost. The requestor selects the Dean from the staff directory on the Review step (required to submit); the Dean’s name and position are shown to the Provost so they can see who recommended the upgrade. When off (default), the guest upgrade goes straight to the Provost (§8, DD-25).' },
   { key: 'groupMaxTravellers', label: 'Group booking size limit', kind: 'number',
     effect: 'Maximum travellers in a single group booking, including guest members — mirrors the TMC group-fare limit. Create is blocked above this count (§13.14).' },
-  { key: 'groupGuestMixAllowed', label: 'Allow mixing guests in a group', kind: 'boolean',
-    effect: 'Per the CFO review a group is employees-only by default (off): guests are raised on a separate Guest request. Turn on only to allow mixing employees and guests in one group (§8, DD-13).' },
+  { key: 'groupGuestMixAllowed', label: 'Allow guests as group members', kind: 'boolean',
+    effect: 'When on (default), a group may include guests alongside employees and/or students, and students and guests may form a group without any staff (§8, §13.14). Off restores the employees-only policy — guests are raised on a separate Guest request.' },
   { key: 'mixedGroupEnabled', label: 'Allow mixed staff + student groups', kind: 'boolean',
     effect: 'When on (default), one group booking may combine staff (from the directory) and students (uploaded, non-validated) on a single shared TA — students carry no ODA and file no claim, exactly like guests. When off, a group is homogeneous: staff-only or student-only. Requires group travel enabled; students additionally require the student-group setting (§13.14).' },
   { key: 'groupSubItineraries', label: 'Allow per-traveller group itineraries', kind: 'boolean',
