@@ -5,6 +5,7 @@
 // attaches the authorising e-mail under the docType below; the auto-approve routing is gated
 // separately in the workflow configuration (off by default).
 import { EcsCharging, EcsIdentity } from '@/shared/ecs/services';
+import { isResearchByCharging } from './research';
 
 export const NON_TERM_APPROVAL_DOC = 'Non-term Offline Approval Email';
 
@@ -19,8 +20,8 @@ export function hasNonTermApproval(req: { attachments: { docType: string }[] }):
  *  declaration is cleared on the Charging step). Before charging is set, the traveller's Workday
  *  default account governs — researchers typically default their profile to a research WBS, so the
  *  lane is available from the Trip step. */
-export function nonTermResearchEligible(req: { travellerId: string; allocations: { chargingCode: string }[] }): boolean {
-  if (req.allocations.length > 0) return req.allocations.some((a) => !!EcsCharging.code(a.chargingCode)?.isResearch);
-  const dc = EcsIdentity.employee(req.travellerId)?.defaultChargingCode;
-  return dc ? !!EcsCharging.code(dc)?.isResearch : false;
+export function nonTermResearchEligible(req: { travellerId: string; allocations: { chargingCode: string; percent?: number; isMain?: boolean }[] }): boolean {
+  // Agreed rule (11 November 2026, NTR-1/RTE-9): research-funded = the largest-share charging account
+  // is a research account (tie -> the primary account), not "any allocation is research".
+  return isResearchByCharging(req.allocations.map((a) => ({ chargingCode: a.chargingCode, percent: a.percent ?? 0, isMain: a.isMain })), req.travellerId);
 }

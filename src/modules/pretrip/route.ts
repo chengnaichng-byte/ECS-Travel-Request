@@ -8,6 +8,7 @@ import { APPROVER_ROLE, ROLE, POLICY_OUTCOME } from '@/shared/enums';
 import type { FullRequest } from './queries';
 import { isGuestRequest } from './traveller';
 import { hasNonTermApproval } from './nonTerm';
+import { isResearchByCharging } from './research';
 import { type Ctx, type RouteStepSpec } from './workflowRules';
 import { evaluateScenario, TR_STANDARD_SCENARIO, type WorkflowScenario } from '@/config/workflowScenario';
 
@@ -41,7 +42,9 @@ export function highestChargingDept(req: FullRequest): string {
 }
 
 export function isResearchRequest(req: FullRequest): boolean {
-  return req.allocations.some((a) => EcsCharging.code(a.chargingCode)?.isResearch) || req.isResearch;
+  // Agreed rule (11 November 2026, RTE-9): research = the largest-share charging account is a research
+  // account; tie -> the primary (isMain) account. Replaces the old "any allocation, or req.isResearch".
+  return isResearchByCharging(req.allocations, req.travellerId);
 }
 
 /** §13.5 self-approval set — the people who must NOT appear as an approver on this request: every

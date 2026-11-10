@@ -160,6 +160,10 @@ model TravelRequest {
   // Estimates edit, records a message in airfareSyncAlert (a JSON array shown + dismissed on Estimates).
   airfareEstimateSgd Float?
   airfareSyncAlert   String?
+  // §CHG-10 (agreed rule 11 November 2026) one-shot notice shown to the requestor when a charging
+  // change (e.g. cross-charging) flips the research category before approval. Set in saveCharging,
+  // cleared when the request is submitted (the route is rebuilt). Null = no pending change.
+  researchChangeNote String?
 
   // Derived approval routing snapshot
   approvalAmountSgd  Float?                         // amount basis result (SGD, §13.4)

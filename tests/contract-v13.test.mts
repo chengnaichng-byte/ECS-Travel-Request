@@ -6,6 +6,7 @@ import { apportionAirfare, ceilingBreakdown, assembleOutbound, assembleOutboundI
 import { computeBookingDeviations, evidenceTypeFor, type ApprovedAirSegment } from '@/modules/pretrip/bookingDeviation';
 import { CONTRACT_FIELDS, CONTRACT_GUARDS } from '@/config/integrationContracts';
 import { evaluateFlow } from '@/modules/pretrip/integration';
+import { isResearchByCharging } from '@/modules/pretrip/research';
 import { RECALLABLE_BOOKING_STATUSES, STATUS_TRANSITIONS, BOOKING_STATUS, REQUEST_STATUS } from '@/shared/enums';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -317,6 +318,18 @@ function mixedGrpReq(): FullRequest {
   ok('te.evidence: self-booked / no deviations passes (vacuous)', evaluateFlow({ ...ctx, bookingMethod: 'SELF_BOOKED', evidenceComplete: true }, 'TE_SUBMIT', subGuards).ok === true);
   // A disabled guard does not block.
   ok('te.evidence: disabled guard does not block', evaluateFlow({ ...ctx, evidenceComplete: false }, 'TE_SUBMIT', subGuards.map((g) => ({ ...g, enabled: false }))).ok === true);
+}
+
+// ---------- Research classification: largest share, primary-account tie-break (RTE-9/NTR-1/CHG-5, agreed 11 Nov 2026) ----------
+{
+  const A = (code: string, percent: number, isMain = false) => ({ chargingCode: code, percent, isMain });
+  ok('research: 70% CC / 30% WBS -> non-research', isResearchByCharging([A('CC-1000', 70, true), A('WBS-R100', 30)], 'E-TRAV') === false);
+  ok('research: 30% CC / 70% WBS -> research', isResearchByCharging([A('CC-1000', 30, true), A('WBS-R100', 70)], 'E-TRAV') === true);
+  ok('research: 50/50 tie -> primary (CC) non-research', isResearchByCharging([A('CC-1000', 50, true), A('WBS-R100', 50)], 'E-TRAV') === false);
+  ok('research: 50/50 tie -> primary (WBS) research', isResearchByCharging([A('CC-1000', 50), A('WBS-R100', 50, true)], 'E-TRAV') === true);
+  ok('research: single research account -> research', isResearchByCharging([A('WBS-R100', 100, true)], 'E-TRAV') === true);
+  ok('research: single non-research account -> non-research', isResearchByCharging([A('CC-1000', 100, true)], 'E-TRAV') === false);
+  ok('research: no allocations falls back to the traveller default account', typeof isResearchByCharging([], 'E-TRAV') === 'boolean');
 }
 
 console.log(log.join('\n'));

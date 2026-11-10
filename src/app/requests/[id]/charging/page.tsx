@@ -172,6 +172,7 @@ export default async function ChargingStep({ params, searchParams }: { params: P
     <div>
       <Stepper id={id} active="charging" requestNumber={req.requestNumber} status={req.status} />
       {!canEdit && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Read-only view — your role cannot edit this request&apos;s charging.</div>}
+      {req.researchChangeNote && <div className="card p-3 mb-4 text-sm text-amber-900 bg-amber-50 border-amber-200"><strong>Research category changed.</strong> {req.researchChangeNote} (CHG-10)</div>}
       <DuplicateWarning req={req} />
       <NonTermConflictNotice req={req} />
       <ProvenanceLegend className="mb-4" />

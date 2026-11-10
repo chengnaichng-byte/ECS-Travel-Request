@@ -44,6 +44,7 @@ import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPost
 import { computeBookingDeviations, evidenceTypeFor, type ApprovedAirSegment } from './bookingDeviation';
 import { resolveTmcProvider, resolveTmcProviderFrom } from './tmcRouting';
 import { listTmcProviders } from './tmcConfig';
+import { isResearchByCharging } from './research';
 import { bookingsForAuthorisation } from './tmcRetrieval';
 import { assessHandoffRouting, channelLabel } from './handoffRouting';
 import { resolveChargingRows } from './chargingRollup';
@@ -1358,6 +1359,17 @@ export async function saveCharging(id: string, fd: FormData) {
   const ntuFunded = computeSummary(req.expenses, settings.approvalAmountBasis).ntuFunded;
   const raw = resolveChargingRows(fd, req.expenses, ntuFunded, EcsIdentity.employee(req.travellerId)?.defaultChargingCode ?? '');
 
+  // §CHG-10 (agreed rule 11 November 2026): re-evaluate the research category from the new charging.
+  // A charging change (incl. cross-charging) can flip the largest-share account between research and
+  // non-research; if it does, the DOA line changes, so clear any stale DOA selection and notify the
+  // requestor. Routing itself re-derives from the live classification at submit. Pre-approval only
+  // (saveCharging requires an editable request). The NTR-3 block stands (a standing non-term
+  // declaration on a now non-research TR blocks submission, enforced in submitRequest).
+  const oldAllocs = await prisma.chargingAllocation.findMany({ where: { requestId: id }, select: { chargingCode: true, percent: true, isMain: true } });
+  const oldResearch = isResearchByCharging(oldAllocs, req.travellerId);
+  const newResearch = isResearchByCharging(raw.rows.map((r) => ({ chargingCode: r.chargingCode, percent: r.percent, isMain: r.isMain })), req.travellerId);
+  const researchChanged = oldResearch !== newResearch;
+
   // §17 ITEM mode persists each line's (possibly multi-account) split; other modes clear them.
   if (raw.mode === 'ITEM') {
     for (const e of req.expenses) {
@@ -1374,7 +1386,13 @@ export async function saveCharging(id: string, fd: FormData) {
     await prisma.estimatedExpense.updateMany({ where: { requestId: id }, data: { chargingCode: null, allocJson: null } });
   }
 
-  await prisma.travelRequest.update({ where: { id }, data: { chargingMode: raw.mode } });
+  await prisma.travelRequest.update({ where: { id }, data: {
+    chargingMode: raw.mode,
+    ...(researchChanged ? {
+      selectedDoaId: null,
+      researchChangeNote: `Research category changed to ${newResearch ? 'research' : 'non-research'} when the charging was updated. The approving DOA line is re-derived on submit, and any earlier DOA selection has been cleared.`,
+    } : {}),
+  } });
   await prisma.chargingAllocation.deleteMany({ where: { requestId: id } });
   for (const r of raw.rows) {
     const master = EcsCharging.code(r.chargingCode);
@@ -1388,6 +1406,7 @@ export async function saveCharging(id: string, fd: FormData) {
     });
   }
   await audit(id, 'AMEND', raw.mode === 'ITEM' ? 'Charging allocated per expense item (cross-charge)' : raw.mode === 'CLAIM' ? 'Charging allocated at claim level' : 'Charging allocation saved');
+  if (researchChanged) await audit(id, 'AMEND', `Research category re-evaluated to ${newResearch ? 'research' : 'non-research'} from the largest-share charging account (CHG-10) — DOA selection cleared for re-pick on submit.`);
   // §13.x The non-term lane follows the research funding. If the charging is no longer research-funded
   // but a non-term declaration still stands, it is NOT silently cleared — it surfaces as a submit-blocking
   // validation (see submitRequest / the Review step) so the traveller knowingly updates it first.
@@ -1601,7 +1620,7 @@ export async function submitRequest(id: string, fd?: FormData) {
   const firstStatus = pending.length ? statusForStep(pending[0].roleType) : REQUEST_STATUS.Approved;
   // Atomic: approval amount + rebuilt route + status move together (no half-built route).
   await prisma.$transaction([
-    prisma.travelRequest.update({ where: { id }, data: { approvalAmountSgd: summary.approvalAmount } }),
+    prisma.travelRequest.update({ where: { id }, data: { approvalAmountSgd: summary.approvalAmount, researchChangeNote: null } }),
     prisma.approvalStep.deleteMany({ where: { requestId: id } }),
     ...steps.map((s) => prisma.approvalStep.create({ data: { requestId: id, seq: s.seq, roleType: s.roleType, approverId: s.approverId, comments: autoGrant(s) ? `${s.note ?? ''} — self-approved on submission` : s.note, status: autoGrant(s) ? 'Approved' : 'Pending', decidedAt: autoGrant(s) ? new Date() : null } })),
     prisma.travelRequest.update({ where: { id }, data: { status: firstStatus } }),
