@@ -14,6 +14,7 @@ import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
 import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoPersonalDraft, demoDoaReview, demoComplexDoaReview, demoPersonalDoaReview, demoGroupDoaReview } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
+import { isRequestVisibleTo } from '@/modules/pretrip/scope';
 
 export const dynamic = 'force-dynamic';
 function fmtDate(d: Date | null) { return d ? d.toISOString().slice(0, 10) : '—'; }
@@ -24,8 +25,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const canCreate = canCreateTravelRequest(persona);
 
   // Scope: a traveller/requestor sees only their own requests; an administrator sees all.
-  const scopedAll = isAdmin ? requests : requests.filter((r) =>
-    r.requestorId === persona || r.travellerId === persona || r.travellers.some((t) => t.employeeId === persona));
+  const scopedAll = isAdmin ? requests : requests.filter((r) => isRequestVisibleTo(r, persona));
 
   // §13.22 deep-link from the home status band: ?view=<bucket> filters the list to that next-action bucket.
   const today0 = new Date(); today0.setHours(0, 0, 0, 0);

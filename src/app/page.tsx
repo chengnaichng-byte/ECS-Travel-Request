@@ -9,6 +9,7 @@ import { listRequests } from '@/modules/pretrip/queries';
 import { prisma } from '@/shared/db';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { travellerName } from '@/modules/pretrip/traveller';
+import { isRequestVisibleTo } from '@/modules/pretrip/scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,8 +72,8 @@ export default async function Home() {
   const greeting = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
 
   // Live status band — the viewer's own trips (an administrator sees all), same buckets as the dashboard.
-  const scoped = isAdmin ? requests : requests.filter((r) =>
-    r.requestorId === personaId || r.travellerId === personaId || r.travellers.some((t) => t.employeeId === personaId));
+  // §GRP-11: every group member sees their request, via the shared isRequestVisibleTo helper.
+  const scoped = isAdmin ? requests : requests.filter((r) => isRequestVisibleTo(r, personaId));
   const today0 = new Date(); today0.setHours(0, 0, 0, 0);
   const drafts = scoped.filter((r) => r.status === REQUEST_STATUS.Draft || r.status === REQUEST_STATUS.SentBack);
   const pending = scoped.filter((r) => r.status.startsWith('Pending'));

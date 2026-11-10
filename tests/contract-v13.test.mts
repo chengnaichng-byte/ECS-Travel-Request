@@ -10,6 +10,7 @@ import { isResearchByCharging } from '@/modules/pretrip/research';
 import { resolveClaimTraveller } from '@/modules/te/claimRemit';
 import { recallEligible } from '@/modules/pretrip/booking';
 import { settleCancellation } from '@/modules/pretrip/ctaPosting';
+import { isRequestVisibleTo } from '@/modules/pretrip/scope';
 import { RECALLABLE_BOOKING_STATUSES, STATUS_TRANSITIONS, BOOKING_STATUS, REQUEST_STATUS } from '@/shared/enums';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -380,6 +381,29 @@ function mixedGrpReq(): FullRequest {
   ok('GRP-10: un-ticketed booking voids at no cost', u.feeSgd === 0 && u.refundSgd === 0);
   const small = settleCancellation(50, true);
   ok('GRP-10: refund is never negative when the fare is below the penalty', small.refundSgd === 0 && small.feeSgd === 75);
+}
+
+// ---------- GRP-6: the fan-out carries ONE shared TA (authorisation number) for the whole group ----------
+{
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const snap: any = { mode: 'GROUP_FANOUT', approvedAirfareSgd: 0, approvedAccommodationSgd: 0, instructions: [
+    { travellerRef: 'E-1', instructionSeq: 1 }, { travellerRef: 'E-2', instructionSeq: 2 }, { travellerRef: 'E-3', instructionSeq: 3 },
+  ] };
+  const meta: any = { messageId: 'm', sentAt: 'x', sourceStatus: 's', contractVersion: 'v' };
+  const out: any = outboundFromSnapshot(snap, meta, { authorisationNumber: 'TA-2026-000042', groupType: 'STAFF' });
+  ok('GRP-6: the envelope carries one shared authorisation number', out.authorisationNumber === 'TA-2026-000042');
+  ok('GRP-6: every member instruction rides that one TA (no per-member TA)', out.instructions.every((i: any) => i.authorisationNumber === undefined));
+  ok('GRP-6: the fan-out sends one instruction per member under the shared TA', out.instructionCount === 3);
+}
+
+// ---------- GRP-11: every traveller in a group request can see it (requestor, traveller, member) ----------
+{
+  const grp = { requestorId: 'E-REQ', travellerId: null, travellers: [{ employeeId: 'E-1' }, { employeeId: 'E-2' }] };
+  ok('GRP-11: the requestor sees the request', isRequestVisibleTo(grp, 'E-REQ') === true);
+  ok('GRP-11: a group member sees the request', isRequestVisibleTo(grp, 'E-2') === true);
+  ok('GRP-11: a non-member cannot see the request', isRequestVisibleTo(grp, 'E-OUT') === false);
+  const indiv = { requestorId: 'E-5', travellerId: 'E-5', travellers: [] as { employeeId: string }[] };
+  ok('GRP-11: an individual traveller sees their own request', isRequestVisibleTo(indiv, 'E-5') === true);
 }
 
 console.log(log.join('\n'));
