@@ -67,7 +67,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
     employeeId: t.employeeId,
     name: memberName(t),
     legs: req.legs.filter((l) => l.travellerId === t.employeeId).sort((a, b) => a.seq - b.seq)
-      .map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate) })),
+      .map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), isPersonal: l.isPersonal })),
     action: saveTravellerItinerary.bind(null, id, t.employeeId),
   })) : [];
 

@@ -619,7 +619,7 @@ export async function saveTravellerItinerary(id: string, employeeId: string, fd:
   if (!(await requireEdit(id))) return;
   const settings = await getSettings();
   if (!settings.groupSubItineraries) return; // the toggle gates per-traveller itineraries
-  type FL = { originCode: string; destCode: string; departDate?: string; arriveDate?: string };
+  type FL = { originCode: string; destCode: string; departDate?: string; arriveDate?: string; isPersonal?: boolean };
   let legs: FL[] = [];
   try { legs = (JSON.parse(str(fd, 'legsJson') || '[]') as FL[]).filter((l) => l.originCode && l.destCode); } catch { legs = []; }
   await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: employeeId } });
@@ -627,7 +627,9 @@ export async function saveTravellerItinerary(id: string, employeeId: string, fd:
   for (const l of legs) {
     const dep = l.departDate ? new Date(`${l.departDate}T00:00:00.000Z`) : null;
     const arr = l.arriveDate ? new Date(`${l.arriveDate}T00:00:00.000Z`) : dep;
-    await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: employeeId, seq: seq++, originCode: l.originCode, destCode: l.destCode, departDate: dep, arriveDate: arr, transportMode: 'AIR', nights: 0, isPersonal: false } });
+    // nights are recomputed from the dates by syncAutoEstimates below; a personal leg is excluded
+    // from this traveller's ODA (same rule as the shared itinerary, §4.5).
+    await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: employeeId, seq: seq++, originCode: l.originCode, destCode: l.destCode, departDate: dep, arriveDate: arr, transportMode: 'AIR', nights: 0, isPersonal: !!l.isPersonal } });
   }
   await syncAutoEstimates(id, true);
   const who = EcsIdentity.employee(employeeId)?.name ?? employeeId;
