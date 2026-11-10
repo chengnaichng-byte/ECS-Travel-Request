@@ -18,14 +18,26 @@ import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 export const dynamic = 'force-dynamic';
 function fmtDate(d: Date | null) { return d ? d.toISOString().slice(0, 10) : '—'; }
 
-export default async function Dashboard() {
-  const [requests, settings, persona] = await Promise.all([listRequests(), getSettings(), currentPersonaId()]);
+export default async function Dashboard({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+  const [requests, settings, persona, { view }] = await Promise.all([listRequests(), getSettings(), currentPersonaId(), searchParams]);
   const isAdmin = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN');
   const canCreate = canCreateTravelRequest(persona);
 
   // Scope: a traveller/requestor sees only their own requests; an administrator sees all.
-  const scoped = isAdmin ? requests : requests.filter((r) =>
+  const scopedAll = isAdmin ? requests : requests.filter((r) =>
     r.requestorId === persona || r.travellerId === persona || r.travellers.some((t) => t.employeeId === persona));
+
+  // §13.22 deep-link from the home status band: ?view=<bucket> filters the list to that next-action bucket.
+  const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+  const VIEWS: Record<string, { label: string; pred: (r: (typeof scopedAll)[number]) => boolean }> = {
+    drafts: { label: 'Drafts to finish', pred: (r) => r.status === REQUEST_STATUS.Draft || r.status === REQUEST_STATUS.SentBack },
+    pending: { label: 'Awaiting approval', pred: (r) => r.status.startsWith('Pending') },
+    unbooked: { label: 'Approved, not booked', pred: (r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus === BOOKING_STATUS.NotSent },
+    toclaim: { label: 'Completed, to claim', pred: (r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus !== BOOKING_STATUS.NotSent && !(r.claims && r.claims.length) },
+    upcoming: { label: 'Upcoming trips', pred: (r) => r.status === REQUEST_STATUS.Approved && !!r.startDate && r.startDate >= today0 },
+  };
+  const activeView = view && VIEWS[view] ? VIEWS[view] : null;
+  const scoped = activeView ? scopedAll.filter(activeView.pred) : scopedAll;
 
   const rows: DashRow[] = scoped.map((r) => {
     const summary = computeSummary(r.expenses as never, settings.approvalAmountBasis);
@@ -54,16 +66,11 @@ export default async function Dashboard() {
     };
   });
 
-  const drafts = scoped.filter((r) => r.status === REQUEST_STATUS.Draft || r.status === REQUEST_STATUS.SentBack);
-  const pending = scoped.filter((r) => r.status.startsWith('Pending'));
-  const approvedUnbooked = scoped.filter((r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus === BOOKING_STATUS.NotSent);
-  const completedUnclaimed = scoped.filter((r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus !== BOOKING_STATUS.NotSent);
-
   const buckets = [
-    { label: 'Drafts & sent back', value: drafts.length },
-    { label: 'Pending approval', value: pending.length },
-    { label: 'Approved — unbooked', value: approvedUnbooked.length },
-    { label: 'Completed — unclaimed', value: completedUnclaimed.length },
+    { label: 'Drafts & sent back', value: scopedAll.filter(VIEWS.drafts.pred).length },
+    { label: 'Pending approval', value: scopedAll.filter(VIEWS.pending.pred).length },
+    { label: 'Approved — unbooked', value: scopedAll.filter(VIEWS.unbooked.pred).length },
+    { label: 'Completed — unclaimed', value: scopedAll.filter(VIEWS.toclaim.pred).length },
   ];
 
   return (
@@ -113,7 +120,14 @@ export default async function Dashboard() {
         ))}
       </div>
 
-      <Card title={`${isAdmin ? 'All Travel Requests' : 'My Travel Requests'} (${rows.length})`}>
+      {activeView && (
+        <div className="card p-3 mb-3 flex items-center justify-between gap-3 text-sm bg-[var(--ecs-panel)]">
+          <span className="text-[var(--ecs-navy)]">Showing <strong>{activeView.label}</strong> ({rows.length})</span>
+          <Link href="/dashboard" className="btn-ghost text-xs">Clear filter</Link>
+        </div>
+      )}
+
+      <Card title={`${activeView ? activeView.label : isAdmin ? 'All Travel Requests' : 'My Travel Requests'} (${rows.length})`}>
         {rows.length === 0 ? (
           <Empty>
             {isAdmin

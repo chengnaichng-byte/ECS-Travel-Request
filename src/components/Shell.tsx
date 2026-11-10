@@ -4,7 +4,10 @@
 // screens the prototype deliberately omits (§13.18).
 import Link from 'next/link';
 import { PersonaSwitcher } from './PersonaSwitcher';
-import { NavLinks, type NavItem } from './NavLinks';
+import { type NavItem } from './NavLinks';
+import { Sidebar } from './Sidebar';
+import { SidebarProvider } from './SidebarContext';
+import { SidebarToggle } from './SidebarToggle';
 import { currentPersona, currentRoleId } from '@/shared/session';
 import { PERSONA_ROLES, peopleByRole, defaultRoleFor } from '@/data/personaRoles';
 import { ROLE } from '@/shared/enums';
@@ -42,16 +45,33 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   // Request" button there, gated by the same creation-remit rule — DD-24).
   const nav = NAV.filter((n) => n.href !== '/approvals' || isApprover);
   const initials = persona.name.split(' ').map((w) => w[0]).slice(-2).join('');
+  const setup: NavItem[] = [
+    ...(isSysAdmin ? [{ href: '/settings', label: 'Pre-Trip Module Settings', icon: '⚙' }] : []),
+    { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
+    { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
+    { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
+    { href: '/setup/policy-groups', label: 'Travel Policy Groups (M6)', icon: '◎' },
+    { href: '/setup/upgrade-accounts', label: 'M6 Differential Accounts', icon: '▲' },
+    { href: '/setup/upgrade-rates', label: 'Class Uplift Rates', icon: '％' },
+    { href: '/setup/workflow', label: 'Workflow Configuration (TR)', icon: '⇄' },
+    { href: '/setup/policy', label: 'Policy Configuration (TR)', icon: '§' },
+    { href: '/setup/purpose-items', label: 'Purpose Cost Items', icon: '▤' },
+    { href: '/setup/academic-calendar', label: 'Academic Calendar', icon: '▦' },
+  ];
 
   return (
+    <SidebarProvider>
     <div className="min-h-full flex flex-col">
       {/* White application header — NTU mark + red title + user menu (§13.22) */}
       <header className="bg-white border-b-2 border-[var(--ecs-red)]">
         <div className="flex items-center justify-between gap-2 px-4 h-16">
+          <div className="flex items-center gap-2.5 min-w-0">
+          <SidebarToggle />
           <Link href="/" className="flex items-center gap-3 min-w-0">
             <span className="inline-flex items-center justify-center w-9 h-9 shrink-0 rounded-full border-2 border-[var(--ecs-navy)] text-[var(--ecs-navy)] font-bold text-[11px]">NTU</span>
             <span className="text-[var(--ecs-red)] font-bold tracking-tight text-sm sm:text-lg uppercase leading-tight truncate">NTU Travel &amp; Expense Claim System</span>
           </Link>
+          </div>
           <div className="flex items-center gap-3">
             {/* §13.22 Notifications bell — moved from the sidebar into the top bar. */}
             <Link href="/notifications" aria-label="Notifications" className="relative inline-flex items-center justify-center w-9 h-9 rounded-full bg-[var(--ecs-panel)] border border-[var(--ecs-border)] text-[var(--ecs-navy)] hover:bg-[var(--ecs-panel-2)]">
@@ -74,38 +94,10 @@ export async function Shell({ children }: { children: React.ReactNode }) {
       </header>
 
       <div className="flex flex-1">
-        {/* Left navigation */}
-        <aside className="w-60 shrink-0 bg-white border-r border-[var(--ecs-border)] hidden md:flex md:flex-col">
-          <nav className="p-2 space-y-0.5">
-            <NavLinks items={nav} />
-          </nav>
-          <div className="px-3 pt-4 pb-2 mt-2 border-t border-[var(--ecs-border)]">
-            <p className="text-[10px] uppercase tracking-wide text-[var(--ecs-muted)] mb-1">Setup &amp; Maintenance</p>
-            <div className="mb-1"><NavLinks items={[
-              ...(isSysAdmin ? [{ href: '/settings', label: 'Pre-Trip Module Settings', icon: '⚙' }] : []),
-              { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
-              { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
-              { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
-              { href: '/setup/policy-groups', label: 'Travel Policy Groups (M6)', icon: '◎' },
-              { href: '/setup/upgrade-accounts', label: 'M6 Differential Accounts', icon: '▲' },
-              { href: '/setup/upgrade-rates', label: 'Class Uplift Rates', icon: '％' },
-              { href: '/setup/workflow', label: 'Workflow Configuration (TR)', icon: '⇄' },
-              { href: '/setup/policy', label: 'Policy Configuration (TR)', icon: '§' },
-              { href: '/setup/purpose-items', label: 'Purpose Cost Items', icon: '▤' },
-              { href: '/setup/academic-calendar', label: 'Academic Calendar', icon: '▦' },
-            ]} /></div>
-            <ul className="space-y-0.5">
-              {STUBS.map((s) => (
-                <li key={s} className="flex items-center gap-2.5 px-3 py-1.5 rounded text-sm text-slate-400 cursor-not-allowed select-none" title="Existing ECS screen — not rebuilt in the prototype (§13.18)">
-                  <span className="w-4 text-center">·</span>{s}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </aside>
-
+        <Sidebar nav={nav} setup={setup} stubs={STUBS} />
         <main className="flex-1 min-w-0 p-4 md:p-6">{children}</main>
       </div>
     </div>
+    </SidebarProvider>
   );
 }
