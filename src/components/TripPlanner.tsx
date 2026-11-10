@@ -66,6 +66,7 @@ export function TripPlanner({
   airports, airportMeta, initialTripType, initialLegs,
   initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
   continueHref, disabled, conflicts, footer,
+  action, header, perTravellerCard, saveFormId = 'trip-form',
 }: {
   airports: Opt[];
   airportMeta: Record<string, AirportMeta>;
@@ -80,6 +81,15 @@ export function TripPlanner({
   // §13.x Rendered AFTER the itinerary card but BEFORE the Save actions — the Trip step passes the
   // Emergency / Non-term lane sections here so the Save buttons stay the last thing on the step.
   footer?: React.ReactNode;
+  // §13.20 TripPlanner owns the Trip form (so the Save buttons can sit AFTER the per-traveller
+  // itineraries card). `header` (the Trip Purpose card) and the date/leg fields live inside the
+  // form; `perTravellerCard` renders OUTSIDE it (its traveller rows are their own forms — nesting
+  // forms is invalid HTML), and the Save buttons submit the form by its id (`form={saveFormId}`),
+  // so the `blocking` date-validation gate below still disables Continue.
+  action: (fd: FormData) => void | Promise<void>;
+  header: React.ReactNode;
+  perTravellerCard?: React.ReactNode;
+  saveFormId?: string;
 }) {
   const [start, setStartRaw] = useState(initialStart);
   const [end, setEndRaw] = useState(initialEnd);
@@ -218,6 +228,8 @@ export function TripPlanner({
 
   return (
     <>
+      <form id={saveFormId} action={action} className="space-y-5">
+      {header}
       <input type="hidden" name="tripType" value={type} />
       <input type="hidden" name="legsJson" value={JSON.stringify(legs.map((l, i) => ({ ...l, nights: computeLegNights(legs, i) })).filter((l) => l.destCode))} />
 
@@ -343,11 +355,17 @@ export function TripPlanner({
       </Card>
       {/* Emergency / Non-term lanes (passed from the Trip step) sit here — above the Save actions. */}
       {footer}
-      <div className="flex justify-end gap-2">
-        {!disabled && <button type="submit" name="saveMode" value="draft" className="btn-secondary" title="Save what you have entered and return to the dashboard — finish it later">Save as draft</button>}
+      </form>
+
+      {/* §13.20 Per-traveller itineraries — OUTSIDE the form (its traveller rows are their own
+          forms). The Save buttons follow it, submitting the Trip form by id. */}
+      {perTravellerCard}
+
+      <div className="flex justify-end gap-2 mt-5">
+        {!disabled && <button type="submit" form={saveFormId} name="saveMode" value="draft" className="btn-secondary" title="Save what you have entered and return to the dashboard — finish it later">Save as draft</button>}
         {disabled
           ? <Link href={continueHref} className="btn-primary">Continue →</Link>
-          : <button type="submit" disabled={blocking} className="btn-primary">Save trip &amp; continue →</button>}
+          : <button type="submit" form={saveFormId} disabled={blocking} className="btn-primary">Save trip &amp; continue →</button>}
       </div>
     </>
   );

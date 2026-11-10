@@ -375,6 +375,14 @@ export async function saveTrip(id: string, fd: FormData) {
   const endD = dateOrNull(fd, 'endDate');
   const nonTermDeclaredVal = req0 ? await deriveNonTermDeclared(req0, start, endD, nonTermOn) : false;
 
+  // §13.20 The TMS cannot book a GROUP online when travellers fly different itineraries (their own
+  // legs). If any traveller already holds a per-traveller itinerary and the submitted method is TMC
+  // online, downgrade it to agent-assisted (the Trip step warns the requestor this will happen).
+  const submittedMethod = isTmcArrangement(bookingArr) ? (str(fd, 'bookingMethod') || null) : null;
+  const hasPerTravellerDeviation = isGroupReq && (req0?.legs?.some((l) => l.travellerId) ?? false);
+  const methodForcedAgent = hasPerTravellerDeviation && submittedMethod === BOOKING_METHOD.TMCOnline;
+  const effectiveMethod = methodForcedAgent ? BOOKING_METHOD.AgentAssisted : submittedMethod;
+
   await prisma.travelRequest.update({
     where: { id },
     data: {
@@ -395,7 +403,7 @@ export async function saveTrip(id: string, fd: FormData) {
       // §2.2 booking arrangement drives the (derived) preferred TMC + the TMC method.
       bookingArrangement: bookingArr,
       tmcProviderId: providerFromArrangement(bookingArr), // TMC-<id> → explicit provider; AUTO/non-TMC → null
-      bookingMethod: isTmcArrangement(bookingArr) ? (str(fd, 'bookingMethod') || null) : null,
+      bookingMethod: effectiveMethod,
       travelClassId: chosenClass,
       entitledClassId: derived.classId,
       classBasis: derived.basis,
@@ -468,9 +476,10 @@ export async function saveTrip(id: string, fd: FormData) {
     ['Start date', iso(req0?.startDate ?? null), iso(start)],
     ['End date', iso(req0?.endDate ?? null), iso(end)],
     ['Travel class', cls(req0?.travelClassId), cls(chosenClass)],
-    ['Booking method', req0?.bookingMethod ?? '—', str(fd, 'bookingMethod') || '—'],
+    ['Booking method', req0?.bookingMethod ? (BOOKING_METHOD_LABEL[req0.bookingMethod] ?? req0.bookingMethod) : '—', effectiveMethod ? (BOOKING_METHOD_LABEL[effectiveMethod] ?? effectiveMethod) : '—'],
   ]);
   await audit(id, 'AMEND', diffs.length ? `Trip details updated — ${diffs.join('; ')}` : 'Trip details saved (no field changes)');
+  if (methodForcedAgent) await audit(id, 'AMEND', 'Booking method set to TMC agent-assisted — the TMS cannot book a group online when traveller itineraries differ (§13.20)');
   // §4.5 Auto-derive ODA + per-stop hotel lines from the (just-saved) itinerary. A hotel rate edit
   // is reset to the city cap only when the dates/legs actually changed (a dates change supersedes a
   // prior rate edit); an unrelated trip edit keeps the edited rate.
@@ -625,6 +634,15 @@ export async function saveTravellerItinerary(id: string, employeeId: string, fd:
   await audit(id, 'AMEND', legs.length
     ? `Per-traveller itinerary set for ${who} (${legs.length} leg${legs.length > 1 ? 's' : ''})`
     : `Per-traveller itinerary cleared for ${who} — reverted to the shared itinerary`);
+  // §13.20 A differing traveller itinerary forces the group off TMC-online (the TMS cannot book a
+  // group online when itineraries differ). Downgrade an online method to agent-assisted on the spot.
+  if (legs.length > 0) {
+    const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { bookingMethod: true } });
+    if (reqRow?.bookingMethod === BOOKING_METHOD.TMCOnline) {
+      await prisma.travelRequest.update({ where: { id }, data: { bookingMethod: BOOKING_METHOD.AgentAssisted } });
+      await audit(id, 'AMEND', 'Booking method set to TMC agent-assisted — the TMS cannot book a group online when traveller itineraries differ (§13.20)');
+    }
+  }
   revalidatePath(`/requests/${id}/trip`);
   revalidatePath(`/requests/${id}/estimates`);
 }
