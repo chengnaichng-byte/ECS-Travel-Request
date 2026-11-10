@@ -272,9 +272,14 @@ export function buildApprovedSnapshot(req: FullRequest, enabled?: Set<string>, d
 export function outboundFromSnapshot(
   snap: ApprovedSnapshot,
   meta: OutboundMeta,
-  ctx: { authorisationNumber: string; groupType: string | null; bookingMethod?: string | null },
+  ctx: { authorisationNumber: string; groupType: string | null; bookingMethod?: string | null; cancelledRefs?: string[] },
 ): Record<string, unknown> {
-  const instructions = snap.instructions.map((i) => (ctx.bookingMethod ? { ...i, bookingMethod: ctx.bookingMethod } : i));
+  // §GRP-9 a member Cancelled before sending is omitted from the fan-out; the remaining instructions
+  // keep their frozen instructionSeq (no renumber) and instructionCount reflects only those sent.
+  const cancelled = new Set(ctx.cancelledRefs ?? []);
+  const instructions = snap.instructions
+    .filter((i) => !cancelled.has((i as { travellerRef?: string }).travellerRef ?? ''))
+    .map((i) => (ctx.bookingMethod ? { ...i, bookingMethod: ctx.bookingMethod } : i));
   return snap.mode === 'GROUP_FANOUT'
     ? { meta, mode: snap.mode, authorisationNumber: ctx.authorisationNumber, groupType: ctx.groupType, instructionCount: instructions.length, instructions }
     : { meta, ...instructions[0] };

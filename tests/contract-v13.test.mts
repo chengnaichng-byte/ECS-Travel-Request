@@ -356,6 +356,21 @@ function mixedGrpReq(): FullRequest {
   ok('recall: a draft is not recallable', recallEligible(REQUEST_STATUS.Draft, BOOKING_STATUS.NotSent, RB) === false);
 }
 
+// ---------- GRP-9: a cancelled member is omitted from the fan-out; others keep their frozen seq ----------
+{
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const snap: any = { mode: 'GROUP_FANOUT', approvedAirfareSgd: 0, approvedAccommodationSgd: 0, instructions: [
+    { travellerRef: 'E-1', instructionSeq: 1 }, { travellerRef: 'E-2', instructionSeq: 2 }, { travellerRef: 'E-3', instructionSeq: 3 },
+  ] };
+  const meta: any = { messageId: 'm', sentAt: 'x', sourceStatus: 's', contractVersion: 'v' };
+  const out: any = outboundFromSnapshot(snap, meta, { authorisationNumber: 'TA-1', groupType: 'STAFF', cancelledRefs: ['E-2'] });
+  ok('GRP-9: cancelled member omitted from the fan-out', out.instructionCount === 2);
+  ok('GRP-9: remaining members keep their frozen instructionSeq (no renumber)', out.instructions.map((i: any) => i.instructionSeq).join(',') === '1,3');
+  ok('GRP-9: cancelled member is not in the instructions', !out.instructions.some((i: any) => i.travellerRef === 'E-2'));
+  const none: any = outboundFromSnapshot(snap, meta, { authorisationNumber: 'TA-1', groupType: 'STAFF' });
+  ok('GRP-9: no cancellation sends every member', none.instructionCount === 3);
+}
+
 console.log(log.join('\n'));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

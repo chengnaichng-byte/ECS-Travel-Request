@@ -1909,9 +1909,11 @@ export async function handoffToTmc(id: string) {
   let instructionCount: number;
   if (req.approvedBreakdownJson) {
     const snap = JSON.parse(req.approvedBreakdownJson) as ApprovedSnapshot;
-    payloadObj = outboundFromSnapshot(snap, meta, { authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, bookingMethod: req.bookingMethod });
+    const cancelledRefs = req.travellers.filter((t) => t.status === 'Cancelled').map((t) => t.employeeId);
+    payloadObj = outboundFromSnapshot(snap, meta, { authorisationNumber: req.authorisationNo ?? '', groupType: req.groupType, bookingMethod: req.bookingMethod, cancelledRefs });
     fanout = snap.mode === 'GROUP_FANOUT';
-    instructionCount = snap.instructions.length;
+    // §GRP-9 count only the instructions actually sent (cancelled members are omitted from the fan-out).
+    instructionCount = snap.instructions.filter((i) => !cancelledRefs.includes((i as { travellerRef?: string }).travellerRef ?? '')).length;
   } else {
     const { mode, instructions } = assembleOutboundInstructions(req, tmcEnabledSet(contract), meta);
     fanout = mode === 'GROUP_FANOUT';
@@ -2495,6 +2497,32 @@ export async function removeGroupTraveller(id: string, travellerRowId: string) {
   if (!isFreeEditState(req.status)) await applyMaterialAmendment(id, `traveller removed (${EcsIdentity.employee(row.employeeId)?.name ?? row.employeeId})`);
   revalidatePath(`/requests/${id}`);
   revalidatePath('/dashboard');
+}
+
+/** §GRP-9 (agreed rule 11 November 2026) cancel ONE group member after approval but BEFORE the booking
+ *  instructions are sent to the TMC. The member is marked Cancelled and omitted from the fan-out (the
+ *  others keep their frozen instructionSeq and the same TA). This is not a recall or a re-approval.
+ *  Once instructions have been sent, a single member can no longer be cancelled here — the change is
+ *  made with the TMC and returned on the booking feed (GRP-10). */
+export async function cancelGroupMember(id: string, travellerRowId: string) {
+  const req = await loadRequest(id);
+  if (!req) return;
+  const persona = await currentPersonaId();
+  if (!canEditRequest(persona, req)) { await audit(id, 'STATUS', `Member cancel blocked — ${EcsIdentity.employee(persona)?.name ?? persona} is not authorised`); return; }
+  const row = req.travellers.find((t) => t.id === travellerRowId);
+  if (!req.isGroup || !row || row.status === 'Cancelled') return;
+  if (!(req.status === REQUEST_STATUS.Approved && req.bookingStatus === BOOKING_STATUS.NotSent)) {
+    await audit(id, 'STATUS', `Member cancel blocked — request is ${req.status} / booking ${req.bookingStatus}; once instructions are sent, cancel the member with the TMC (GRP-9/GRP-10).`);
+    revalidatePath(`/requests/${id}/booking`);
+    return;
+  }
+  const activeRemaining = req.travellers.filter((t) => t.status !== 'Cancelled' && t.id !== travellerRowId).length;
+  if (activeRemaining < 1) { await audit(id, 'STATUS', 'Member cancel blocked — the last active member cannot be cancelled; cancel the whole request instead.'); revalidatePath(`/requests/${id}/booking`); return; }
+  await prisma.travelRequestTraveller.update({ where: { id: travellerRowId }, data: { status: 'Cancelled' } });
+  const who = EcsIdentity.employee(row.employeeId)?.name ?? row.guestName ?? row.employeeId;
+  await audit(id, 'AMEND', `Group member ${who} cancelled before booking (GRP-9) — their instruction will not be sent; the other members are booked under the same TA ${req.authorisationNo ?? ''}.`);
+  revalidatePath(`/requests/${id}/booking`);
+  revalidatePath(`/requests/${id}`);
 }
 
 /** §13.19 set a group traveller's chosen class + upgrade justification. A change post

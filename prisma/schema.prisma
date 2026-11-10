@@ -269,6 +269,10 @@ model TravelRequestTraveller {
   // §4.5/§13.20 this member's own itinerary-entered airfare estimate (SGD), set on their per-traveller
   // itinerary row. Null = follow the request-level airfareEstimateSgd. Seeds their Airfare line.
   airfareEstimateSgd Float?
+  // §GRP-9 (agreed rule 11 November 2026) per-member status. A member Cancelled after approval but
+  // before the booking instructions are sent is omitted from the TMC fan-out (the others keep their
+  // frozen instructionSeq and the same TA); not a recall or re-approval. Default Active.
+  status        String  @default("Active")   // Active | Cancelled
 }
 
 /// §7.1 / §13.1 immutable submitted/approved snapshots

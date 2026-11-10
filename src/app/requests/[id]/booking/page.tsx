@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, recallRequest, cancelRequest, receiveCancellation, refreshBookingsFromTmc, uploadDeviationEvidence } from '@/modules/pretrip/actions';
+import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, recallRequest, cancelRequest, receiveCancellation, refreshBookingsFromTmc, uploadDeviationEvidence, cancelGroupMember } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
@@ -37,6 +37,8 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   // §13.x Recall — an approved TR may be recalled (reverted to an editable Draft) until a segment is
   // ticketed. The approved TR is otherwise locked (no in-system re-approval after approval).
   const canRecall = req.status === REQUEST_STATUS.Approved && RECALLABLE_BOOKING_STATUSES.includes(req.bookingStatus);
+  // §GRP-9 a single group member can be cancelled only before the instructions are sent to the TMC.
+  const beforeSend = req.status === REQUEST_STATUS.Approved && req.bookingStatus === BOOKING_STATUS.NotSent;
   const bookings = req.bookings;
   // §36 direct airfare posting is offered only when the setting selects it and a booking exists.
   const canPostSap = settings.airfareTreatment === 'DIRECT_SAP' && req.bookingStatus === BOOKING_STATUS.Booked && !sapPost;
@@ -215,20 +217,29 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
             <table className="w-full text-sm whitespace-nowrap">
               <thead><tr>
                 <th className="th">Line</th><th className="th">TA reference</th><th className="th">Traveller</th>
-                <th className="th text-right">Share %</th><th className="th">PNR(s)</th><th className="th">E-ticket</th><th className="th">Status</th>
+                <th className="th text-right">Share %</th><th className="th">PNR(s)</th><th className="th">E-ticket</th><th className="th">Status</th>{beforeSend && <th className="th text-right">Action</th>}
               </tr></thead>
               <tbody>
                 {[...req.travellers].sort((a, b) => (a.lineNo ?? 99) - (b.lineNo ?? 99)).map((t) => {
                   const tb = bookings.filter((b) => b.travellerId === t.employeeId);
+                  const cancelled = t.status === 'Cancelled';
+                  const activeMembers = req.travellers.filter((m) => m.status !== 'Cancelled').length;
                   return (
-                    <tr key={t.id} className="hover:bg-[var(--ecs-panel-2)]">
+                    <tr key={t.id} className={`hover:bg-[var(--ecs-panel-2)] ${cancelled ? 'opacity-60' : ''}`}>
                       <td className="td font-mono">{t.lineNo ? String(t.lineNo).padStart(2, '0') : '—'}</td>
                       <td className="td font-mono text-xs">{taLineRef(req.authorisationNo, t.lineNo)}</td>
-                      <td className="td">{memberName(t)}{t.isRequestor ? ' (lead)' : ''}</td>
+                      <td className={`td ${cancelled ? 'line-through' : ''}`}>{memberName(t)}{t.isRequestor ? ' (lead)' : ''}</td>
                       <td className="td text-right">{t.sharePct}%</td>
                       <td className="td font-mono text-xs">{tb.length ? tb.map((b) => b.pnr).join(', ') : <span className="text-[var(--ecs-muted)]">— not booked</span>}</td>
                       <td className="td font-mono text-xs">{tb.length ? (tb.map((b) => b.ticketNo).filter(Boolean).join(', ') || '—') : '—'}</td>
-                      <td className="td">{tb.length ? tb.map((b) => b.status).join(', ') : '—'}</td>
+                      <td className="td">{cancelled ? <span className="pill-stop">Cancelled</span> : tb.length ? tb.map((b) => b.status).join(', ') : '—'}</td>
+                      {beforeSend && (
+                        <td className="td text-right">
+                          {cancelled ? <span className="text-xs text-[var(--ecs-muted)]">not sent</span>
+                            : activeMembers > 1 ? <form action={cancelGroupMember.bind(null, id, t.id)}><button className="btn-ghost text-xs text-[var(--ecs-red)]" title="Cancel this member before the instructions are sent to the TMC — their instruction is omitted from the fan-out; the others book under the same TA (GRP-9).">Cancel member</button></form>
+                            : <span className="text-xs text-[var(--ecs-muted)]">last member</span>}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
