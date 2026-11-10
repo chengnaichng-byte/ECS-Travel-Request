@@ -633,6 +633,11 @@ model BookingDeviation {
   level         String?                     // TOTAL | CATEGORY | SEGMENT
   scopeRef      String?                     // AIRFARE | ACCOMMODATION | DATES | AIR:SIN-HND | CLASS:SIN-HND | ROUTE:SIN-HND
   pnr           String?                     // the booked PNR a SEGMENT deviation is on (null at CATEGORY/TOTAL level)
+  // §GRP-7 (agreed rule 11 November 2026) the traveller a deviation belongs to, so required offline
+  // approval evidence is provided on THAT traveller's claim. Resolved from the PNR's booking at
+  // receive; for a non-group request it is the sole traveller; null = request-wide (group aggregate).
+  travellerId     String?
+  travellerLineNo Int?
   // §8 offline-approval evidence at claim submission. When the deviation's type is in
   // ModuleSettings.evidenceRequiredFor, requiresEvidence is set and claim submission is blocked (te.evidence
   // guard) until an evidence attachment is linked OR the claim approver records a waiver with a reason.

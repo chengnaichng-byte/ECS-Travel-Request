@@ -7,6 +7,7 @@ import { computeBookingDeviations, evidenceTypeFor, type ApprovedAirSegment } fr
 import { CONTRACT_FIELDS, CONTRACT_GUARDS } from '@/config/integrationContracts';
 import { evaluateFlow } from '@/modules/pretrip/integration';
 import { isResearchByCharging } from '@/modules/pretrip/research';
+import { resolveClaimTraveller } from '@/modules/te/claimRemit';
 import { RECALLABLE_BOOKING_STATUSES, STATUS_TRANSITIONS, BOOKING_STATUS, REQUEST_STATUS } from '@/shared/enums';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -330,6 +331,19 @@ function mixedGrpReq(): FullRequest {
   ok('research: single research account -> research', isResearchByCharging([A('WBS-R100', 100, true)], 'E-TRAV') === true);
   ok('research: single non-research account -> non-research', isResearchByCharging([A('CC-1000', 100, true)], 'E-TRAV') === false);
   ok('research: no allocations falls back to the traveller default account', typeof isResearchByCharging([], 'E-TRAV') === 'boolean');
+}
+
+// ---------- GRP-7: who may raise a claim (traveller or delegate; recorded as the traveller's) ----------
+{
+  const members = ['E-1', 'E-2', 'E-3'];
+  const self = resolveClaimTraveller(members, 'E-2', []);
+  ok('claim: a member claims for themselves', self.travellerId === 'E-2' && self.onBehalf === false);
+  const delegate = resolveClaimTraveller(members, 'E-PA', ['E-2']);
+  ok('claim: a delegate claims as the traveller (on behalf)', delegate.travellerId === 'E-2' && delegate.onBehalf === true);
+  const blocked = resolveClaimTraveller(members, 'E-REQ', []);
+  ok('claim: a requestor who is neither member nor delegate is blocked', blocked.travellerId === null);
+  const indiv = resolveClaimTraveller(['E-5', null], 'E-5', []);
+  ok('claim: individual request, the traveller claims', indiv.travellerId === 'E-5' && indiv.onBehalf === false);
 }
 
 console.log(log.join('\n'));

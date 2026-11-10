@@ -10,7 +10,9 @@ import { nextClaimNumber } from '@/modules/pretrip/numbering';
 import { prepopulateClaim } from './prepopulate';
 import { getContractSettings, prepopContract, getGuardSettings, evaluateFlow } from '@/modules/pretrip/integration';
 import { resolveChargingRows } from '@/modules/pretrip/chargingRollup';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsDelegation } from '@/shared/ecs/services';
+import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
+import { resolveClaimTraveller } from './claimRemit';
 import { buildClaimRoute, type ClaimLike } from './workflow';
 import { CLAIM_STATUS, claimStatusForRole } from '@/shared/enums';
 
@@ -29,7 +31,18 @@ const asClaimLike = (claim: { claimantId: string; lessCorpCard: number; lessPers
 export async function createClaimFromRequest(requestId: string) {
   const req = await loadRequest(requestId);
   if (!req) return;
-  const claimantId = await currentPersonaId();
+  const persona = await currentPersonaId();
+  // §GRP-7 (agreed rule 11 November 2026): only the traveller, or their delegate, may raise the claim
+  // for that traveller's share, and a delegate-raised claim is recorded as the traveller's. Students
+  // and guests make no claim (GRP-5). The group requestor cannot claim for others unless a delegate.
+  const members = req.isGroup
+    ? req.travellers.filter((t) => !isNonEmployeeMember(t)).map((t) => t.employeeId)
+    : [req.travellerId];
+  const { travellerId: claimantId, onBehalf } = resolveClaimTraveller(members, persona, EcsDelegation.canCreateTravelRequestFor(persona));
+  if (!claimantId) {
+    await prisma.auditEvent.create({ data: { requestId, actorId: persona, kind: 'TE_LINK', summary: `Claim not raised — ${EcsIdentity.employee(persona)?.name ?? persona} is not the traveller or their delegate for ${req.requestNumber} (GRP-7)` } });
+    redirect(`/requests/${requestId}/details?claimBlocked=1`);
+  }
   // §13.8 parameter filters (Integration Contract, TE_SYNC flow) — only pre-populate a
   // claim when the request satisfies the ECS claim-sync conditions (default: status ∈
   // {Approved, Closed} and a TA issued). Prototype relaxes the "return date passed" rule.
@@ -89,7 +102,7 @@ export async function createClaimFromRequest(requestId: string) {
     },
   });
   await prisma.travelExpenseLink.create({ data: { requestId, claimId: claim.id, travellerId: claimantId } });
-  await prisma.auditEvent.create({ data: { requestId, actorId: claimantId, kind: 'TE_LINK', summary: `TE claim ${claim.claimNumber} created from ${req.requestNumber}` } });
+  await prisma.auditEvent.create({ data: { requestId, actorId: persona, kind: 'TE_LINK', summary: `TE claim ${claim.claimNumber} created from ${req.requestNumber}${onBehalf ? ` on behalf of ${EcsIdentity.employee(claimantId)?.name ?? claimantId} by ${EcsIdentity.employee(persona)?.name ?? persona}` : ''}` } });
   redirect(`/claims/${claim.id}`);
 }
 
@@ -117,10 +130,13 @@ export async function submitClaim(claimId: string) {
   // §8 Offline-approval evidence gate (te.evidence): block submission until every booking deviation that
   // requires evidence has a linked evidence attachment OR an approved waiver. Self-booked trips have no
   // TMC booking, hence no deviations, so this passes vacuously.
-  const evidenceComplete = req.deviations.filter((d) => d.requiresEvidence).every((d) => !!d.evidenceAttachmentId || !!d.waivedBy);
+  // §GRP-7 a deviation gates only the claim of the traveller it belongs to (travellerId), plus any
+  // request-wide (group-aggregate / non-group) deviation with no traveller attribution.
+  const forClaimant = (d: { travellerId: string | null }) => d.travellerId == null || d.travellerId === claim.claimantId;
+  const evidenceComplete = req.deviations.filter((d) => d.requiresEvidence && forClaimant(d)).every((d) => !!d.evidenceAttachmentId || !!d.waivedBy);
   const subGate = evaluateFlow({ status: req.status, bookingStatus: req.bookingStatus, bookingMethod: req.bookingMethod, authorisationNo: req.authorisationNo, evidenceComplete }, 'TE_SUBMIT', await getGuardSettings());
   if (!subGate.ok) {
-    const pending = req.deviations.filter((d) => d.requiresEvidence && !d.evidenceAttachmentId && !d.waivedBy);
+    const pending = req.deviations.filter((d) => d.requiresEvidence && forClaimant(d) && !d.evidenceAttachmentId && !d.waivedBy);
     await prisma.auditEvent.create({ data: { requestId: req.id, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — ${pending.length} booking deviation(s) need offline-approval evidence or an approved waiver (§8): ${pending.map((d) => d.scopeRef ?? d.field).join(', ')}` } });
     revalidatePath(`/claims/${claimId}`);
     return;

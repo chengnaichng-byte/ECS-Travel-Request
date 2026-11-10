@@ -2058,7 +2058,14 @@ export async function receiveBooking(id: string, fd: FormData) {
     // §8 flag deviations whose type needs offline-approval evidence before the claim can be submitted.
     const evReq = (settings.evidenceRequiredFor || '').split(',').map((s) => s.trim()).filter(Boolean);
     const needsEvidence = (scopeRef: string, material: boolean) => { const t = material ? evidenceTypeFor(scopeRef) : null; return t != null && evReq.includes(t); };
-    for (const d of deviations) await tx.bookingDeviation.create({ data: { requestId: id, field: d.field, approvedValue: d.approvedValue, bookedValue: d.bookedValue, material: d.material, action: d.action, level: d.level, scopeRef: d.scopeRef, pnr: d.pnr, requiresEvidence: needsEvidence(d.scopeRef, d.material) } });
+    // §GRP-7 attribute each deviation to its traveller: a PNR-scoped (SEGMENT) deviation to the PNR's
+    // traveller; for a non-group request to the sole traveller; a group-wide aggregate stays null.
+    const pnrToTraveller: Record<string, { travellerId: string | null; lineNo: number | null }> = {};
+    for (const b of inbounds) pnrToTraveller[b.inbound.pnr] = { travellerId: b.travellerId, lineNo: b.lineNo };
+    for (const d of deviations) {
+      const tv = d.pnr ? pnrToTraveller[d.pnr] : (req.isGroup ? null : { travellerId: req.travellerId, lineNo: null });
+      await tx.bookingDeviation.create({ data: { requestId: id, field: d.field, approvedValue: d.approvedValue, bookedValue: d.bookedValue, material: d.material, action: d.action, level: d.level, scopeRef: d.scopeRef, pnr: d.pnr, requiresEvidence: needsEvidence(d.scopeRef, d.material), travellerId: tv?.travellerId ?? null, travellerLineNo: tv?.lineNo ?? null } });
+    }
     await tx.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   });
   await audit(id, 'INTEGRATION', isFanout
