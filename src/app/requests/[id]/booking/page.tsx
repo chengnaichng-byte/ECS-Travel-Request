@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
-import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, recallRequest, cancelRequest, receiveCancellation, refreshBookingsFromTmc, uploadDeviationEvidence, cancelGroupMember } from '@/modules/pretrip/actions';
+import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareToSap, setBookingTmcStatus, recallRequest, cancelRequest, receiveCancellation, refreshBookingsFromTmc, uploadDeviationEvidence, cancelGroupMember, receiveMemberCancellation } from '@/modules/pretrip/actions';
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
@@ -37,8 +37,10 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   // §13.x Recall — an approved TR may be recalled (reverted to an editable Draft) until a segment is
   // ticketed. The approved TR is otherwise locked (no in-system re-approval after approval).
   const canRecall = req.status === REQUEST_STATUS.Approved && RECALLABLE_BOOKING_STATUSES.includes(req.bookingStatus);
-  // §GRP-9 a single group member can be cancelled only before the instructions are sent to the TMC.
+  // §GRP-9 a single group member can be cancelled in the module only before the instructions are sent.
   const beforeSend = req.status === REQUEST_STATUS.Approved && req.bookingStatus === BOOKING_STATUS.NotSent;
+  // §GRP-10 once booked, a single member's cancellation is made with the TMC and synced from the feed.
+  const afterBooked = req.bookingStatus === BOOKING_STATUS.Booked;
   const bookings = req.bookings;
   // §36 direct airfare posting is offered only when the setting selects it and a booking exists.
   const canPostSap = settings.airfareTreatment === 'DIRECT_SAP' && req.bookingStatus === BOOKING_STATUS.Booked && !sapPost;
@@ -217,7 +219,7 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
             <table className="w-full text-sm whitespace-nowrap">
               <thead><tr>
                 <th className="th">Line</th><th className="th">TA reference</th><th className="th">Traveller</th>
-                <th className="th text-right">Share %</th><th className="th">PNR(s)</th><th className="th">E-ticket</th><th className="th">Status</th>{beforeSend && <th className="th text-right">Action</th>}
+                <th className="th text-right">Share %</th><th className="th">PNR(s)</th><th className="th">E-ticket</th><th className="th">Status</th>{(beforeSend || afterBooked) && <th className="th text-right">Action</th>}
               </tr></thead>
               <tbody>
                 {[...req.travellers].sort((a, b) => (a.lineNo ?? 99) - (b.lineNo ?? 99)).map((t) => {
@@ -233,11 +235,14 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
                       <td className="td font-mono text-xs">{tb.length ? tb.map((b) => b.pnr).join(', ') : <span className="text-[var(--ecs-muted)]">— not booked</span>}</td>
                       <td className="td font-mono text-xs">{tb.length ? (tb.map((b) => b.ticketNo).filter(Boolean).join(', ') || '—') : '—'}</td>
                       <td className="td">{cancelled ? <span className="pill-stop">Cancelled</span> : tb.length ? tb.map((b) => b.status).join(', ') : '—'}</td>
-                      {beforeSend && (
+                      {(beforeSend || afterBooked) && (
                         <td className="td text-right">
-                          {cancelled ? <span className="text-xs text-[var(--ecs-muted)]">not sent</span>
-                            : activeMembers > 1 ? <form action={cancelGroupMember.bind(null, id, t.id)}><button className="btn-ghost text-xs text-[var(--ecs-red)]" title="Cancel this member before the instructions are sent to the TMC — their instruction is omitted from the fan-out; the others book under the same TA (GRP-9).">Cancel member</button></form>
-                            : <span className="text-xs text-[var(--ecs-muted)]">last member</span>}
+                          {cancelled ? <span className="text-xs text-[var(--ecs-muted)]">cancelled</span>
+                            : beforeSend ? (activeMembers > 1
+                              ? <form action={cancelGroupMember.bind(null, id, t.id)}><button className="btn-ghost text-xs text-[var(--ecs-red)]" title="Cancel this member before the instructions are sent to the TMC — their instruction is omitted from the fan-out; the others book under the same TA (GRP-9).">Cancel member</button></form>
+                              : <span className="text-xs text-[var(--ecs-muted)]">last member</span>)
+                            : tb.length ? <form action={receiveMemberCancellation.bind(null, id, t.id)}><button className="btn-ghost text-xs text-[var(--ecs-red)]" title="Sync this member's cancellation from the TMC feed — only this traveller's PNR is cancelled and only their CTA charges are reversed (penalty retained); the group TA stays for the others (GRP-10).">Sync TMC cancellation</button></form>
+                            : <span className="text-xs text-[var(--ecs-muted)]">—</span>}
                         </td>
                       )}
                     </tr>

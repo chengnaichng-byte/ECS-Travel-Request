@@ -194,13 +194,19 @@ export async function postCtaChargesForRequest(requestId: string): Promise<void>
  *  charge. The penalty is retained against the airfare charge first (the airline cancellation penalty),
  *  spilling to the remaining charges; with no penalty (e.g. an un-ticketed void) the whole gross
  *  reverses. The original is marked Reversed with the retained amount and a reversing SAP document. */
-export async function reverseCtaChargesForRequest(requestId: string, opts?: { penaltySgd?: number; dateIso?: string }): Promise<void> {
-  const date = opts?.dateIso ?? new Date().toISOString().slice(0, 10);
-  let remaining = Math.max(r2(opts?.penaltySgd ?? 0), 0);
-  const order: Record<string, number> = { Airfare: 0, Fee: 1, Car: 2, Visa: 3, Accommodation: 4 };
-  const docs = (await prisma.ctaPostingDocument.findMany({ where: { requestId, status: 'Posted' } }))
-    .sort((a, b) => (order[a.chargeType] ?? 9) - (order[b.chargeType] ?? 9));
-  for (const d of docs) {
+/** DD-31 cancellation settlement arithmetic (shared by whole-request and single-member refunds,
+ *  §GRP-10): a ticketed fare incurs the penalty and refunds the balance; an un-ticketed booking is
+ *  voided at no cost. The penalty is retained (not reversed) against the posted charges. */
+export function settleCancellation(bookedSgd: number, ticketed: boolean, penaltySgd = 75): { feeSgd: number; refundSgd: number } {
+  const fee = ticketed ? penaltySgd : 0;
+  return { feeSgd: fee, refundSgd: ticketed ? Math.max(r2(bookedSgd - fee), 0) : 0 };
+}
+
+const CHARGE_ORDER: Record<string, number> = { Airfare: 0, Fee: 1, Car: 2, Visa: 3, Accommodation: 4 };
+async function reverseCtaDocs(docs: Awaited<ReturnType<typeof prisma.ctaPostingDocument.findMany>>, penaltySgd: number, date: string): Promise<void> {
+  let remaining = Math.max(r2(penaltySgd), 0);
+  const sorted = [...docs].sort((a, b) => (CHARGE_ORDER[a.chargeType] ?? 9) - (CHARGE_ORDER[b.chargeType] ?? 9));
+  for (const d of sorted) {
     const retained = r2(Math.min(remaining, d.grossSgd));   // penalty kept on this charge (not reversed)
     remaining = r2(remaining - retained);
     await prisma.ctaPostingDocument.update({
@@ -208,6 +214,19 @@ export async function reverseCtaChargesForRequest(requestId: string, opts?: { pe
       data: { status: 'Reversed', retainedSgd: retained, reversalSapDocNo: d.sapDocNo.replace('SAP-CTA-', 'SAP-CTA-R'), reversedDate: date },
     });
   }
+}
+
+export async function reverseCtaChargesForRequest(requestId: string, opts?: { penaltySgd?: number; dateIso?: string }): Promise<void> {
+  const date = opts?.dateIso ?? new Date().toISOString().slice(0, 10);
+  const docs = await prisma.ctaPostingDocument.findMany({ where: { requestId, status: 'Posted' } });
+  await reverseCtaDocs(docs, opts?.penaltySgd ?? 0, date);
+}
+
+/** §GRP-10 reverse only ONE booking's CTA postings (a single-member cancellation), keeping the penalty. */
+export async function reverseCtaChargesForBooking(bookingId: string, opts?: { penaltySgd?: number; dateIso?: string }): Promise<void> {
+  const date = opts?.dateIso ?? new Date().toISOString().slice(0, 10);
+  const docs = await prisma.ctaPostingDocument.findMany({ where: { bookingId, status: 'Posted' } });
+  await reverseCtaDocs(docs, opts?.penaltySgd ?? 0, date);
 }
 
 export interface CtaPostingsView { postings: CtaPosting[]; totalDr: number; totalCr: number; count: number }

@@ -9,6 +9,7 @@ import { evaluateFlow } from '@/modules/pretrip/integration';
 import { isResearchByCharging } from '@/modules/pretrip/research';
 import { resolveClaimTraveller } from '@/modules/te/claimRemit';
 import { recallEligible } from '@/modules/pretrip/booking';
+import { settleCancellation } from '@/modules/pretrip/ctaPosting';
 import { RECALLABLE_BOOKING_STATUSES, STATUS_TRANSITIONS, BOOKING_STATUS, REQUEST_STATUS } from '@/shared/enums';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -369,6 +370,16 @@ function mixedGrpReq(): FullRequest {
   ok('GRP-9: cancelled member is not in the instructions', !out.instructions.some((i: any) => i.travellerRef === 'E-2'));
   const none: any = outboundFromSnapshot(snap, meta, { authorisationNumber: 'TA-1', groupType: 'STAFF' });
   ok('GRP-9: no cancellation sends every member', none.instructionCount === 3);
+}
+
+// ---------- GRP-10: single-member cancellation settlement (penalty retained, refund of the balance) ----------
+{
+  const t = settleCancellation(1000, true);
+  ok('GRP-10: ticketed fare keeps the penalty and refunds the balance', t.feeSgd === 75 && t.refundSgd === 925);
+  const u = settleCancellation(1000, false);
+  ok('GRP-10: un-ticketed booking voids at no cost', u.feeSgd === 0 && u.refundSgd === 0);
+  const small = settleCancellation(50, true);
+  ok('GRP-10: refund is never negative when the fare is below the penalty', small.refundSgd === 0 && small.feeSgd === 75);
 }
 
 console.log(log.join('\n'));

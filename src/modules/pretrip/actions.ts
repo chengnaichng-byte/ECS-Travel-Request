@@ -40,7 +40,7 @@ import type { CanonicalInbound } from '@/integrations/tmc/contract';
 import { assignGroupLineNos } from './groupLines';
 import { assembleOutboundInstructions, buildApprovedSnapshot, outboundFromSnapshot, snapshotApprovedAirSegments, type ApprovedSnapshot } from './tmcPayload';
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
-import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
+import { postCtaChargesForRequest, reverseCtaChargesForRequest, reverseCtaChargesForBooking, settleCancellation } from './ctaPosting';
 import { computeBookingDeviations, evidenceTypeFor, type ApprovedAirSegment } from './bookingDeviation';
 import { resolveTmcProvider, resolveTmcProviderFrom } from './tmcRouting';
 import { listTmcProviders } from './tmcConfig';
@@ -1861,6 +1861,35 @@ export async function receiveCancellation(id: string, fd?: FormData) {
   revalidatePath(`/requests/${id}`);
   revalidatePath(`/requests/${id}/booking`);
   revalidatePath('/dashboard');
+}
+
+/** §GRP-10 (agreed rule 11 November 2026) sync a SINGLE group member's cancellation from the TMC
+ *  booking feed. After a group is booked, one member's cancellation is made with the TMC (not by the
+ *  Pre-Trip module); the feed returns it for that traveller's PNR(s). Here we mark only that member's
+ *  booking Cancelled, reverse ONLY that traveller's CTA charges for the refund (keeping any
+ *  non-refundable penalty as retainedSgd, PAL-4), and mark the member Cancelled. The group request and
+ *  its TA stay in place for the other members. (In the prototype this stands in for the inbound feed.) */
+export async function receiveMemberCancellation(id: string, travellerRowId: string, fd?: FormData) {
+  const req = await loadRequest(id);
+  if (!req || !req.isGroup) return;
+  const row = req.travellers.find((t) => t.id === travellerRowId);
+  if (!row || row.status === 'Cancelled') return;
+  const booking = req.bookings.find((b) => b.travellerId === row.employeeId && b.channel === 'TMC');
+  if (!booking) { await audit(id, 'INTEGRATION', `Member cancellation feed ignored — ${EcsIdentity.employee(row.employeeId)?.name ?? row.employeeId} has no live TMC booking`); return; }
+  const booked = (booking.fare ?? 0) + (booking.taxes ?? 0) + (booking.fees ?? 0);
+  const { feeSgd, refundSgd } = settleCancellation(booked, !!booking.ticketNo);
+  const reason = fd ? str(fd, 'reason') : '';
+  const meta = { messageId: randomUUID(), receivedAt: new Date().toISOString(), correlationId: null, sourceStatus: req.status, contractVersion: CONTRACT_VERSION };
+  await prisma.$transaction(async (tx) => {
+    await tx.integrationMessage.create({ data: { requestId: id, direction: 'INBOUND', kind: 'TMC_CANCEL_CONFIRM', payload: JSON.stringify({ meta, documentType: 'MEMBER_CANCEL_CONFIRMATION', authorisationNumber: req.authorisationNo, travellerRef: row.employeeId, instructionSeq: row.lineNo, pnr: booking.pnr, ticketVoided: !!booking.ticketNo, cancellationFeeSgd: feeSgd, refundSgd, confirmedAt: meta.receivedAt, reason: reason || null }, null, 2) } });
+    await tx.travelBooking.update({ where: { id: booking.id }, data: { status: BOOKING_STATUS.Cancelled } });
+    await tx.travelRequestTraveller.update({ where: { id: travellerRowId }, data: { status: 'Cancelled' } });
+    // The request stays Booked for the other members; TA unchanged.
+  });
+  await reverseCtaChargesForBooking(booking.id, { penaltySgd: feeSgd, dateIso: meta.receivedAt.slice(0, 10) });
+  await audit(id, 'INTEGRATION', `Member cancellation synced from the TMC feed — ${EcsIdentity.employee(row.employeeId)?.name ?? row.employeeId} (PNR ${booking.pnr})${feeSgd ? `, fee SGD ${feeSgd}, refund SGD ${refundSgd}` : ' (no fee)'}; only this traveller's CTA charges reversed, the group TA ${req.authorisationNo ?? ''} stays for the others (GRP-10).`);
+  revalidatePath(`/requests/${id}/booking`);
+  revalidatePath(`/requests/${id}`);
 }
 
 /* --------------------------------------------- TMC hand-off (TR-14, §13.9) */
