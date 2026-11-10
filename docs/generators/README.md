@@ -7,6 +7,7 @@ source, so the documents can be rebuilt reproducibly rather than hand-edited:
 |---|---|---|
 | `gen_integration.js` | `docs/NTU-Travel-Request-Integration-Contract.docx` | `src/config/integrationContracts.ts`, `src/integrations/tmc/{contract,adapter,vocab}.ts`, `src/modules/pretrip/{integration,tmcRetrieval,tmcPayload,bookingDeviation}.ts`, `prisma/schema.prisma` |
 | `gen_datadict.js` | `docs/NTU-Travel-Request-Data-Dictionary.docx` | `prisma/schema.prisma` (all models) |
+| `gen_rules.js` | `docs/NTU-Travel-Request-Validation-Business-Rules.docx` | `src/config/decisions.ts` (Module Settings), `src/modules/pretrip/*`, `src/modules/te/*`, `src/shared/ecs/services.ts`, `src/config/workflowScenario.ts` (122 rules in 19 areas, catalogue + detail) |
 
 Contract version documented: `ecs-pretrip-contract/1.3`.
 
@@ -34,6 +35,7 @@ From this folder, with an explicit output path into `docs/`:
 ```bash
 node gen_integration.js ../NTU-Travel-Request-Integration-Contract.docx
 node gen_datadict.js ../NTU-Travel-Request-Data-Dictionary.docx
+node gen_rules.js ../NTU-Travel-Request-Validation-Business-Rules.docx
 ```
 
 Close the target file in Word first (Word holds an exclusive lock; the write fails with `EBUSY`
