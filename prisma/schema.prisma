@@ -410,6 +410,25 @@ model UpgradeDeltaAccount {
   createdAt    DateTime @default(now())
 }
 
+/// §7.5 Multi-TMC provider registry — runtime-editable master (seeded from src/data/tmcProviders.ts).
+/// A travel request routes to ONE provider; routing + the Trip booking-arrangement picker read the
+/// live (DB-effective) list via src/modules/pretrip/tmcConfig.ts.
+model TmcProviderConfig {
+  id             String  @id @default(cuid())
+  code           String  @unique        // the stable TMC id / arrangement key, e.g. TMC-FCM
+  name           String
+  adapterKey     String  @default("fcm")  // selects the provider-specific wire adapter
+  active         Boolean @default(true)
+  scope          String  @default("ALL")  // "ALL" (global) or comma-separated ISO country codes
+  bookingMethods String  @default("")     // comma-separated BOOKING_METHOD values the provider fulfils
+  transport      String  @default("")     // mock endpoint / transport config
+  pnrPrefix      String  @default("")      // provider booking-reference prefix
+  isDefault      Boolean @default(false)   // the catch-all default provider
+  highRiskOnly   Boolean @default(false)   // specialist desk for high-risk destinations
+  sortOrder      Int     @default(0)
+  createdAt      DateTime @default(now())
+}
+
 /// #14 UpgradeUpliftRate — runtime-editable uplift % schedule (Model B). The NTU-funded upgrade
 /// differential is derived from the chosen fare: entitlement = chosenFare / (1 + pct), so
 /// delta = chosenFare − entitlement. pct is the uplift OVER the entitlement for the (from → to)

@@ -8,12 +8,12 @@ import { handoffToTmc, receiveBooking, markSelfBooked, resendToTmc, postAirfareT
 import { fmtSgd } from '@/modules/pretrip/pricing';
 import { EcsIdentity } from '@/shared/ecs/services';
 import { currentPersonaId } from '@/shared/session';
-import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
+import { resolveTmcProviderFrom } from '@/modules/pretrip/tmcRouting';
+import { listTmcProviders } from '@/modules/pretrip/tmcConfig';
 import { isTmcArrangement, isSelfBooked, isHostArranged, isNoBooking, arrangementLabel } from '@/modules/pretrip/booking';
 import { taLineRef } from '@/modules/pretrip/groupLines';
 import { memberName } from '@/modules/pretrip/traveller';
 import { assessHandoffRouting, channelLabel } from '@/modules/pretrip/handoffRouting';
-import { tmcProvider } from '@/data/tmcProviders';
 import { BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, REQUEST_STATUS } from '@/shared/enums';
 import { Card, KV, Empty } from '@/components/ui';
 
@@ -50,9 +50,11 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
   const daysLeft = windowRef ? Math.ceil((windowRef.getTime() - Date.now()) / 86400000) : null;
   const windowClosed = !!windowRef && windowRef.getTime() < Date.now();
   // Multi-TMC: the single provider this request routes to (resolved), and the one that booked.
-  const routing = resolveTmcProvider(req);
+  const liveProviders = await listTmcProviders();
+  const routing = resolveTmcProviderFrom(req, liveProviders);
   const sentProviderId = (() => { try { return outbound ? JSON.parse(outbound.payload).meta?.tmc ?? null : null; } catch { return null; } })();
   const activeProviderId = sentProviderId ?? bookings[0]?.tmcProviderId ?? routing.provider.id;
+  const activeProvider = liveProviders.find((p) => p.id === activeProviderId);
   // §9.3 group fan-out (AC15) — the outbound hand-off carries N traveller instructions.
   let fanoutCount = 0;
   if (outbound) { try { const p = JSON.parse(outbound.payload); if (p?.mode === 'GROUP_FANOUT') fanoutCount = p.instructionCount ?? p.instructions?.length ?? 0; } catch { /* ignore */ } }
@@ -175,9 +177,9 @@ export default async function BookingPage({ params }: { params: Promise<{ id: st
         <div><span className="text-[var(--ecs-muted)]">Booking arrangement</span> <strong className="text-[var(--ecs-navy)]">{arrangementLabel(req.bookingArrangement)}</strong></div>
         {isTmcArrangement(req.bookingArrangement) ? (
           <>
-            <div><span className="text-[var(--ecs-muted)]">TMC provider</span> <strong className="text-[var(--ecs-navy)]">{tmcProvider(activeProviderId)?.name ?? routing.provider.name}</strong></div>
+            <div><span className="text-[var(--ecs-muted)]">TMC provider</span> <strong className="text-[var(--ecs-navy)]">{activeProvider?.name ?? routing.provider.name}</strong></div>
             <div className="text-xs text-[var(--ecs-muted)]">{req.bookingStatus === BOOKING_STATUS.NotSent ? `Will route to this provider — ${routing.reason}.` : 'Provider this request was handed off to.'}</div>
-            <div className="text-xs text-[var(--ecs-muted)] font-mono">{tmcProvider(activeProviderId)?.transport}</div>
+            <div className="text-xs text-[var(--ecs-muted)] font-mono">{activeProvider?.transport}</div>
           </>
         ) : (
           <div className="text-xs text-[var(--ecs-muted)]">Not routed to a TMC.</div>

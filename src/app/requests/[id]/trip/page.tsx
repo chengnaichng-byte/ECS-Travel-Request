@@ -14,7 +14,7 @@ import { listAcademicTerms, deriveNonTermTime } from '@/modules/pretrip/academic
 import { NonTermField } from '@/components/NonTermField';
 import Link from 'next/link';
 import { travelPurposes } from '@/data/travelPurposes';
-import { activeProviders } from '@/data/tmcProviders';
+import { listTmcProviders } from '@/modules/pretrip/tmcConfig';
 import { airports, cities, countries } from '@/data/locations';
 import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS, BOOKING_METHOD } from '@/shared/enums';
 import { BookingFields } from '@/components/BookingFields';
@@ -38,7 +38,8 @@ export default async function TripStep({ params, searchParams }: { params: Promi
 
   const sortedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   // §2.2 resolved TMC for the current booking arrangement (shown read-only in the trip section).
-  const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
+  const tmcProviderOpts = (await listTmcProviders()).filter((p) => p.active).map((p) => ({ id: p.id, name: p.name }));
+  const tmcText = isTmcArrangement(req.bookingArrangement) ? (await resolveTmcProvider(req)).provider.name : 'Not via a TMC';
   const tripType = (req.tripType === 'ONE_WAY' || req.tripType === 'MULTI_CITY' ? req.tripType : 'ROUND_TRIP') as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
   const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
   // airport → city/country names, so the leg builder can show the derived main destination.
@@ -90,7 +91,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           </select>
         </div>
         <BookingFields
-          providers={activeProviders().map((p) => ({ id: p.id, name: p.name }))}
+          providers={tmcProviderOpts}
           nonTmc={NON_TMC_ARRANGEMENTS}
           methods={TMC_BOOKING_METHODS}
           initialArrangement={req.bookingArrangement ?? 'AUTO'}

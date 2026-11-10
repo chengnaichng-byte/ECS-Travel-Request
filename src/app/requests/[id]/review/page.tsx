@@ -153,7 +153,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const nonTermApprovals = req.attachments.filter((a) => a.docType === NON_TERM_APPROVAL_DOC);
   const additionalCandidates = employees.filter((e) => e.id !== req.travellerId).map((e) => ({ id: e.id, name: e.name, title: e.title }));
   const research = isResearchRequest(req) && !settings.sameRouteResearch;
-  const tmcText = isTmcArrangement(req.bookingArrangement) ? resolveTmcProvider(req).provider.name : 'Not via a TMC';
+  const tmcText = isTmcArrangement(req.bookingArrangement) ? (await resolveTmcProvider(req)).provider.name : 'Not via a TMC';
 
   // §4.4/§13.20 full itinerary for the Trip card — shown when the route is more than a single
   // destination (multi-city) or carries a personal segment, so the whole route is visible at

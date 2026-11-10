@@ -48,6 +48,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   const setup: NavItem[] = [
     ...(isSysAdmin ? [{ href: '/settings', label: 'Pre-Trip Module Settings', icon: '⚙' }] : []),
     { href: '/integration', label: 'Integration Contracts', icon: '⇄' },
+    { href: '/setup/tmc-providers', label: 'TMC Providers', icon: '✈' },
     { href: '/config-viewer', label: 'Configuration Viewer', icon: '☰' },
     { href: '/setup/cta-accounts', label: 'CTA Accounts (DD-30)', icon: '▣' },
     { href: '/setup/policy-groups', label: 'Travel Policy Groups (M6)', icon: '◎' },

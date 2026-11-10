@@ -17,7 +17,7 @@ import { delegations } from '@/data/delegations';
 import { policyRules } from '@/config/policyRules';
 import { rejectionReasons } from '@/data/rejectionReasons';
 import { highRiskDestinations } from '@/data/highRiskDestinations';
-import { tmcProviders } from '@/data/tmcProviders';
+import { listTmcProviders } from '@/modules/pretrip/tmcConfig';
 
 function T({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
   return (
@@ -30,7 +30,8 @@ function T({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
   );
 }
 
-export default function ConfigViewer() {
+export default async function ConfigViewer() {
+  const tmcRegistry = await listTmcProviders();
   return (
     <div className="w-full space-y-5">
       <PageTitle id="TR-19 · read-only" title="ECS Configuration Viewer"
@@ -70,7 +71,7 @@ export default function ConfigViewer() {
 
       <Card title="TMC Providers (multi-TMC registry)">
         <T head={['ID', 'Name', 'Scope', 'Booking methods', 'Transport', 'Role', 'Status']}
-          rows={tmcProviders.map((p) => [p.id, p.name, p.scope === 'ALL' ? 'Global' : p.scope.join(', '), p.bookingMethods.join(', '), p.transport, p.isDefault ? 'Default' : p.highRiskOnly ? 'High-risk desk' : 'Regional', p.active ? 'Active' : 'Inactive'])} />
+          rows={tmcRegistry.map((p) => [p.id, p.name, p.scope === 'ALL' ? 'Global' : p.scope.join(', '), p.bookingMethods.join(', '), p.transport, p.isDefault ? 'Default' : p.highRiskOnly ? 'High-risk desk' : 'Regional', p.active ? 'Active' : 'Inactive'])} />
         <p className="text-xs text-[var(--ecs-muted)] mt-2">A travel request is routed to ONE provider: an explicit preference wins, else the high-risk specialist desk, else a regional provider covering the destination, else the default. The provider-specific mapping lives in the adapter layer.</p>
       </Card>
 

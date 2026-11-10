@@ -42,11 +42,11 @@ import { assembleOutboundInstructions, buildApprovedSnapshot, outboundFromSnapsh
 import { buildSapAirfarePosting } from '@/integrations/sap/posting';
 import { postCtaChargesForRequest, reverseCtaChargesForRequest } from './ctaPosting';
 import { computeBookingDeviations, evidenceTypeFor, type ApprovedAirSegment } from './bookingDeviation';
-import { resolveTmcProvider } from './tmcRouting';
+import { resolveTmcProvider, resolveTmcProviderFrom } from './tmcRouting';
+import { listTmcProviders } from './tmcConfig';
 import { bookingsForAuthorisation } from './tmcRetrieval';
 import { assessHandoffRouting, channelLabel } from './handoffRouting';
 import { resolveChargingRows } from './chargingRollup';
-import { tmcProvider } from '@/data/tmcProviders';
 import { getContractSettings, tmcEnabledSet, getGuardSettings, evaluateFlow } from './integration';
 import { CONTRACT_VERSION } from '@/config/integrationContracts';
 import { actionAllowed, canActOnStep, canCreateFor, canCreateTravelRequest, canEditRequest } from './guards';
@@ -1729,7 +1729,7 @@ export async function recallRequest(id: string, fd?: FormData) {
   const reason = fd ? str(fd, 'reason') : '';
   // Withdraw the pending instruction from the TMC (idempotent in the mock) when one was already sent.
   if (req.bookingStatus !== BOOKING_STATUS.NotSent) {
-    const { provider } = resolveTmcProvider(req);
+    const { provider } = await resolveTmcProvider(req);
     const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: provider.id };
     await prisma.integrationMessage.create({ data: { requestId: id, direction: 'OUTBOUND', kind: 'TMC_RECALL', tmcProviderId: provider.id, payload: JSON.stringify({ meta, mode: 'WITHDRAW', authorisationNumber: req.authorisationNo ?? '', reason: reason || 'Recalled by traveller before booking' }, null, 2) } });
   }
@@ -1870,7 +1870,7 @@ export async function handoffToTmc(id: string) {
     await audit(id, 'INTEGRATION', `Hand-off channel ${routing.deterministic ? 'deterministic → straight-through' : 'forced to agent/offline'} — ${channelLabel(routing.channel)}${routing.reasons.length ? `: ${routing.reasons.join('; ')}` : ''}`);
   }
   // Multi-TMC: resolve the single provider this request routes to.
-  const { provider } = resolveTmcProvider(req);
+  const { provider } = await resolveTmcProvider(req);
   const contract = await getContractSettings();
   const meta = { messageId: randomUUID(), sentAt: new Date().toISOString(), sourceStatus: req.status, contractVersion: CONTRACT_VERSION, tmc: provider.id };
   // §9.3 group fan-out (AC15): one approval → one booking instruction per traveller.
@@ -1906,8 +1906,9 @@ export async function receiveBooking(id: string, fd: FormData) {
   const out = req?.messages.find((m) => m.kind === 'TMC_HANDOFF');
   if (!req || !out) return;
   // Multi-TMC: process the response with the adapter of the provider this request was sent to.
-  const providerId = out.tmcProviderId ?? resolveTmcProvider(req).provider.id;
-  const adapter = adapterFor(tmcProvider(providerId)?.adapterKey);
+  const liveProviders = await listTmcProviders();
+  const providerId = out.tmcProviderId ?? resolveTmcProviderFrom(req, liveProviders).provider.id;
+  const adapter = adapterFor(liveProviders.find((p) => p.id === providerId)?.adapterKey);
   // Idempotency — a booking already received is not reprocessed (prevents duplicate rows).
   if (req.bookingStatus === BOOKING_STATUS.Booked) {
     await audit(id, 'INTEGRATION', 'Inbound response ignored — booking already received');
