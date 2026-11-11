@@ -10,6 +10,7 @@ import { SidebarProvider } from './SidebarContext';
 import { SidebarToggle } from './SidebarToggle';
 import { currentPersona, currentRoleId } from '@/shared/session';
 import { PERSONA_ROLES, peopleByRole, defaultRoleFor } from '@/data/personaRoles';
+import { getStaffPreferences } from '@/modules/pretrip/preferences';
 import { ROLE } from '@/shared/enums';
 
 // Existing ECS Reporting Dashboard screen (not rebuilt in the prototype) — opened in the ECS app.
@@ -35,6 +36,8 @@ const STUBS = ['GST Codes', 'Entertainment Tier', 'Mileage', 'CTC Cards', 'Rejec
 
 export async function Shell({ children }: { children: React.ReactNode }) {
   const persona = await currentPersona();
+  const prefs = await getStaffPreferences(persona.id);
+  const initialCollapsed = prefs.sidebarDefault === 'hidden';
   const roleId = (await currentRoleId()) ?? defaultRoleFor(persona.id);
   const roles = PERSONA_ROLES.map((r) => ({ key: r.key, label: r.label, note: r.note, stage: r.stage }));
   const isSysAdmin = persona.roles.includes(ROLE.SystemAdmin);
@@ -61,7 +64,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <SidebarProvider>
+    <SidebarProvider initialCollapsed={initialCollapsed}>
     <div className="min-h-full flex flex-col">
       {/* White application header — NTU mark + red title + user menu (§13.22) */}
       <header className="bg-white border-b-2 border-[var(--ecs-red)]">

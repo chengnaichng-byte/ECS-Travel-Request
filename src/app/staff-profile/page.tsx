@@ -2,13 +2,27 @@
 // screen, shown as a greyed, non-clickable label — not rebuilt in the prototype) and the Travel Policy
 // tab (the traveller-facing policy reference, rendered here). The /policy route redirects here.
 import { TravelPolicyView } from '@/components/TravelPolicyView';
+import { SidebarDefaultPref } from '@/components/SidebarDefaultPref';
+import { getStaffPreferences } from '@/modules/pretrip/preferences';
+import { currentPersonaId } from '@/shared/session';
 
 export const dynamic = 'force-dynamic';
 
 export default async function StaffProfilePage({ searchParams }: { searchParams: Promise<{ traveller?: string; dest?: string }> }) {
   const sp = await searchParams;
+  const prefs = await getStaffPreferences(await currentPersonaId());
   return (
     <div className="w-full space-y-5">
+      {/* §4.1 Display preferences — prototype-level per-user settings (not an existing ECS screen). */}
+      <section className="rounded-xl border border-[var(--ecs-border)] bg-white p-4">
+        <h2 className="text-sm font-semibold text-[var(--ecs-navy)]">Display preferences</h2>
+        <p className="text-[13px] text-[var(--ecs-muted)] mt-0.5">How the application looks when you sign in. Saved to your profile and applied straight away.</p>
+        <div className="mt-3.5">
+          <label className="block text-[13px] font-medium text-[var(--ecs-text)] mb-1.5">Default side menu</label>
+          <SidebarDefaultPref value={prefs.sidebarDefault} />
+        </div>
+      </section>
+
       {/* Tab bar — ECS Staff Profile (existing ECS screen, greyed off / not clickable) · Travel Policy (active) */}
       <div className="flex items-end gap-1 border-b border-[var(--ecs-border)]">
         <span className="px-4 py-2 text-sm font-medium text-slate-400 cursor-not-allowed select-none border-b-2 border-transparent -mb-px"

@@ -3,7 +3,7 @@
 // and the Integration Contract editor (TR-20).
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { PERSONA_COOKIE, ROLE_COOKIE, currentPersona } from '@/shared/session';
+import { PERSONA_COOKIE, ROLE_COOKIE, currentPersona, currentPersonaId } from '@/shared/session';
 import { updateSettings } from '@/modules/pretrip/settings';
 import { decisionCatalogue } from '@/config/decisions';
 import { CONTRACT_FIELDS, CONTRACT_GUARDS, guardEditable } from '@/config/integrationContracts';
@@ -16,6 +16,20 @@ export async function setPersona(fd: FormData) {
   const store = await cookies();
   store.set(PERSONA_COOKIE, id, { path: '/' });
   if (role) store.set(ROLE_COOKIE, role, { path: '/' });
+  revalidatePath('/', 'layout');
+}
+
+/** §4.1 Staff Profile preference: the default state of the left navigation menu app-wide.
+ * "hidden" collapses it to the slim icon rail on load; "shown" docks it full width. Stored per
+ * persona so it follows the acting user. Revalidate the layout so the Shell re-reads it at once. */
+export async function setSidebarDefault(fd: FormData) {
+  const value = String(fd.get('sidebarDefault') ?? 'shown') === 'hidden' ? 'hidden' : 'shown';
+  const employeeId = await currentPersonaId();
+  await prisma.staffPreference.upsert({
+    where: { employeeId },
+    update: { sidebarDefault: value },
+    create: { employeeId, sidebarDefault: value },
+  });
   revalidatePath('/', 'layout');
 }
 
