@@ -6,10 +6,11 @@
 import { useState, useTransition } from 'react';
 import { setSidebarDefault } from '@/app/actions';
 
-type Value = 'shown' | 'hidden';
+type Value = 'shown' | 'icons' | 'hidden';
 const OPTIONS: { value: Value; label: string; desc: string }[] = [
-  { value: 'shown', label: 'Shown', desc: 'The side menu is docked open on every page.' },
-  { value: 'hidden', label: 'Hidden', desc: 'The side menu is hidden; the menu button at the top-left of the header opens it when you need it.' },
+  { value: 'shown', label: 'Full menu', desc: 'The side menu is docked open on every page, with icons and labels.' },
+  { value: 'icons', label: 'Icons only', desc: 'The side menu shows as a slim icon rail (icons, no labels); the header menu button opens the full menu.' },
+  { value: 'hidden', label: 'Hidden', desc: 'The side menu is removed; the menu button at the top-left of the header opens it when you need it.' },
 ];
 
 export function SidebarDefaultPref({ value }: { value: Value }) {

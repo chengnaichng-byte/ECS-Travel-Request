@@ -6,7 +6,8 @@ import { NavLinks, type NavItem } from './NavLinks';
 import { useSidebar } from './SidebarContext';
 
 export function Sidebar({ nav, setup, stubs }: { nav: NavItem[]; setup: NavItem[]; stubs: string[] }) {
-  const { collapsed, mobileOpen, closeMobile } = useSidebar();
+  const { mode, mobileOpen, closeMobile } = useSidebar();
+  const rail = mode === 'icons';
 
   const Body = ({ rail }: { rail: boolean }) => (
     <>
@@ -31,13 +32,14 @@ export function Sidebar({ nav, setup, stubs }: { nav: NavItem[]; setup: NavItem[
 
   return (
     <>
-      {/* Desktop: docked full-width, or fully hidden (the header menu button brings it back). */}
+      {/* Desktop: full menu ('shown'), slim icon rail ('icons'), or fully hidden ('hidden').
+          The header menu button reveals the full menu from any of the compact states. */}
       <aside
-        className={`shrink-0 w-60 bg-white border-r border-[var(--ecs-border)] overflow-y-auto ${collapsed ? 'hidden' : 'hidden md:flex md:flex-col'}`}
+        className={`shrink-0 bg-white border-r border-[var(--ecs-border)] overflow-y-auto transition-[width] duration-200 ${mode === 'hidden' ? 'hidden' : 'hidden md:flex md:flex-col'} ${rail ? 'w-14' : 'w-60'}`}
         aria-label="Main navigation"
-        aria-hidden={collapsed}
+        aria-hidden={mode === 'hidden'}
       >
-        <Body rail={false} />
+        <Body rail={rail} />
       </aside>
 
       {/* Mobile: overlay drawer */}

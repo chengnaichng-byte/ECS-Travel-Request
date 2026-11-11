@@ -37,7 +37,6 @@ const STUBS = ['GST Codes', 'Entertainment Tier', 'Mileage', 'CTC Cards', 'Rejec
 export async function Shell({ children }: { children: React.ReactNode }) {
   const persona = await currentPersona();
   const prefs = await getStaffPreferences(persona.id);
-  const initialCollapsed = prefs.sidebarDefault === 'hidden';
   const roleId = (await currentRoleId()) ?? defaultRoleFor(persona.id);
   const roles = PERSONA_ROLES.map((r) => ({ key: r.key, label: r.label, note: r.note, stage: r.stage }));
   const isSysAdmin = persona.roles.includes(ROLE.SystemAdmin);
@@ -64,7 +63,7 @@ export async function Shell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <SidebarProvider initialCollapsed={initialCollapsed}>
+    <SidebarProvider initialMode={prefs.sidebarDefault}>
     <div className="min-h-full flex flex-col">
       {/* White application header — NTU mark + red title + user menu (§13.22) */}
       <header className="bg-white border-b-2 border-[var(--ecs-red)]">

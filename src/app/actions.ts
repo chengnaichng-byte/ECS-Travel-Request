@@ -20,10 +20,12 @@ export async function setPersona(fd: FormData) {
 }
 
 /** §4.1 Staff Profile preference: the default state of the left navigation menu app-wide.
- * "hidden" collapses it to the slim icon rail on load; "shown" docks it full width. Stored per
- * persona so it follows the acting user. Revalidate the layout so the Shell re-reads it at once. */
+ * "shown" docks it full width; "icons" shows the slim icon rail; "hidden" removes it (the header
+ * menu button reveals it). Stored per persona so it follows the acting user. Revalidate the layout
+ * so the Shell re-reads it at once. */
 export async function setSidebarDefault(fd: FormData) {
-  const value = String(fd.get('sidebarDefault') ?? 'shown') === 'hidden' ? 'hidden' : 'shown';
+  const raw = String(fd.get('sidebarDefault') ?? 'shown');
+  const value = raw === 'hidden' || raw === 'icons' ? raw : 'shown';
   const employeeId = await currentPersonaId();
   await prisma.staffPreference.upsert({
     where: { employeeId },
