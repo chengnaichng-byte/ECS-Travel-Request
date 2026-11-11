@@ -21,6 +21,33 @@ export async function listAcademicTerms() {
   return prisma.academicTerm.findMany({ orderBy: [{ academicYear: 'asc' }, { sortOrder: 'asc' }] });
 }
 
+/** Pick a travel window of `nights` nights that sits ENTIRELY inside a BREAK period, so a trip placed
+ * there derives as non-term time. Prefers an upcoming break (one that has not already ended), chosen at
+ * random among those long enough, and staggers the start within it for variety. Returns ISO date
+ * strings (YYYY-MM-DD), or null when no loaded break can fit the window (caller keeps its own default,
+ * which falls back to the manual attestation). Used by the non-term research demo seed so the launcher
+ * stays self-consistent as the academic calendar changes, instead of hard-coding dates. */
+export function pickNonTermWindow(terms: Term[], nights = 5): { start: string; end: string } | null {
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const breaks = terms
+    .filter((t) => t.type === 'BREAK')
+    .map((t) => ({ s: midUTC(t.startDate), e: midUTC(t.endDate) }))
+    .filter((b) => (b.e - b.s) / DAY >= nights)           // long enough to hold start..start+nights
+    .sort((a, b) => a.s - b.s);
+  if (breaks.length === 0) return null;
+  const upcoming = breaks.filter((b) => b.e >= today);     // break not already over
+  const pool = upcoming.length ? upcoming : breaks;        // else fall back to any fitting break
+  const br = pool[Math.floor(Math.random() * pool.length)];
+  const earliest = Math.max(br.s, today);                  // do not start in the past
+  const latestStart = br.e - nights * DAY;                 // last start that still fits the window
+  const lo = Math.min(earliest, latestStart);              // guard when today is late in the break
+  const slots = Math.max(0, Math.round((latestStart - lo) / DAY));
+  const start = lo + Math.floor(Math.random() * (slots + 1)) * DAY;
+  return { start: iso(start), end: iso(start + nights * DAY) };
+}
+
 /** Derive whether [start, end] (personal included) is non-term time against the teaching calendar. */
 export function deriveNonTermTime(start: Date | null, end: Date | null, terms: Term[]): NonTermResult {
   if (!start || !end) return { covered: false, nonTerm: false, basis: 'No travel dates set.' };

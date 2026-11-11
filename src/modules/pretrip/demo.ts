@@ -29,6 +29,7 @@ import { assignGroupLineNos } from './groupLines';
 import { buildApprovedSnapshot } from './tmcPayload';
 import { EMERGENCY_APPROVAL_DOC } from './emergency';
 import { NON_TERM_APPROVAL_DOC } from './nonTerm';
+import { listAcademicTerms, pickNonTermWindow } from './academicCalendar';
 import { REQUEST_STATUS, BOOKING_STATUS, EXPENSE_CATEGORY, POLICY_OUTCOME, BOOKING_METHOD, APPROVER_ROLE } from '@/shared/enums';
 
 const YEAR = 2026;
@@ -456,11 +457,18 @@ export async function seedNonTermResearchDraft(): Promise<string> {
   // Pick a destination the traveller has no existing request to → the duplicate guard never hard-blocks.
   const used = new Set((await prisma.travelRequest.findMany({ where: { travellerId: 'E-TRAV3' }, select: { destCity: true } })).map((r) => r.destCity));
   const dest = DEMO_DESTS.find((d) => !used.has(d.city)) ?? DEMO_DESTS[0];
+  // Place the trip inside a real BREAK window from the academic calendar so it DERIVES as non-term
+  // (the classification is calendar-based, not the old attestation). Falls back to a fixed offset when
+  // no loaded break can fit the window, in which case the manual attestation (nonTermDeclared) stands.
+  const NIGHTS = 5;
   const plus = (days: number) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
-  const offset = 60 + Math.floor(Math.random() * 60);   // 2–4 months out, staggered so windows rarely overlap
+  const win = pickNonTermWindow(await listAcademicTerms(), NIGHTS);
+  const offset = 60 + Math.floor(Math.random() * 60);   // fallback only: 2–4 months out
+  const start = win?.start ?? plus(offset);
+  const end = win?.end ?? plus(offset + NIGHTS);
   const id = await buildDraft({
     requestorId: 'E-TRAV3', travellerId: 'E-TRAV3', purposeId: 'TP-OB-RES', isResearch: true,
-    destCountry: dest.country, destCity: dest.city, destAirport: dest.airport, start: plus(offset), end: plus(offset + 5),
+    destCountry: dest.country, destCity: dest.city, destAirport: dest.airport, start, end,
     travelClassId: 'TC-ECO', bookingMethod: BOOKING_METHOD.TMCOnline,
     airfare: { amount: 1800, currency: 'SGD', classId: 'TC-ECO' },
     conference: { amount: 600 },
