@@ -17,7 +17,7 @@ datasource db {
 /// profile table, so this is a thin per-user settings row maintained from the Staff Profile page).
 model StaffPreference {
   employeeId     String   @id                    // → EcsIdentity employee id (the acting persona)
-  sidebarDefault String   @default("shown")      // "shown" | "hidden" — default state of the left menu app-wide; "hidden" = the slim icon rail
+  sidebarDefault String   @default("shown")      // "shown" | "hidden" — default state of the left menu app-wide; "hidden" = fully hidden (header menu button reveals it)
   updatedAt      DateTime @updatedAt
 }
 

@@ -1,9 +1,9 @@
 'use client';
 // §13.22 Collapsible navigation state, shared between the header toggle (hamburger) and the sidebar.
-// Desktop: the sidebar docks and collapses to a slim icon rail. Mobile: it opens as an overlay
-// drawer. One toggle drives both, picking the behaviour from the viewport width.
+// Desktop: the sidebar docks full-width or is fully hidden. Mobile: it opens as an overlay drawer.
+// One toggle drives both, picking the behaviour from the viewport width.
 //
-// §4.1 The DEFAULT desktop state (shown vs the icon rail) is a per-staff profile preference read
+// §4.1 The DEFAULT desktop state (shown vs hidden) is a per-staff profile preference read
 // server-side by the Shell and passed in as `initialCollapsed`. The hamburger still overrides it
 // for the current session; a reload (or a persona switch, or saving the preference) returns to the
 // profile default. The profile preference owns the default, so there is no localStorage copy to go

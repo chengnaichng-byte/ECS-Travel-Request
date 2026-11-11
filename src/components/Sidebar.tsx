@@ -31,12 +31,13 @@ export function Sidebar({ nav, setup, stubs }: { nav: NavItem[]; setup: NavItem[
 
   return (
     <>
-      {/* Desktop: docked, collapsible to an icon rail */}
+      {/* Desktop: docked full-width, or fully hidden (the header menu button brings it back). */}
       <aside
-        className={`shrink-0 bg-white border-r border-[var(--ecs-border)] hidden md:flex md:flex-col overflow-y-auto transition-[width] duration-200 ${collapsed ? 'w-14' : 'w-60'}`}
+        className={`shrink-0 w-60 bg-white border-r border-[var(--ecs-border)] overflow-y-auto ${collapsed ? 'hidden' : 'hidden md:flex md:flex-col'}`}
         aria-label="Main navigation"
+        aria-hidden={collapsed}
       >
-        <Body rail={collapsed} />
+        <Body rail={false} />
       </aside>
 
       {/* Mobile: overlay drawer */}

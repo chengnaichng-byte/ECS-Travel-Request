@@ -9,7 +9,7 @@ import { setSidebarDefault } from '@/app/actions';
 type Value = 'shown' | 'hidden';
 const OPTIONS: { value: Value; label: string; desc: string }[] = [
   { value: 'shown', label: 'Shown', desc: 'The side menu is docked open on every page.' },
-  { value: 'hidden', label: 'Hidden (icon rail)', desc: 'The side menu starts collapsed to the slim icon rail; the header menu button opens it.' },
+  { value: 'hidden', label: 'Hidden', desc: 'The side menu is hidden; the menu button at the top-left of the header opens it when you need it.' },
 ];
 
 export function SidebarDefaultPref({ value }: { value: Value }) {
