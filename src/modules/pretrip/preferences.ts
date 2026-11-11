@@ -13,7 +13,7 @@ export interface StaffPreferences {
   sidebarDefault: SidebarDefault;
 }
 
-const DEFAULTS: StaffPreferences = { sidebarDefault: 'shown' };
+const DEFAULTS: StaffPreferences = { sidebarDefault: 'icons' };
 
 export function asSidebarDefault(v: string | null | undefined): SidebarDefault {
   return v === 'hidden' || v === 'icons' ? v : 'shown';
