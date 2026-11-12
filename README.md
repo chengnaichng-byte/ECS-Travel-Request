@@ -36,6 +36,12 @@ npm run dev                # http://localhost:3000
 Then open the dashboard and click **“Load demonstration scenarios”** to seed the §8.1
 scenarios (S01 standard, S02 research, S03 hotel-above-cap) end to end.
 
+> **After pulling schema changes:** the Prisma schema evolves with the prototype, so after a
+> `git pull` run `npx prisma db push && npx prisma generate` to sync `prisma/dev.db` and the
+> generated client (e.g. the `LegacyBooking` table added for the TMC-transition legacy-claim
+> path). Stop any running `next dev` first — on Windows it locks the generated client (`db push`
+> then fails with an EPERM/DLL-in-use error).
+
 > **OneDrive note:** this project lives under OneDrive. `node_modules` is git-ignored,
 > but OneDrive may still try to sync it — if syncing is slow, mark `node_modules` as
 > “Always keep on this device / Free up space” or exclude it from the OneDrive folder.
