@@ -87,7 +87,7 @@ function MemberEditor({ m, disabled, onCancel }: { m: PersonalMember; disabled?:
         <div className="flex items-center gap-2 pt-1">
           <button type="button" onClick={add} className="btn-secondary text-xs">＋ Add personal days</button>
           <button type="submit" disabled={errors.length > 0} className="btn-primary text-xs disabled:opacity-50">Save {m.name.split(' ').slice(-1)[0]}&apos;s personal days</button>
-          <button type="button" onClick={onCancel} className="btn-ghost text-xs">Cancel</button>
+          <button type="button" onClick={onCancel} className="btn-secondary text-xs">Cancel</button>
         </div>
       )}
     </form>

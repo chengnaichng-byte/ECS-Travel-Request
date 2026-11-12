@@ -104,7 +104,7 @@ function MemberRow({ m, airports, onCancel }: { m: ItineraryMember; airports: [s
             </div>
             <button type="button" onClick={addLeg} className="btn-secondary text-xs">＋ Add leg</button>
             <button className="btn-primary text-xs">Save itinerary</button>
-            <button type="button" onClick={onCancel} className="btn-ghost text-xs">Cancel</button>
+            <button type="button" onClick={onCancel} className="btn-secondary text-xs">Cancel</button>
           </div>
           <p className="text-[11px] text-[var(--ecs-muted)]">Seeds this traveller&apos;s Airfare line on the Estimates step (overrides the shared amount). Editable there; this figure re-applies on save.</p>
         </form>
@@ -118,7 +118,7 @@ function MemberRow({ m, airports, onCancel }: { m: ItineraryMember; airports: [s
               <button className="btn-ghost text-xs">Revert to the shared itinerary</button>
             </form>
           )}
-          <button type="button" onClick={onCancel} className="btn-ghost text-xs">Cancel</button>
+          <button type="button" onClick={onCancel} className="btn-secondary text-xs">Cancel</button>
         </div>
       )}
     </div>
