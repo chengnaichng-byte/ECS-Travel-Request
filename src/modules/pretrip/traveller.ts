@@ -53,6 +53,13 @@ export function isGuestMember(t: MemberRef): boolean { return t.travellerType ==
 export function isStudentMember(t: MemberRef): boolean { return t.travellerType === 'STUDENT' || t.employeeId.startsWith('S-'); }
 /** A non-employee member — guest or student — whose identity is captured, not HR-resolved. */
 export function isNonEmployeeMember(t: MemberRef): boolean { return isGuestMember(t) || isStudentMember(t); }
+
+/** §2.2 True when the trip carries any non-employee traveller — an individual guest, or a group with a
+ *  guest/student member. These travellers have no SSO sign-in to the online booking tool, so their
+ *  trips cannot be self-booked online: the booking method is forced to agent-assisted (or offline). */
+export function hasNonEmployeeTraveller(req: TravellerRef & { travellers?: MemberRef[] }): boolean {
+  return isGuestRequest(req) || (req.travellers ?? []).some(isNonEmployeeMember);
+}
 export function memberName(t: MemberRef): string {
   if (isNonEmployeeMember(t)) return t.guestName?.trim() || (isStudentMember(t) ? 'Student traveller' : 'Guest traveller');
   return EcsIdentity.employee(t.employeeId)?.name ?? t.employeeId;

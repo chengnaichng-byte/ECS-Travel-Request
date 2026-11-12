@@ -6,7 +6,7 @@ import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary } from '@/modules/pretrip/actions';
 import { getSettings } from '@/modules/pretrip/settings';
-import { memberName } from '@/modules/pretrip/traveller';
+import { memberName, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
 import { sharedLegs } from '@/modules/pretrip/group';
 import { PerTravellerItineraries } from '@/components/PerTravellerItineraries';
 import { NON_TERM_APPROVAL_DOC, nonTermResearchEligible } from '@/modules/pretrip/nonTerm';
@@ -80,6 +80,18 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const anyDeviation = deviationCount > 0;
   const methodOnline = req.bookingMethod === BOOKING_METHOD.TMCOnline;
 
+  // §2.2 Guest and student travellers have no SSO sign-in to the online booking tool, so their trips
+  // cannot be self-booked online — hide "TMC online" and book agent-assisted (enforced in saveTrip).
+  const nonEmployeeTraveller = hasNonEmployeeTraveller(req);
+  const bookingMethods = nonEmployeeTraveller
+    ? TMC_BOOKING_METHODS.filter((m) => m.value !== BOOKING_METHOD.TMCOnline)
+    : TMC_BOOKING_METHODS;
+  // For a guest/student trip whose stored method is online (now unavailable) or unset, pre-select
+  // agent-assisted so the field shows a valid choice rather than falling back to "Select…".
+  const initialMethod = nonEmployeeTraveller && (req.bookingMethod === BOOKING_METHOD.TMCOnline || !req.bookingMethod)
+    ? BOOKING_METHOD.AgentAssisted
+    : (req.bookingMethod ?? '');
+
   const purposeCard = (
     <Card title="Trip Purpose & Justification">
       <div className="grid md:grid-cols-3 gap-4">
@@ -93,9 +105,10 @@ export default async function TripStep({ params, searchParams }: { params: Promi
         <BookingFields
           providers={tmcProviderOpts}
           nonTmc={NON_TMC_ARRANGEMENTS}
-          methods={TMC_BOOKING_METHODS}
+          methods={bookingMethods}
           initialArrangement={req.bookingArrangement ?? 'AUTO'}
-          initialMethod={req.bookingMethod ?? ''}
+          initialMethod={initialMethod}
+          methodHint={nonEmployeeTraveller ? 'Guest and student travellers have no SSO sign-in to the online booking tool, so these trips are booked agent-assisted (or offline).' : undefined}
         />
         <div className="md:col-span-3">
           <label className="label">TMC (resolved)</label>

@@ -10,13 +10,14 @@ export interface MethodOpt { value: string; label: string }
 
 const isTmc = (arr: string) => arr === 'AUTO' || arr.startsWith('TMC-');
 
-export function BookingFields({ providers, nonTmc, methods, initialArrangement, initialMethod, disabled }: {
+export function BookingFields({ providers, nonTmc, methods, initialArrangement, initialMethod, disabled, methodHint }: {
   providers: ProviderOpt[];
   nonTmc: MethodOpt[];
   methods: MethodOpt[];
   initialArrangement: string;
   initialMethod: string;
   disabled?: boolean;
+  methodHint?: string;   // overrides the method helper text (e.g. the guest/student SSO note)
 }) {
   const [arr, setArr] = useState(initialArrangement || 'AUTO');
   const tmc = isTmc(arr);
@@ -38,7 +39,7 @@ export function BookingFields({ providers, nonTmc, methods, initialArrangement, 
           {tmc ? <option value="">Select…</option> : <option value="">— not applicable —</option>}
           {tmc && methods.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
-        <p className="text-xs text-[var(--ecs-muted)] mt-1">{tmc ? 'The channel the TMC uses to fulfil the booking.' : 'Only applies when the trip is arranged via a TMC.'}</p>
+        <p className="text-xs text-[var(--ecs-muted)] mt-1">{tmc ? (methodHint ?? 'The channel the TMC uses to fulfil the booking.') : 'Only applies when the trip is arranged via a TMC.'}</p>
       </div>
     </>
   );

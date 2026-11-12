@@ -9,7 +9,7 @@
 // Enforced at hand-off (the channel on the outbound instruction) and surfaced in the UI.
 import { POLICY_OUTCOME, BOOKING_METHOD } from '@/shared/enums';
 import { sharedLegs } from './group';
-import { isGuestRequest } from './traveller';
+import { hasNonEmployeeTraveller } from './traveller';
 import type { FullRequest } from './queries';
 
 export type HandoffChannel = 'TMC_ONLINE' | 'AGENT_ASSISTED' | 'OFFLINE';
@@ -66,7 +66,7 @@ export function assessHandoffRouting(req: FullRequest): HandoffAssessment {
   if (groupItineraryVaries(req)) reasons.push('Per-traveller dates / sub-itineraries differ across the group (§13.20)');
   if (hasPersonalTravel(req)) reasons.push('Personal extension on the itinerary — fare split / stopover');
   if (isComplexItinerary(req)) reasons.push('Complex multi-city / open-jaw itinerary');
-  if (isGuestRequest(req)) reasons.push('Guest booking — the TMC collects the traveller profile');
+  if (hasNonEmployeeTraveller(req)) reasons.push('Guest / student traveller — no SSO access to the online booking tool; the TMC collects the profile and books');
 
   const deterministic = reasons.length === 0;
   return {

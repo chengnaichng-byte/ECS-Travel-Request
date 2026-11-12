@@ -23,7 +23,7 @@ import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './ame
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement, recallEligible } from './booking';
-import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember } from './traveller';
+import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember, hasNonEmployeeTraveller } from './traveller';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
@@ -384,7 +384,10 @@ export async function saveTrip(id: string, fd: FormData) {
   // online, downgrade it to agent-assisted (the Trip step warns the requestor this will happen).
   const submittedMethod = isTmcArrangement(bookingArr) ? (str(fd, 'bookingMethod') || null) : null;
   const hasPerTravellerDeviation = isGroupReq && (req0?.legs?.some((l) => l.travellerId) ?? false);
-  const methodForcedAgent = hasPerTravellerDeviation && submittedMethod === BOOKING_METHOD.TMCOnline;
+  // §2.2 A guest/student traveller has no SSO access to the online booking tool, so an online method is
+  // downgraded to agent-assisted (the Trip step does not offer "TMC online" for these trips).
+  const nonEmployeeTraveller = req0 ? hasNonEmployeeTraveller(req0) : false;
+  const methodForcedAgent = submittedMethod === BOOKING_METHOD.TMCOnline && (hasPerTravellerDeviation || nonEmployeeTraveller);
   const effectiveMethod = methodForcedAgent ? BOOKING_METHOD.AgentAssisted : submittedMethod;
 
   await prisma.travelRequest.update({
@@ -485,7 +488,9 @@ export async function saveTrip(id: string, fd: FormData) {
     ['Booking method', req0?.bookingMethod ? (BOOKING_METHOD_LABEL[req0.bookingMethod] ?? req0.bookingMethod) : '—', effectiveMethod ? (BOOKING_METHOD_LABEL[effectiveMethod] ?? effectiveMethod) : '—'],
   ]);
   await audit(id, 'AMEND', diffs.length ? `Trip details updated — ${diffs.join('; ')}` : 'Trip details saved (no field changes)');
-  if (methodForcedAgent) await audit(id, 'AMEND', 'Booking method set to TMC agent-assisted — the TMS cannot book a group online when traveller itineraries differ (§13.20)');
+  if (methodForcedAgent) await audit(id, 'AMEND', nonEmployeeTraveller
+    ? 'Booking method set to TMC agent-assisted — a guest/student traveller has no SSO access to the online booking tool (§2.2)'
+    : 'Booking method set to TMC agent-assisted — the TMS cannot book a group online when traveller itineraries differ (§13.20)');
   // §4.5 Auto-derive ODA + per-stop hotel lines from the (just-saved) itinerary. A hotel rate edit
   // is reset to the city cap only when the dates/legs actually changed (a dates change supersedes a
   // prior rate edit); an unrelated trip edit keeps the edited rate.
