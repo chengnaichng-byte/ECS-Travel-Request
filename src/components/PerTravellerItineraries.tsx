@@ -44,12 +44,12 @@ export function PerTravellerItineraries({ members, airports, sharedRoute }: {
           ))}
         </select>
       </div>
-      {m && <MemberRow key={m.employeeId} m={m} airports={airports} />}
+      {m && <MemberRow key={m.employeeId} m={m} airports={airports} onCancel={() => setSel('')} />}
     </div>
   );
 }
 
-function MemberRow({ m, airports }: { m: ItineraryMember; airports: [string, string][] }) {
+function MemberRow({ m, airports, onCancel }: { m: ItineraryMember; airports: [string, string][]; onCancel: () => void }) {
   // Rendered only once a traveller is picked from the dropdown, so start CHECKED + expanded for input
   // (saves the extra click). Unticking returns the traveller to the shared itinerary.
   const [deviates, setDeviates] = useState(true);
@@ -104,16 +104,22 @@ function MemberRow({ m, airports }: { m: ItineraryMember; airports: [string, str
             </div>
             <button type="button" onClick={addLeg} className="btn-secondary text-xs">＋ Add leg</button>
             <button className="btn-primary text-xs">Save itinerary</button>
+            <button type="button" onClick={onCancel} className="btn-ghost text-xs">Cancel</button>
           </div>
           <p className="text-[11px] text-[var(--ecs-muted)]">Seeds this traveller&apos;s Airfare line on the Estimates step (overrides the shared amount). Editable there; this figure re-applies on save.</p>
         </form>
       )}
 
-      {!deviates && m.legs.length > 0 && (
-        <form action={m.action} className="mt-2">
-          <input type="hidden" name="legsJson" value="[]" />
-          <button className="btn-ghost text-xs">Revert to the shared itinerary</button>
-        </form>
+      {!deviates && (
+        <div className="mt-2 flex items-center gap-2">
+          {m.legs.length > 0 && (
+            <form action={m.action}>
+              <input type="hidden" name="legsJson" value="[]" />
+              <button className="btn-ghost text-xs">Revert to the shared itinerary</button>
+            </form>
+          )}
+          <button type="button" onClick={onCancel} className="btn-ghost text-xs">Cancel</button>
+        </div>
       )}
     </div>
   );

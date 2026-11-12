@@ -34,12 +34,12 @@ export function GroupPersonalDays({ members, disabled }: { members: PersonalMemb
           ))}
         </select>
       </div>
-      {m && <MemberEditor key={m.employeeId} m={m} disabled={disabled} />}
+      {m && <MemberEditor key={m.employeeId} m={m} disabled={disabled} onCancel={() => setSel('')} />}
     </div>
   );
 }
 
-function MemberEditor({ m, disabled }: { m: PersonalMember; disabled?: boolean }) {
+function MemberEditor({ m, disabled, onCancel }: { m: PersonalMember; disabled?: boolean; onCancel: () => void }) {
   const [periods, setPeriods] = useState<PersonalPeriod[]>(m.initial.length ? m.initial : []);
   const add = () => setPeriods((ps) => [...ps, { start: m.tripStart || '', end: m.tripEnd || '' }]);
   const set = (i: number, patch: Partial<PersonalPeriod>) => setPeriods((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
@@ -87,6 +87,7 @@ function MemberEditor({ m, disabled }: { m: PersonalMember; disabled?: boolean }
         <div className="flex items-center gap-2 pt-1">
           <button type="button" onClick={add} className="btn-secondary text-xs">＋ Add personal days</button>
           <button type="submit" disabled={errors.length > 0} className="btn-primary text-xs disabled:opacity-50">Save {m.name.split(' ').slice(-1)[0]}&apos;s personal days</button>
+          <button type="button" onClick={onCancel} className="btn-ghost text-xs">Cancel</button>
         </div>
       )}
     </form>
