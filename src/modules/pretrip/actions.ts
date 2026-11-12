@@ -24,7 +24,7 @@ import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClas
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement, recallEligible } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember, hasNonEmployeeTraveller } from './traveller';
-import { parsePersonalPeriods, serializePersonalPeriods, personalSpan } from './personal';
+import { parsePersonalPeriods, serializePersonalPeriods, personalSpan, personalNightsInStay } from './personal';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
@@ -927,6 +927,10 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   // per-leg nights, which the trip form may leave at 0). A leg's destination city is a stop unless it
   // is the home leg (Singapore). From = arrival at that city; To = the next leg's departure onward
   // (the last stop ends at the trip's end date). Nights = (To − From) in days; ODA days = nights. ----
+  // §4.5 declared personal days reduce the funded nights/ODA days of the business stop they fall in
+  // (arrive-early / stay-late / a day off during the event). Personal side-trip legs are already
+  // excluded from the stops above; these periods trim a kept stop's chargeable nights.
+  const personalPeriods = parsePersonalPeriods(req.personalPeriodsJson);
   const home = 'SIN';
   type Stop = { legSeq: number; city: string; country: string; from: Date; to: Date; nights: number };
   // §13.20 stops are derived PER TRAVELLER from their EFFECTIVE itinerary — their own legs when they
@@ -972,8 +976,9 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
     const existing = autoHotels.find((e) => (e.travellerId ?? '') === (tid ?? '') && e.accommodation?.legSeq === s.legSeq);
     const cap = EcsPolicy.hotelCap(s.city) ?? 0;
     const rate = (!resetRates && existing?.accommodation?.quotedNightly ? existing.accommodation.quotedNightly : cap) || cap;
-    const calc = computeAccommodation({ cityCode: s.city, nights: s.nights, personalNights: 0, quotedNightly: rate, basis: settings.hotelEstimateBasis });
-    const accData = { city: s.city, legSeq: s.legSeq, checkIn: s.from, checkOut: s.to, nights: s.nights, personalNights: 0, quotedNightly: rate, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome };
+    const personalN = personalNightsInStay(s.from, s.to, personalPeriods);
+    const calc = computeAccommodation({ cityCode: s.city, nights: s.nights, personalNights: personalN, quotedNightly: rate, basis: settings.hotelEstimateBasis });
+    const accData = { city: s.city, legSeq: s.legSeq, checkIn: s.from, checkOut: s.to, nights: s.nights, personalNights: personalN, quotedNightly: rate, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome };
     if (existing) {
       await prisma.estimatedExpense.update({ where: { id: existing.id }, data: { sgdAmount: calc.sgdAmount, foreignAmount: calc.sgdAmount, estimateBasis: settings.hotelEstimateBasis, expectedDate: s.from } });
       await prisma.accommodationEstimate.update({ where: { expenseId: existing.id }, data: accData });
@@ -992,13 +997,16 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
     const dailyRate = EcsPolicy.odaRate(s.country) ?? 0;
     if (dailyRate <= 0) continue;
     wantOda.add(key(tid, s.legSeq));
-    // §13.7 ECS duration tiers: days 1–15 @ 100%, 16–31 @ 75%, 32+ at the monthly allowance rate.
+    // §4.5 personal nights at this stop are not funded ODA days; §13.7 ECS duration tiers: days 1–15 @
+    // 100%, 16–31 @ 75%, 32+ at the monthly allowance rate (applied to the FUNDED days).
+    const personalN = personalNightsInStay(s.from, s.to, personalPeriods);
+    const fundedDays = Math.max(s.nights - personalN, 0);
     const monthlyRate = EcsPolicy.odaMonthlyRate(s.country) ?? 0;
-    const calc = computeOdaTiered({ days: s.nights, dailyRate, monthlyRate });
+    const calc = computeOdaTiered({ days: fundedDays, dailyRate, monthlyRate });
     const amount = calc.sgdAmount;
-    const ratePct = s.nights > 0 ? Math.round((amount / (s.nights * dailyRate)) * 100) : 100;
+    const ratePct = fundedDays > 0 ? Math.round((amount / (fundedDays * dailyRate)) * 100) : 100;
     const existing = autoOda.find((e) => (e.travellerId ?? '') === (tid ?? '') && e.oda?.legSeq === s.legSeq);
-    const odaData = { country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: s.nights, personalDays: 0, dailyRate, ratePct };
+    const odaData = { country: s.country, city: s.city, legSeq: s.legSeq, arrive: s.from, depart: s.to, eligibleDays: fundedDays, personalDays: personalN, dailyRate, ratePct };
     if (existing) {
       await prisma.estimatedExpense.update({ where: { id: existing.id }, data: { sgdAmount: amount, foreignAmount: amount, expectedDate: s.from } });
       await prisma.oDAEstimate.update({ where: { expenseId: existing.id }, data: odaData });
