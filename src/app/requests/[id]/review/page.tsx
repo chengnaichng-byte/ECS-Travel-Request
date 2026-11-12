@@ -13,7 +13,7 @@ import { REQUEST_STATUS, BOOKING_METHOD, BOOKING_METHOD_LABEL } from '@/shared/e
 import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
 import { EMERGENCY_APPROVAL_DOC, qualifiesForEmergency, urgentButNotBookAhead, leadTimeDays } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
-import { travellerName, isGuestRequest } from '@/modules/pretrip/traveller';
+import { travellerName, isGuestRequest, isGuestMember, memberName } from '@/modules/pretrip/traveller';
 import { parsePersonalPeriods } from '@/modules/pretrip/personal';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
 import { getActiveWorkflowScenario } from '@/modules/pretrip/workflowConfig';
@@ -98,7 +98,11 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   // §12 personal travel — present if a personal extension window or a personal leg exists.
   const personalPeriods = parsePersonalPeriods(req.personalPeriodsJson);
   const fmtRange = (s: string, e: string) => `${fmtDate(new Date(s))} – ${fmtDate(new Date(e))}`;
-  const hasPersonal = personalPeriods.length > 0 || !!req.personalStart || req.legs.some((l) => l.isPersonal);
+  // §4.5 For a group, personal is declared PER MEMBER (staff / student; guests do not declare).
+  const memberPersonal = req.isGroup
+    ? req.travellers.filter((t) => !isGuestMember(t)).map((t) => ({ name: memberName(t), periods: parsePersonalPeriods(t.personalPeriodsJson) })).filter((m) => m.periods.length > 0)
+    : [];
+  const hasPersonal = personalPeriods.length > 0 || memberPersonal.length > 0 || !!req.personalStart || req.legs.some((l) => l.isPersonal);
   // §4.8 high-risk destination — the traveller must acknowledge before submission
   // (enforced by the required checkbox below and re-checked server-side on submit).
   const highRisk = isHighRisk(req);
@@ -259,9 +263,12 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             <dl className="space-y-3 md:border-l md:border-[var(--ecs-border)] md:pl-6">
               <KV label="Trip dates">
                 {fmtDate(req.startDate)} – {fmtDate(req.endDate)}
-                {personalPeriods.length > 0 && (
+                {!req.isGroup && personalPeriods.length > 0 && (
                   <div className="text-[11px] text-[var(--ecs-muted)]">incl. personal days: {personalPeriods.map((p) => fmtRange(p.start, p.end)).join('; ')}</div>
                 )}
+                {req.isGroup && memberPersonal.map((m) => (
+                  <div key={m.name} className="text-[11px] text-[var(--ecs-muted)]">{m.name} — personal: {m.periods.map((p) => fmtRange(p.start, p.end)).join('; ')}</div>
+                ))}
               </KV>
               {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} – {fmtDate(req.eventEndDate)}</KV>}
               {req.isGroup ? (
@@ -353,8 +360,21 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
         {hasPersonal && (
           <Card title="Personal Travel (§12)">
             <p className="text-sm text-[var(--ecs-muted)]">
-              This trip includes personal days{personalPeriods.length ? ` (${personalPeriods.map((p) => fmtRange(p.start, p.end)).join('; ')})` : ''}. Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5), so they do not form part of the NTU-funded estimate.
+              {req.isGroup
+                ? 'Travelling members have declared personal days (below). '
+                : `This trip includes personal days${personalPeriods.length ? ` (${personalPeriods.map((p) => fmtRange(p.start, p.end)).join('; ')})` : ''}. `}
+              Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5), so they do not form part of the NTU-funded estimate.
             </p>
+            {req.isGroup && memberPersonal.length > 0 && (
+              <ul className="mt-2 text-sm space-y-1">
+                {memberPersonal.map((m) => (
+                  <li key={m.name}><span className="font-medium text-[var(--ecs-navy)]">{m.name}</span>: {m.periods.map((p) => fmtRange(p.start, p.end)).join('; ')}</li>
+                ))}
+              </ul>
+            )}
+            {req.isGroup && memberPersonal.length === 0 && (
+              <p className="mt-2 text-sm text-[var(--ecs-muted)] italic">No member has declared personal days.</p>
+            )}
           </Card>
         )}
 
