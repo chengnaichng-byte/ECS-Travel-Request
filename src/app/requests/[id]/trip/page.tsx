@@ -7,7 +7,7 @@ import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary, saveTravellerPersonal } from '@/modules/pretrip/actions';
 import { getSettings } from '@/modules/pretrip/settings';
 import { memberName, isGuestMember, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
-import { TravellerPersonalDays } from '@/components/TravellerPersonalDays';
+import { GroupPersonalDays } from '@/components/GroupPersonalDays';
 import { sharedLegs } from '@/modules/pretrip/group';
 import { PerTravellerItineraries } from '@/components/PerTravellerItineraries';
 import { NON_TERM_APPROVAL_DOC, nonTermResearchEligible } from '@/modules/pretrip/nonTerm';
@@ -180,20 +180,18 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           defaultOpen={false}
           stub={personalDeclaredCount > 0 ? `${personalDeclaredCount} with personal days` : 'All official business'}
         >
-          <p className="text-sm text-[var(--ecs-muted)] mb-3">Tick a member to declare their own personal days (before, during or after the business portion). Personal days are excluded from that member&apos;s ODA and personal nights from the accommodation budget. Guests do not declare.</p>
-          <div className="space-y-3">
-            {personalMembers.map((t) => (
-              <TravellerPersonalDays
-                key={t.employeeId}
-                name={memberName(t)}
-                tripStart={d(t.ownStartDate ?? req.startDate)}
-                tripEnd={d(t.ownEndDate ?? req.endDate)}
-                initial={parsePersonalPeriods(t.personalPeriodsJson)}
-                disabled={!canEdit}
-                action={saveTravellerPersonal.bind(null, id, t.employeeId)}
-              />
-            ))}
-          </div>
+          <p className="text-sm text-[var(--ecs-muted)] mb-3">Select a traveller to declare their own personal days (before, during or after the business portion). Personal days are excluded from that member&apos;s ODA and personal nights from the accommodation budget. Guests do not declare.</p>
+          <GroupPersonalDays
+            disabled={!canEdit}
+            members={personalMembers.map((t) => ({
+              employeeId: t.employeeId,
+              name: memberName(t),
+              tripStart: d(t.ownStartDate ?? req.startDate),
+              tripEnd: d(t.ownEndDate ?? req.endDate),
+              initial: parsePersonalPeriods(t.personalPeriodsJson),
+              action: saveTravellerPersonal.bind(null, id, t.employeeId),
+            }))}
+          />
         </CollapsibleCard>
       )}
     </div>

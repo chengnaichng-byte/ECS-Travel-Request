@@ -28,10 +28,23 @@ const blank = (origin = 'SIN'): Leg => ({ originCode: origin, destCode: '', depa
 export function PerTravellerItineraries({ members, airports, sharedRoute }: {
   members: ItineraryMember[]; airports: [string, string][]; sharedRoute: string;
 }) {
+  // A dropdown picks one traveller; only then their itinerary editor expands. Saving redirects back to
+  // the Trip step (page reload), so the dropdown resets to collapsed — one editor on screen at a time.
+  const [sel, setSel] = useState('');
+  const m = members.find((x) => x.employeeId === sel);
   return (
     <div className="space-y-3">
-      <p className="text-xs text-[var(--ecs-muted)]">Shared itinerary: <span className="font-mono">{sharedRoute || '—'}</span>. Tick a traveller to give them a different route or dates; their ODA and accommodation are then costed on their own itinerary.</p>
-      {members.map((m) => <MemberRow key={m.employeeId} m={m} airports={airports} />)}
+      <p className="text-xs text-[var(--ecs-muted)]">Shared itinerary: <span className="font-mono">{sharedRoute || '—'}</span>. Select a traveller to give them a different route or dates; their ODA and accommodation are then costed on their own itinerary.</p>
+      <div>
+        <label className="label">Traveller</label>
+        <select value={sel} onChange={(e) => setSel(e.target.value)} className="field md:max-w-md">
+          <option value="">Select a traveller…</option>
+          {members.map((x) => (
+            <option key={x.employeeId} value={x.employeeId}>{x.name} — {x.legs.length ? 'own itinerary' : 'follows the shared itinerary'}</option>
+          ))}
+        </select>
+      </div>
+      {m && <MemberRow key={m.employeeId} m={m} airports={airports} />}
     </div>
   );
 }
