@@ -13,7 +13,7 @@ import { REQUEST_STATUS, BOOKING_STATUS, BOOKING_METHOD } from '@/shared/enums';
 
 // Version stamped into each message's provenance header (§13.9). Bump when the
 // contract shape changes so downstream logs can correlate payloads to a contract.
-export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.3';
+export const CONTRACT_VERSION = 'ecs-pretrip-contract/1.4';
 
 export type TeTreatment = 'LOCKED' | 'EDITABLE' | 'REFERENCE' | 'EXCLUDED';
 
@@ -77,8 +77,8 @@ export const CONTRACT_FIELDS: ContractField[] = [
     tmc: 'toggle', defaultTmc: true, note: 'Who approved and when — audit context for the agent.' },
   { key: 'travellerCategory', group: 'Charging & context', label: 'Traveller category & contact', source: 'employee.policyGroup / guest',
     tmc: 'toggle', defaultTmc: true, note: 'Grade / policy group (or GUEST) + contact for the booking.' },
-  { key: 'personalIndicator', group: 'Charging & context', label: 'Personal-travel indicator', source: 'req.personalStart / personal legs',
-    tmc: 'toggle', defaultTmc: true, note: 'Flags a personal extension so the TMC separates the personal portion.' },
+  { key: 'personalIndicator', group: 'Charging & context', label: 'Personal-travel indicator', source: 'req.personalPeriodsJson / TravelRequestTraveller.personalPeriodsJson',
+    tmc: 'toggle', defaultTmc: true, note: 'Flags a personal extension so the TMC separates the personal portion. Sourced from the DECLARED personal periods (a list [{start,end}], not a boolean) — individual on req.personalPeriodsJson, per-traveller on TravelRequestTraveller.personalPeriodsJson; personalStart/End are the derived overall span.' },
   // §8 / DD-21 Guest profile collection via the TMC (PDPA). For a GUEST request only, the
   // instruction asks the TMC to e-mail the guest a secure link to capture passport / DOB /
   // contact directly — ECS never stores guest sensitive data (name, e-mail & organisation only).
@@ -98,6 +98,7 @@ export const CONTRACT_FIELDS: ContractField[] = [
   { key: 'teApprovedClass', group: 'Claim header', label: 'Travel class (approved)', source: 'req.travelClassId', te: 'field', defaultTe: 'REFERENCE' },
   { key: 'teCharging', group: 'Claim header', label: 'Charging & cost allocation', source: 'req.allocations[]', te: 'field', defaultTe: 'LOCKED', note: 'CC / WBS — never sent to the TMC.' },
   { key: 'teBookingRef', group: 'Claim header', label: 'Booking reference (PNR / ticket)', source: 'booking.pnr / ticketNo', te: 'field', defaultTe: 'REFERENCE', note: '§35 carries the confirmed TMC booking reference into the claim.' },
+  { key: 'tePersonalDays', group: 'Claim header', label: 'Personal extension (declared)', source: 'req.personalPeriodsJson / TravelRequestTraveller.personalPeriodsJson', te: 'field', defaultTe: 'REFERENCE', note: 'Declared personal periods (a list [{start,end}], not a boolean) carried into the claim — shows the official-vs-personal split and the funded-vs-stay breakdown. ODA funded days / accommodation funded nights are already net of these (eligibleDays / chargeableNights); the claim validates claimed days ≤ funded. Per-traveller for a group.' },
 
   { key: 'teAirfareLine', group: 'Claim lines', label: 'Airfare line', source: 'expense(AIRFARE)', te: 'line', category: 'AIRFARE', defaultTe: 'REFERENCE', note: 'DD-19: TMC-booked airfare is central (CTA) → Reference-only (not reimbursed); self-booked airfare is employee-paid → Editable. Settlement decides reimbursable-vs-reference; the Airfare-treatment setting only governs how a central line posts (direct-to-SAP vs shown-in-claim). Admin override still wins.' },
   { key: 'teAccommodationLine', group: 'Claim lines', label: 'Accommodation line', source: 'expense(ACCOMMODATION)', te: 'line', category: 'ACCOMMODATION', defaultTe: 'EDITABLE', note: 'DD-19: Individual hotel is employee-paid → Editable (reimbursable); CTA hotel is central-billed → Reference-only (not reimbursed). Driven by the request’s hotel payment channel. Admin override still wins.' },

@@ -38,7 +38,7 @@ const boxP = (t, b) => new Paragraph({ spacing: { after: 60 }, shading: { type: 
 out.push(new Paragraph({ spacing: { before: 1800 }, children: [new TextRun({ text: 'NTU Travel & Expense Claim System', bold: true, color: RED, size: 26 })] }));
 out.push(new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: 'Travel Request: Integration Contract', bold: true, color: NAVY, size: 56 })] }));
 out.push(new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: 'Prototype reference: TMC integration boundary, covering the outbound booking instruction, inbound booking and charge feed, message guards, status vocabularies and the TE-claim sync. Not the target integration design.', color: '4a4e63', size: 23 })] }));
-out.push(new Paragraph({ spacing: { before: 500, after: 160 }, border: { top: { style: BorderStyle.SINGLE, size: 12, color: 'eceaf3' } }, children: [new TextRun({ text: `Contract version ecs-pretrip-contract/1.3 · provider-neutral canonical model · 10 November 2026`, color: MUTE, size: 18 })] }));
+out.push(new Paragraph({ spacing: { before: 500, after: 160 }, border: { top: { style: BorderStyle.SINGLE, size: 12, color: 'eceaf3' } }, children: [new TextRun({ text: `Contract version ecs-pretrip-contract/1.4 · provider-neutral canonical model · 12 November 2026`, color: MUTE, size: 18 })] }));
 out.push(boxP('Note to readers: prototype reference only', true));
 out.push(boxP('This document describes how the Pre-Trip Travel Request prototype simulates the TMC, ECS and SAP integration. It is shared as a reference for the business intent: payloads, guards, status mapping, CTA posting and claim sync. It is not the target integration design.', false));
 out.push(boxP('The prototype uses mock ECS services and a simulated TMC feed. Transport, authentication, error handling, retries, monitoring and other non-functional requirements are not covered and are to be designed by the vendor.', false));
@@ -69,7 +69,7 @@ TBL(T(['Field', 'Type', 'Notes'], [2800, 2600, 9998], [
   ['messageId', 'string', 'Idempotency key: a re-send of the same messageId is ignored by the receiver.'],
   ['sentAt', 'string (ISO)', 'Timestamp of emission.'],
   ['sourceStatus', 'string', 'Request status at the moment of send (snapshot).'],
-  ['contractVersion', 'string', 'Integration-contract version in effect (e.g. ecs-pretrip-contract/1.3).'],
+  ['contractVersion', 'string', 'Integration-contract version in effect (e.g. ecs-pretrip-contract/1.4).'],
   ['tmc', 'string?', 'Multi-TMC: the provider this message is routed to.'],
 ], { mono: true }));
 H2('InboundMeta');
@@ -132,7 +132,7 @@ TBL(T(['Contract key', 'Label', 'Source', 'Sent', 'Notes'], [2100, 2500, 2900, 1
   ['charging', 'Charging / cost objects', 'req.allocations[]', 'Toggle · on', '§36 direct airfare posting needs the cost object (CC/WBS + BA).'],
   ['approvalMetadata', 'Approval metadata', 'approvalSteps(Approved)', 'Toggle · on', 'Who approved and when, audit context.'],
   ['travellerCategory', 'Traveller category & contact', 'employee.policyGroup / guest', 'Toggle · on', 'Grade / policy group (or GUEST) + contact.'],
-  ['personalIndicator', 'Personal-travel indicator', 'req.personalStart / personal legs', 'Toggle · on', 'Flags a personal extension so the TMC separates it.'],
+  ['personalIndicator', 'Personal-travel indicator', 'req.personalPeriodsJson / TravelRequestTraveller.personalPeriodsJson', 'Toggle · on', 'Flags a personal extension so the TMC separates it. Sourced from the DECLARED personal periods (a list, not a boolean); personalStart/End are the derived span.'],
   ['guestProfile', 'Guest profile collection', 'guest.email → TMC secure link', 'Toggle · on', 'Guest-only PDPA: TMC collects passport/DOB/contact; ECS keeps name/email/org only.'],
 ], { boldFirst: true, mono: true }));
 H2('4.2 CanonicalOutbound payload');
@@ -162,7 +162,7 @@ TBL(T(['Field', 'Type', 'Notes'], [2900, 3400, 9098], [
 code([
   '{',
   '  "meta": { "messageId": "...", "sentAt": "2027-01-02T...", "sourceStatus": "Approved",',
-  '           "contractVersion": "ecs-pretrip-contract/1.3", "tmc": "ctc" },',
+  '           "contractVersion": "ecs-pretrip-contract/1.4", "tmc": "ctc" },',
   '  "authorisationNumber": "TA-2026-000123", "travellerRef": "E-TRAV", "bookingFor": "EMPLOYEE",',
   '  "tripType": "ROUND_TRIP", "bookingMethod": "TMC_ONLINE", "bookingDeadline": "2026-12-19",',
   '  "approvedCostCeilingSgd": 2600, "approvedExceptions": [],',
@@ -311,6 +311,7 @@ TBL(T(['Field', 'Source', 'Default treatment'], [3200, 4600, 7598], [
   ['Travel class (approved)', 'req.travelClassId', 'REFERENCE'],
   ['Charging & cost allocation', 'req.allocations[]', 'LOCKED (CC/WBS, never sent to the TMC)'],
   ['Booking reference (PNR / ticket)', 'booking.pnr / ticketNo', 'REFERENCE'],
+  ['Personal extension (declared)', 'req.personalPeriodsJson / TravelRequestTraveller.personalPeriodsJson', 'REFERENCE (declared periods; official-vs-personal split + funded-vs-stay breakdown; per-traveller for a group)'],
 ], { boldFirst: false }));
 H2('8.2 Claim lines (by expense category)');
 TBL(T(['Line', 'Default treatment', 'Rule'], [2600, 2600, 10198], [
@@ -348,7 +349,8 @@ TBL(T(['Adapter key', 'PNR prefix', 'Notes'], [3000, 3000, 9398], [
 P('The handoff/receive actions pick the adapter by the resolved provider’s adapterKey (TravelRequest.tmcProviderId / TravelBooking.tmcProviderId). In production, a provider adapter maps the canonical outbound to the provider’s API and the provider’s response back to CanonicalInbound; the workflow, canonical model and TE linkage stay unchanged.');
 
 // ===== 11 CHANGE LOG =====
-H1('11 · Change log (1.2 to 1.3)');
+H1('11 · Change log');
+H2('11.1 From 1.2 to 1.3');
 P('This section lists what changed from contract version ecs-pretrip-contract/1.2 to 1.3. The overall shape is backward compatible: the new fields are additive and each is gated by its own contract toggle (default on).');
 TBL(T(['Area', 'Change'], [4200, 11198], [
   ['Cost ceiling', 'Added the toggleable field costCeilingBreakdown: per-category ceilings (approvedAirfareCeilingSgd, approvedAccommodationCeilingSgd) and a payment-channel split (ceilingByBillTo: ctaSgd, travellerSgd). approvedCostCeilingSgd is unchanged.'],
@@ -373,6 +375,12 @@ TBL(T(['Area', 'Change'], [4200, 11198], [
   ['Member omission before send (GRP-9)', 'A group member cancelled after approval but before the fan-out is sent (TravelRequestTraveller.status = Cancelled) is omitted from the outbound: outboundFromSnapshot takes cancelledRefs, drops those instructions, and reports instructionCount as the number remaining. Remaining members keep their frozen instructionSeq and the shared TA. Additive; no inbound change.'],
   ['Single-member cancellation after booking (GRP-10)', 'Added the per-member cancellation path (§7): cancelling one booked member reverses only that PNR\'s CTA posting (reverseCtaChargesForBooking) and settles it with settleCancellation (ticketed: retain the penalty, refund the balance, never negative; un-ticketed: void at no cost). The request stays Booked and keeps the shared TA for the other members.'],
   ['Research reclassification notice (CHG-10)', 'Added TravelRequest.researchChangeNote: when a charging change flips the research classification before approval, saveCharging records a one-shot notice to the requestor and clears any selected DOA; it is cleared on submit when the routing is rebuilt. Internal to ECS; no change to the TMC payloads.'],
+]));
+H2('11.2 From 1.3 to 1.4');
+P('Version ecs-pretrip-contract/1.3 → 1.4. Additive and backward compatible; the change is confined to the personal-extension datapoints, aligning the contract with the declared-periods trip model and giving the claim a personal-extension reflection.');
+TBL(T(['Area', 'Change'], [4200, 11198], [
+  ['Personal-travel indicator (source)', 'Corrected the personalIndicator source from req.personalStart / personal legs to the DECLARED periods req.personalPeriodsJson (individual) and TravelRequestTraveller.personalPeriodsJson (per-traveller for a group) — a list [{start,end}], not a boolean. personalStart / End are now the derived overall span, kept for display.'],
+  ['Claim-side personal reflection', 'Added the claim-header field tePersonalDays (TE sync, default REFERENCE), carrying the declared personal periods into the claim: it shows the official-vs-personal split and the funded-vs-stay breakdown. ODA funded days and accommodation funded nights are already net of personal time (eligibleDays / chargeableNights); the claim validates claimed days ≤ funded. Per-traveller for a group.'],
 ]));
 
 // ===== BUILD =====
