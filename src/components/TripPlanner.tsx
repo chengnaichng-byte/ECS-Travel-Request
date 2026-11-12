@@ -8,11 +8,16 @@
 //   One-way = single Outbound, Multi-city = user-determined). A personal segment is allowed.
 // • From/To read the shared ECS Location master (IATA airports) — the SAME reference the TMC
 //   books against (each leg's code flows verbatim into the TMC payload). Shown as "CODE — Name".
-// • Date validation: official end ≥ start; per-leg arrive ≥ depart; legs chronological; leg
-//   departures within the travel window; personal extension non-overlapping & well-ordered.
-import { useMemo, useState } from 'react';
+// • Date validation: Trip end ≥ start; per-leg arrive ≥ depart; legs chronological; leg departures
+//   within the trip window; each declared personal period inside the trip window.
+// • Dates: TRIP Start/End frame the whole footprint (first departure → final return). Event dates
+//   (§10) show only for a conference purpose and are a reference, not a funding driver. Personal
+//   extension is DECLARED by the traveller as one or more day ranges (before / during / after), the
+//   single source of truth for the funded-vs-personal split.
+import { useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card } from './ui';
+import { type PersonalPeriod } from '@/modules/pretrip/personal';
 
 export interface Opt { code: string; name: string }
 export interface ClassOpt { id: string; name: string }
@@ -64,7 +69,8 @@ function computeLegNights(ls: LegIn[], i: number): number {
 
 export function TripPlanner({
   airports, airportMeta, initialTripType, initialLegs,
-  initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalStart, initialPersonalEnd,
+  initialStart, initialEnd, initialEventStart, initialEventEnd, initialPersonalPeriods,
+  initialPurposeId, conferencePurposeIds,
   continueHref, disabled, conflicts, footer,
   action, header, perTravellerCard, saveFormId = 'trip-form',
   initialAirfareSgd = '', isGroup = false,
@@ -73,7 +79,11 @@ export function TripPlanner({
   airportMeta: Record<string, AirportMeta>;
   initialTripType: TripType;
   initialLegs: LegIn[];
-  initialStart: string; initialEnd: string; initialEventStart: string; initialEventEnd: string; initialPersonalStart: string; initialPersonalEnd: string;
+  initialStart: string; initialEnd: string; initialEventStart: string; initialEventEnd: string;
+  // §4.5 declared personal day ranges (the funded-vs-personal split source of truth)
+  initialPersonalPeriods: PersonalPeriod[];
+  // §10 the event/conference dates show only for a conference purpose; tracked live off the purpose select
+  initialPurposeId: string; conferencePurposeIds: string[];
   continueHref: string;
   disabled?: boolean;
   // §4.5/§13.20 per-journey airfare estimate (SGD). Seeds the Airfare line(s) on the Estimates step.
@@ -99,9 +109,27 @@ export function TripPlanner({
   const [end, setEndRaw] = useState(initialEnd);
   const [eventStart, setEventStart] = useState(initialEventStart);
   const [eventEnd, setEventEnd] = useState(initialEventEnd);
-  const [pStart, setPStart] = useState(initialPersonalStart);
-  const [pEnd, setPEnd] = useState(initialPersonalEnd);
+  const [periods, setPeriods] = useState<PersonalPeriod[]>(initialPersonalPeriods);
   const [type, setType] = useState<TripType>(initialTripType);
+
+  // §10 Event dates belong to a conference purpose only. Track the purpose select (which lives in the
+  // header card, same form) so the Event fields show/hide live as the purpose changes.
+  const confSet = useMemo(() => new Set(conferencePurposeIds), [conferencePurposeIds]);
+  const [isConference, setIsConference] = useState(confSet.has(initialPurposeId));
+  useEffect(() => {
+    const form = document.getElementById(saveFormId) as HTMLFormElement | null;
+    const sel = form?.elements.namedItem('purposeId') as HTMLSelectElement | null;
+    if (!sel) return;
+    const sync = () => setIsConference(confSet.has(sel.value));
+    sync();
+    sel.addEventListener('change', sync);
+    return () => sel.removeEventListener('change', sync);
+  }, [saveFormId, confSet]);
+
+  // Personal-period row helpers.
+  const addPeriod = () => setPeriods((ps) => [...ps, { start: start || '', end: end || '' }]);
+  const setPeriod = (i: number, patch: Partial<PersonalPeriod>) => setPeriods((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const removePeriod = (i: number) => setPeriods((ps) => ps.filter((_, j) => j !== i));
   const [legs, setLegs] = useState<LegIn[]>(() => reshape(initialTripType, initialLegs));
   const multi = type === 'MULTI_CITY';
 
@@ -175,30 +203,32 @@ export function TripPlanner({
   // Live cross-field validation (mirrored server-side in saveTrip as the authority).
   const errors = useMemo(() => {
     const e: string[] = [];
-    const os = toD(start), oe = toD(end), ps = toD(pStart), pe = toD(pEnd), evs = toD(eventStart), eve = toD(eventEnd);
-    if (os && oe && oe < os) e.push('Official end date must be on or after the official start date.');
-    if (evs && eve && eve < evs) e.push('Event end date must be on or after the event start date.');
-    // The event sits inside the official travel window (§10).
-    if (os && oe && evs && (evs < os || evs > oe)) e.push('Event start date must fall within the official travel dates.');
-    if (os && oe && eve && (eve < os || eve > oe)) e.push('Event end date must fall within the official travel dates.');
-    if (ps && pe && pe < ps) e.push('Personal extension end must be on or after its start.');
-    if (os && oe && (ps || pe)) {
-      const pS = ps ?? pe!, pE = pe ?? ps!;
-      if (!(pE <= os || pS >= oe)) e.push('Personal extension must fall before the official start or after the official end — it cannot overlap the official travel dates.');
+    const ts = toD(start), te = toD(end), evs = toD(eventStart), eve = toD(eventEnd);
+    if (ts && te && te < ts) e.push('Trip end date must be on or after the trip start date.');
+    // §10 Event dates apply only to a conference purpose; when shown, they sit inside the trip window.
+    if (isConference) {
+      if (evs && eve && eve < evs) e.push('Event end date must be on or after the event start date.');
+      if (ts && te && evs && (evs < ts || evs > te)) e.push('Event start date must fall within the trip dates.');
+      if (ts && te && eve && (eve < ts || eve > te)) e.push('Event end date must fall within the trip dates.');
     }
-    // Travel window the legs must sit inside (widened by a personal extension on either side).
-    const winStart = ps && os && ps < os ? ps : os;
-    const winEnd = pe && oe && pe > oe ? pe : oe;
+    // §4.5 each declared personal period: well-ordered and inside the trip window (before, during or after).
+    periods.forEach((p, i) => {
+      const s = toD(p.start), en = toD(p.end);
+      if (s && en && en < s) e.push(`Personal period ${i + 1}: end must be on or after its start.`);
+      if (s && ts && te && (s < ts || s > te)) e.push(`Personal period ${i + 1}: start must fall within the trip dates.`);
+      if (en && ts && te && (en < ts || en > te)) e.push(`Personal period ${i + 1}: end must fall within the trip dates.`);
+    });
+    // Legs sit inside the trip window (Trip Start → Trip End = the whole footprint).
     let prevDepart: Date | null = null;
     legs.forEach((l, i) => {
       const d = toD(l.departDate), a = toD(l.arriveDate);
       if (d && a && a < d) e.push(`Leg ${i + 1}: arrival cannot be before departure.`);
-      if (d && winStart && winEnd && (d < winStart || d > winEnd)) e.push(`Leg ${i + 1}: departure is outside the travel window.`);
+      if (d && ts && te && (d < ts || d > te)) e.push(`Leg ${i + 1}: departure is outside the trip window.`);
       if (d && prevDepart && d < prevDepart) e.push(`Leg ${i + 1}: departs before the previous leg.`);
       if (d) prevDepart = d;
     });
     return e;
-  }, [start, end, eventStart, eventEnd, pStart, pEnd, legs, type]);
+  }, [start, end, eventStart, eventEnd, periods, legs, type, isConference]);
 
   const blocking = errors.length > 0;
 
@@ -236,35 +266,70 @@ export function TripPlanner({
       {header}
       <input type="hidden" name="tripType" value={type} />
       <input type="hidden" name="legsJson" value={JSON.stringify(legs.map((l, i) => ({ ...l, nights: computeLegNights(legs, i) })).filter((l) => l.destCode))} />
+      {/* §4.5 the declared personal periods travel with the form as JSON (parsed + validated server-side). */}
+      <input type="hidden" name="personalPeriodsJson" value={JSON.stringify(periods.filter((p) => p.start && p.end))} />
 
       <Card title="Dates">
         <div className="grid md:grid-cols-4 gap-4">
           <div>
-            <label className="label">Official start</label>
+            <label className="label">Trip start</label>
             <input type="date" name="startDate" value={start} onChange={(e) => setStart(e.target.value)} disabled={disabled} className="field" required />
           </div>
           <div>
-            <label className="label">Official end</label>
+            <label className="label">Trip end</label>
             <input type="date" name="endDate" value={end} onChange={(e) => setEnd(e.target.value)} disabled={disabled} className="field" required />
           </div>
-          <div>
-            <label className="label">Event start (§10)</label>
-            <input type="date" name="eventStartDate" value={eventStart} onChange={(e) => setEventStart(e.target.value)} disabled={disabled} className="field" />
-          </div>
-          <div>
-            <label className="label">Event end</label>
-            <input type="date" name="eventEndDate" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)} disabled={disabled} className="field" />
-          </div>
-          <div>
-            <label className="label">Personal extension start</label>
-            <input type="date" name="personalStart" value={pStart} onChange={(e) => setPStart(e.target.value)} disabled={disabled} className="field" />
-          </div>
-          <div>
-            <label className="label">Personal extension end</label>
-            <input type="date" name="personalEnd" value={pEnd} onChange={(e) => setPEnd(e.target.value)} disabled={disabled} className="field" />
-          </div>
+          {isConference && (
+            <>
+              <div>
+                <label className="label">Event start (§10)</label>
+                <input type="date" name="eventStartDate" value={eventStart} onChange={(e) => setEventStart(e.target.value)} disabled={disabled} className="field" />
+              </div>
+              <div>
+                <label className="label">Event end</label>
+                <input type="date" name="eventEndDate" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)} disabled={disabled} className="field" />
+              </div>
+            </>
+          )}
         </div>
-        <p className="text-xs text-[var(--ecs-muted)] mt-2">Official dates frame the whole trip; the event (§10) is a segment within them and personal days (§4.5, AC18) extend before or after — personal days are excluded from ODA and personal nights from the accommodation budget. Set the official dates first — the outbound and return legs below pre-fill from them.</p>
+        <p className="text-xs text-[var(--ecs-muted)] mt-2">
+          <b>Trip start / end</b> frame the whole trip: the day you leave to the day you return (personal days included).
+          {isConference ? ' The event dates (§10) are the conference days within the trip and are a reference for the booking, not a funding boundary.' : ' Event dates apply only to a Training / Conference purpose.'}
+          {' '}The outbound and return legs below pre-fill from the trip dates.
+        </p>
+
+        {/* §4.5 Declared personal days — the traveller states which days are personal (before, during or
+            after the business portion; one or many). Funded days / nights = the trip minus these. */}
+        <div className="mt-4 border-t border-[var(--ecs-border)] pt-3">
+          <div className="flex items-center justify-between">
+            <label className="label mb-0">Personal days (§4.5)</label>
+            {!disabled && <button type="button" onClick={addPeriod} className="text-sm font-medium text-[var(--ecs-navy)] hover:underline">+ Add personal days</button>}
+          </div>
+          <p className="text-xs text-[var(--ecs-muted)] mt-1">Declare any personal day ranges within the trip — immediately before, during, or immediately after the official business. These days are excluded from ODA and their nights from the accommodation budget; nothing is derived automatically.</p>
+          {periods.length === 0 ? (
+            <p className="text-sm text-[var(--ecs-muted)] mt-2 italic">No personal days — the whole trip is official business.</p>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {periods.map((p, i) => (
+                <div key={i} className="grid md:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end">
+                  <div>
+                    <label className="text-[11px] text-[var(--ecs-muted)]">From</label>
+                    <input type="date" value={p.start} min={start || undefined} max={end || undefined} onChange={(e) => setPeriod(i, { start: e.target.value })} disabled={disabled} className="field" />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-[var(--ecs-muted)]">To</label>
+                    <input type="date" value={p.end} min={p.start || start || undefined} max={end || undefined} onChange={(e) => setPeriod(i, { end: e.target.value })} disabled={disabled} className="field" />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-[var(--ecs-muted)]">Note (optional)</label>
+                    <input type="text" value={p.note ?? ''} onChange={(e) => setPeriod(i, { note: e.target.value })} disabled={disabled} className="field" placeholder="e.g. personal days before the conference" />
+                  </div>
+                  {!disabled && <button type="button" onClick={() => removePeriod(i)} aria-label="Remove" className="h-[38px] px-3 rounded border border-[var(--ecs-border)] text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] hover:border-[var(--ecs-red)]">✕</button>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Card>
 
       <Card title="Destination & Itinerary">

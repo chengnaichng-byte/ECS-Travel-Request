@@ -24,6 +24,7 @@ import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClas
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement, recallEligible } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember, hasNonEmployeeTraveller } from './traveller';
+import { parsePersonalPeriods, serializePersonalPeriods, personalSpan } from './personal';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
@@ -311,37 +312,39 @@ export async function saveTrip(id: string, fd: FormData) {
   if (!str(fd, 'bookingArrangement')) missing.push('booking arrangement');
   if (!draft && missing.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent('Please provide: ' + missing.join(', ') + '.')}`);
 
-  // §4.4/§4.5 cross-field date validation — authoritative mirror of the in-form checks. The
-  // legs must sit inside the travel window (widened by any personal extension on either side),
-  // run in order, and the personal extension cannot overlap the official travel dates.
-  const pStart = dateOrNull(fd, 'personalStart');
-  const pEnd = dateOrNull(fd, 'personalEnd');
-  const evStart = dateOrNull(fd, 'eventStartDate');
-  const evEnd = dateOrNull(fd, 'eventEndDate');
+  // §4.4/§4.5/§10 cross-field date validation — authoritative mirror of the in-form checks. Trip
+  // Start/End frame the whole footprint; the legs sit inside it and run in order. §10 event dates
+  // apply only to a conference purpose. §4.5 personal days are DECLARED ranges that must lie inside
+  // the trip window (before, during or after the business portion), the source of the funded split.
+  const isConferencePurpose = !!purpose?.isConference;
+  const evStart = isConferencePurpose ? dateOrNull(fd, 'eventStartDate') : null;
+  const evEnd = isConferencePurpose ? dateOrNull(fd, 'eventEndDate') : null;
+  const personalPeriods = parsePersonalPeriods(str(fd, 'personalPeriodsJson'));
+  const span = personalSpan(personalPeriods);
   const parse = (s: string) => (s ? new Date(s) : null);
   const invalid: string[] = [];
-  if (start && end && end < start) invalid.push('the official end date is before the official start date');
+  if (start && end && end < start) invalid.push('the trip end date is before the trip start date');
   // A pre-trip request cannot be raised for a trip that has already started (a mis-keyed year/month);
   // compared at start-of-today so a same-day departure is fine. Drafts are exempt (checked below).
   const today0 = new Date(); today0.setHours(0, 0, 0, 0);
-  if (start && start < today0) invalid.push('the official start date is in the past — correct the travel dates');
+  if (start && start < today0) invalid.push('the trip start date is in the past — correct the travel dates');
   if (evStart && evEnd && evEnd < evStart) invalid.push('the event end is before the event start');
-  // §10 the event is a segment within the official travel window.
-  if (start && end && evStart && (evStart < start || evStart > end)) invalid.push('the event start is outside the official travel dates');
-  if (start && end && evEnd && (evEnd < start || evEnd > end)) invalid.push('the event end is outside the official travel dates');
-  if (pStart && pEnd && pEnd < pStart) invalid.push('the personal extension end is before its start');
-  if (start && end && (pStart || pEnd)) {
-    const pS = pStart ?? pEnd!, pE = pEnd ?? pStart!;
-    if (!(pE <= start || pS >= end)) invalid.push('the personal extension overlaps the official travel dates (it must fall before the start or after the end)');
-  }
-  const winStart = pStart && start && pStart < start ? pStart : start;
-  const winEnd = pEnd && end && pEnd > end ? pEnd : end;
+  // §10 the event is a segment within the trip window.
+  if (start && end && evStart && (evStart < start || evStart > end)) invalid.push('the event start is outside the trip dates');
+  if (start && end && evEnd && (evEnd < start || evEnd > end)) invalid.push('the event end is outside the trip dates');
+  // §4.5 each declared personal period: well-ordered and inside the trip window.
+  personalPeriods.forEach((p, i) => {
+    const ps = parse(p.start), pe = parse(p.end);
+    if (ps && pe && pe < ps) invalid.push(`personal period ${i + 1} ends before it starts`);
+    if (start && end && ps && (ps < start || ps > end)) invalid.push(`personal period ${i + 1} starts outside the trip dates`);
+    if (start && end && pe && (pe < start || pe > end)) invalid.push(`personal period ${i + 1} ends outside the trip dates`);
+  });
   let prevDepart: Date | null = null;
   let prevArrive: Date | null = null;
   formLegs.forEach((l, i) => {
     const dDep = parse(l.departDate), dArr = parse(l.arriveDate);
     if (dDep && dArr && dArr < dDep) invalid.push(`leg ${i + 1}'s arrival is before its departure`);
-    if (dDep && winStart && winEnd && (dDep < winStart || dDep > winEnd)) invalid.push(`leg ${i + 1} departs outside the travel window`);
+    if (dDep && start && end && (dDep < start || dDep > end)) invalid.push(`leg ${i + 1} departs outside the trip window`);
     if (dDep && prevDepart && dDep < prevDepart) invalid.push(`leg ${i + 1} departs before the previous leg`);
     // Overlap: a leg cannot depart a city before the previous leg arrives there (being in two
     // places at once). Only enforced when the previous leg's arrival date is present — arrival
@@ -401,10 +404,11 @@ export async function saveTrip(id: string, fd: FormData) {
       destCity,
       startDate: start,
       endDate: endD,
-      personalStart: dateOrNull(fd, 'personalStart'),
-      personalEnd: dateOrNull(fd, 'personalEnd'),
-      eventStartDate: dateOrNull(fd, 'eventStartDate'),
-      eventEndDate: dateOrNull(fd, 'eventEndDate'),
+      personalPeriodsJson: serializePersonalPeriods(personalPeriods),
+      personalStart: span?.start ?? null,       // derived overall min of the declared personal periods
+      personalEnd: span?.end ?? null,           // derived overall max (for compatible display + indicators)
+      eventStartDate: evStart,                  // §10 null unless the purpose is a conference
+      eventEndDate: evEnd,
       invitationRef: str(fd, 'invitationRef') || null,
       visaLetterRequired: str(fd, 'visaLetterRequired') === 'on',
       // §2.2 booking arrangement drives the (derived) preferred TMC + the TMC method.

@@ -13,6 +13,7 @@ export interface TravelPurpose {
   active: boolean;                 // ECS status (Active / Inactive)
   // ---- pre-trip extension attributes ----
   isResearch: boolean;             // '- Research Staff' purposes route via the Research DOA line
+  isConference?: boolean;          // Training/Conference purposes — the only ones that carry event/conference dates (§10)
   preTripMandatory: boolean;
   teLinkageRequired: boolean;      // used when module setting = CONDITIONAL (§13.8)
   allowedBookingMethods: string[];
@@ -28,8 +29,8 @@ export const travelPurposes: TravelPurpose[] = [
   { id: 'TP-OB-RES',   name: 'Official Business - Research Staff',     glAccountCode: '75120031', expenseTypes: EXP_STD, active: true,  isResearch: true,  preTripMandatory: true,  teLinkageRequired: true,  allowedBookingMethods: TMC_METHODS },
   { id: 'TP-RETREAT',  name: 'Retreats',                              glAccountCode: '75120040', expenseTypes: '',       active: true,  isResearch: false, preTripMandatory: true,  teLinkageRequired: false, allowedBookingMethods: [BOOKING_METHOD.TMCOnline, BOOKING_METHOD.SelfBooked, BOOKING_METHOD.HostArranged] },
   { id: 'TP-STUDENT',  name: 'Student Travel',                        glAccountCode: '75110070', expenseTypes: '',       active: false, isResearch: false, preTripMandatory: false, teLinkageRequired: false, allowedBookingMethods: [BOOKING_METHOD.TMCOnline, BOOKING_METHOD.SelfBooked] },
-  { id: 'TP-TC-ACAD',  name: 'Training/Conference - Acad Staff',      glAccountCode: '72000161', expenseTypes: EXP_STD, active: true,  isResearch: false, preTripMandatory: true,  teLinkageRequired: true,  allowedBookingMethods: TMC_METHODS },
-  { id: 'TP-TC-ADMIN', name: 'Training/Conference - Admin Staff',     glAccountCode: '72000171', expenseTypes: EXP_STD, active: true,  isResearch: false, preTripMandatory: true,  teLinkageRequired: true,  allowedBookingMethods: TMC_METHODS },
-  { id: 'TP-TC-RES',   name: 'Training/Conference - Research Staff',   glAccountCode: '72000181', expenseTypes: EXP_STD, active: true,  isResearch: true,  preTripMandatory: true,  teLinkageRequired: true,  allowedBookingMethods: TMC_METHODS },
+  { id: 'TP-TC-ACAD',  name: 'Training/Conference - Acad Staff',      glAccountCode: '72000161', expenseTypes: EXP_STD, active: true,  isResearch: false, isConference: true, preTripMandatory: true,  teLinkageRequired: true,  allowedBookingMethods: TMC_METHODS },
+  { id: 'TP-TC-ADMIN', name: 'Training/Conference - Admin Staff',     glAccountCode: '72000171', expenseTypes: EXP_STD, active: true,  isResearch: false, isConference: true, preTripMandatory: true,  teLinkageRequired: true,  allowedBookingMethods: TMC_METHODS },
+  { id: 'TP-TC-RES',   name: 'Training/Conference - Research Staff',   glAccountCode: '72000181', expenseTypes: EXP_STD, active: true,  isResearch: true, isConference: true,  preTripMandatory: true,  teLinkageRequired: true,  allowedBookingMethods: TMC_METHODS },
   { id: 'TP-VISIT',    name: 'Visiting Academic Travel - Speaker, NRP', glAccountCode: '75100040', expenseTypes: '',    active: false, isResearch: false, preTripMandatory: false, teLinkageRequired: false, allowedBookingMethods: [BOOKING_METHOD.TMCOnline, BOOKING_METHOD.SelfBooked] },
 ];

@@ -14,6 +14,7 @@ import { listAcademicTerms, deriveNonTermTime } from '@/modules/pretrip/academic
 import { NonTermField } from '@/components/NonTermField';
 import Link from 'next/link';
 import { travelPurposes } from '@/data/travelPurposes';
+import { parsePersonalPeriods } from '@/modules/pretrip/personal';
 import { listTmcProviders } from '@/modules/pretrip/tmcConfig';
 import { airports, cities, countries } from '@/data/locations';
 import { TMC_BOOKING_METHODS, NON_TMC_ARRANGEMENTS, BOOKING_METHOD } from '@/shared/enums';
@@ -35,6 +36,16 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const req = await loadRequest(id);
   if (!req) notFound();
   const canEdit = canEditRequest(await currentPersonaId(), req);
+
+  // §10 event dates show only for a conference purpose; §4.5 personal days are declared, seeded from the
+  // legacy personalStart/End window for any pre-existing request that has no declared periods yet.
+  const conferencePurposeIds = travelPurposes.filter((p) => p.isConference).map((p) => p.id);
+  const initialPersonalPeriods = (() => {
+    const parsed = parsePersonalPeriods(req.personalPeriodsJson);
+    if (parsed.length) return parsed;
+    if (req.personalStart && req.personalEnd) return [{ start: d(req.personalStart), end: d(req.personalEnd) }];
+    return [];
+  })();
 
   const sortedLegs = req.legs.filter((l) => !l.travellerId).sort((a, b) => a.seq - b.seq);
   // §2.2 resolved TMC for the current booking arrangement (shown read-only in the trip section).
@@ -179,8 +190,9 @@ export default async function TripStep({ params, searchParams }: { params: Promi
         initialEnd={d(req.endDate)}
         initialEventStart={d(req.eventStartDate)}
         initialEventEnd={d(req.eventEndDate)}
-        initialPersonalStart={d(req.personalStart)}
-        initialPersonalEnd={d(req.personalEnd)}
+        initialPersonalPeriods={initialPersonalPeriods}
+        initialPurposeId={req.purposeId ?? ''}
+        conferencePurposeIds={conferencePurposeIds}
         continueHref={`/requests/${id}/estimates`}
         disabled={!canEdit}
         conflicts={conflicts}

@@ -142,8 +142,14 @@ model TravelRequest {
   destCity          String?
   startDate         DateTime?
   endDate           DateTime?
-  personalStart     DateTime?                       // personal extension (§13.18)
-  personalEnd       DateTime?
+  // §4.5/§13.18 Personal extension — the traveller DECLARES the personal day ranges (before, during
+  // or after the business portion; one or many). Authoritative source for the funded-vs-personal
+  // split: funded days/nights = Trip window minus these declared periods. JSON array of
+  // [{ start:"YYYY-MM-DD", end:"YYYY-MM-DD", note? }]. personalStart/personalEnd are kept as the
+  // derived overall min/max for backward-compatible display and indicators.
+  personalPeriodsJson String?
+  personalStart     DateTime?                       // derived overall min of the declared personal periods
+  personalEnd       DateTime?                       // derived overall max of the declared personal periods
   personalAck       Boolean  @default(false)         // §12 traveller acknowledges personal portion is at own cost
   highRiskAck       Boolean  @default(false)         // §4.8 traveller acknowledged the high-risk advisory before submission
   highRiskApproverAck Boolean @default(false)        // §4.8 an approver acknowledged the high-risk advisory during approval
