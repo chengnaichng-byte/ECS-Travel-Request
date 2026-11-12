@@ -11,6 +11,7 @@ import { resolveClaimTraveller } from '@/modules/te/claimRemit';
 import { recallEligible } from '@/modules/pretrip/booking';
 import { settleCancellation } from '@/modules/pretrip/ctaPosting';
 import { isRequestVisibleTo } from '@/modules/pretrip/scope';
+import { parsePersonalPeriods, personalNightsInStay, personalDaysInStay, personalSpan, validatePersonalPeriods } from '@/modules/pretrip/personal';
 import { RECALLABLE_BOOKING_STATUSES, STATUS_TRANSITIONS, BOOKING_STATUS, REQUEST_STATUS } from '@/shared/enums';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
@@ -404,6 +405,28 @@ function mixedGrpReq(): FullRequest {
   ok('GRP-11: a non-member cannot see the request', isRequestVisibleTo(grp, 'E-OUT') === false);
   const indiv = { requestorId: 'E-5', travellerId: 'E-5', travellers: [] as { employeeId: string }[] };
   ok('GRP-11: an individual traveller sees their own request', isRequestVisibleTo(indiv, 'E-5') === true);
+}
+
+// ---------- Personal extension (declared periods): parse, counts, span, validation ----------
+{
+  const parsed = parsePersonalPeriods('[{"start":"2027-07-17","end":"2027-07-16"},{"bad":1},{"start":"2027-07-20","end":"2027-07-21","note":"after"}]');
+  ok('personal: bad rows dropped, reversed range normalised, sorted', parsed.length === 2 && parsed[0].start === '2027-07-16' && parsed[0].end === '2027-07-17' && parsed[1].note === 'after');
+  ok('personal: empty / invalid JSON → []', parsePersonalPeriods(null).length === 0 && parsePersonalPeriods('nonsense').length === 0);
+
+  const periods = parsePersonalPeriods('[{"start":"2027-07-16","end":"2027-07-17"}]');
+  // A 5-night Paris stay 16→21 Jul with a 2-day personal period (16–17): nights are the days 16..20.
+  ok('personal: nights in stay (16→21, personal 16–17) = 2', personalNightsInStay(D('2027-07-16'), D('2027-07-21'), periods) === 2);
+  ok('personal: a personal period outside the stay counts 0', personalNightsInStay(D('2027-08-01'), D('2027-08-05'), periods) === 0);
+  // Inclusive day count [arrive, depart]: 16 and 17 are personal.
+  ok('personal: days in inclusive stay (16→20) = 2', personalDaysInStay(D('2027-07-16'), D('2027-07-20'), periods) === 2);
+  ok('personal: no periods → 0 nights', personalNightsInStay(D('2027-07-16'), D('2027-07-21'), []) === 0);
+
+  const multi = parsePersonalPeriods('[{"start":"2027-07-16","end":"2027-07-16"},{"start":"2027-07-20","end":"2027-07-21"}]');
+  const span = personalSpan(multi);
+  ok('personal: span is overall min→max across periods', !!span && span.start.toISOString().slice(0, 10) === '2027-07-16' && span.end.toISOString().slice(0, 10) === '2027-07-21');
+
+  ok('personal: period inside the trip window validates', validatePersonalPeriods(periods, D('2027-07-16'), D('2027-07-21')).length === 0);
+  ok('personal: a period outside the trip window is rejected', validatePersonalPeriods(periods, D('2027-07-18'), D('2027-07-21')).length > 0);
 }
 
 console.log(log.join('\n'));

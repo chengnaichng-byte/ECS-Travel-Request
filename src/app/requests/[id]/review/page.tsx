@@ -14,6 +14,7 @@ import { NON_TERM_APPROVAL_DOC } from '@/modules/pretrip/nonTerm';
 import { EMERGENCY_APPROVAL_DOC, qualifiesForEmergency, urgentButNotBookAhead, leadTimeDays } from '@/modules/pretrip/emergency';
 import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { travellerName, isGuestRequest } from '@/modules/pretrip/traveller';
+import { parsePersonalPeriods } from '@/modules/pretrip/personal';
 import { buildRoute, doaCandidatesFor, isResearchRequest } from '@/modules/pretrip/route';
 import { getActiveWorkflowScenario } from '@/modules/pretrip/workflowConfig';
 import { resolveTmcProvider } from '@/modules/pretrip/tmcRouting';
@@ -95,7 +96,9 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
   const dupClashes = duplicates.filter((d) => !d.sameDestination);
   const canSubmit = hardStops.length === 0 && dupBlocking.length === 0;
   // §12 personal travel — present if a personal extension window or a personal leg exists.
-  const hasPersonal = !!req.personalStart || req.legs.some((l) => l.isPersonal);
+  const personalPeriods = parsePersonalPeriods(req.personalPeriodsJson);
+  const fmtRange = (s: string, e: string) => `${fmtDate(new Date(s))} – ${fmtDate(new Date(e))}`;
+  const hasPersonal = personalPeriods.length > 0 || !!req.personalStart || req.legs.some((l) => l.isPersonal);
   // §4.8 high-risk destination — the traveller must acknowledge before submission
   // (enforced by the required checkbox below and re-checked server-side on submit).
   const highRisk = isHighRisk(req);
@@ -254,9 +257,11 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
             </dl>
             {/* Col 2 — dates and class */}
             <dl className="space-y-3 md:border-l md:border-[var(--ecs-border)] md:pl-6">
-              <KV label="Travel dates">
+              <KV label="Trip dates">
                 {fmtDate(req.startDate)} – {fmtDate(req.endDate)}
-                {req.personalStart && <div className="text-[11px] text-[var(--ecs-muted)]">incl. personal extension: {fmtDate(req.personalStart)} – {fmtDate(req.personalEnd)}</div>}
+                {personalPeriods.length > 0 && (
+                  <div className="text-[11px] text-[var(--ecs-muted)]">incl. personal days: {personalPeriods.map((p) => fmtRange(p.start, p.end)).join('; ')}</div>
+                )}
               </KV>
               {(req.eventStartDate || req.eventEndDate) && <KV label="Event dates">{fmtDate(req.eventStartDate)} – {fmtDate(req.eventEndDate)}</KV>}
               {req.isGroup ? (
@@ -348,7 +353,7 @@ export default async function ReviewStep({ params, searchParams }: { params: Pro
         {hasPersonal && (
           <Card title="Personal Travel (§12)">
             <p className="text-sm text-[var(--ecs-muted)]">
-              This trip includes a personal extension{req.personalStart ? ` (${fmtDate(req.personalStart)} → ${fmtDate(req.personalEnd)})` : ''}. Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5), so they do not form part of the NTU-funded estimate.
+              This trip includes personal days{personalPeriods.length ? ` (${personalPeriods.map((p) => fmtRange(p.start, p.end)).join('; ')})` : ''}. Personal days are excluded from ODA and personal nights from the accommodation budget (§4.5), so they do not form part of the NTU-funded estimate.
             </p>
           </Card>
         )}
