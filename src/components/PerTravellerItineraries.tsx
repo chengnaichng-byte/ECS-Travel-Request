@@ -50,7 +50,9 @@ export function PerTravellerItineraries({ members, airports, sharedRoute }: {
 }
 
 function MemberRow({ m, airports }: { m: ItineraryMember; airports: [string, string][] }) {
-  const [deviates, setDeviates] = useState(m.legs.length > 0);
+  // Rendered only once a traveller is picked from the dropdown, so start CHECKED + expanded for input
+  // (saves the extra click). Unticking returns the traveller to the shared itinerary.
+  const [deviates, setDeviates] = useState(true);
   const [legs, setLegs] = useState<Leg[]>(m.legs.length ? m.legs : [blank()]);
   const setLeg = (i: number, p: Partial<Leg>) => setLegs((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
   const addLeg = () => setLegs((ls) => [...ls, blank(ls[ls.length - 1]?.destCode || 'SIN')]);
