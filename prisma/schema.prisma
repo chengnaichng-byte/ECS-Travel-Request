@@ -280,6 +280,11 @@ model TravelRequestTraveller {
   ownStartDate    DateTime?
   ownEndDate      DateTime?
   legOverrideNote String?
+  // §4.5 Per-traveller DECLARED personal day ranges for a group — each member states their own
+  // personal days (before/during/after), independent of the others. JSON array of [{start,end,note?}]
+  // (same shape as TravelRequest.personalPeriodsJson). Staff and student members only; guests do not
+  // declare. The request-level personalPeriodsJson is used for individual requests, not groups.
+  personalPeriodsJson String?
   // §4.5/§13.20 this member's own itinerary-entered airfare estimate (SGD), set on their per-traveller
   // itinerary row. Null = follow the request-level airfareEstimateSgd. Seeds their Airfare line.
   airfareEstimateSgd Float?

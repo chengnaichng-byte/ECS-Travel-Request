@@ -266,8 +266,9 @@ export function TripPlanner({
       {header}
       <input type="hidden" name="tripType" value={type} />
       <input type="hidden" name="legsJson" value={JSON.stringify(legs.map((l, i) => ({ ...l, nights: computeLegNights(legs, i) })).filter((l) => l.destCode))} />
-      {/* §4.5 the declared personal periods travel with the form as JSON (parsed + validated server-side). */}
-      <input type="hidden" name="personalPeriodsJson" value={JSON.stringify(periods.filter((p) => p.start && p.end))} />
+      {/* §4.5 the declared personal periods travel with the form as JSON (parsed + validated server-side).
+          For a GROUP, personal is declared PER MEMBER below, so no request-level value is submitted. */}
+      {!isGroup && <input type="hidden" name="personalPeriodsJson" value={JSON.stringify(periods.filter((p) => p.start && p.end))} />}
 
       <Card title="Dates">
         <div className="grid md:grid-cols-4 gap-4">
@@ -299,7 +300,14 @@ export function TripPlanner({
         </p>
 
         {/* §4.5 Declared personal days — the traveller states which days are personal (before, during or
-            after the business portion; one or many). Funded days / nights = the trip minus these. */}
+            after the business portion; one or many). Funded days / nights = the trip minus these. For a
+            group each member declares their own below, so this request-level editor shows for individuals. */}
+        {isGroup ? (
+          <div className="mt-4 border-t border-[var(--ecs-border)] pt-3">
+            <label className="label mb-0">Personal days (§4.5)</label>
+            <p className="text-xs text-[var(--ecs-muted)] mt-1">Each travelling member declares their own personal days (before, during or after the business portion) in the <b>per-traveller personal days</b> section below.</p>
+          </div>
+        ) : (
         <div className="mt-4 border-t border-[var(--ecs-border)] pt-3">
           <div className="flex items-center justify-between">
             <label className="label mb-0">Personal days (§4.5)</label>
@@ -330,6 +338,7 @@ export function TripPlanner({
             </div>
           )}
         </div>
+        )}
       </Card>
 
       <Card title="Destination & Itinerary">

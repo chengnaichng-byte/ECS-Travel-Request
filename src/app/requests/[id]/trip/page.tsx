@@ -4,9 +4,10 @@ import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary } from '@/modules/pretrip/actions';
+import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary, saveTravellerPersonal } from '@/modules/pretrip/actions';
 import { getSettings } from '@/modules/pretrip/settings';
-import { memberName, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
+import { memberName, memberDeptName, isGuestMember, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
+import { TravellerPersonalDays } from '@/components/TravellerPersonalDays';
 import { sharedLegs } from '@/modules/pretrip/group';
 import { PerTravellerItineraries } from '@/components/PerTravellerItineraries';
 import { NON_TERM_APPROVAL_DOC, nonTermResearchEligible } from '@/modules/pretrip/nonTerm';
@@ -148,25 +149,54 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   // §13.20 Rendered by TripPlanner AFTER the trip form (outside it, so the per-traveller rows' own
   // forms aren't nested) and BEFORE the Save buttons. Collapsed by default; the differing-itinerary
   // booking-method notice sits above it so it stays visible while the card is closed.
-  const perTravellerCard = perTravellerOn && itineraryMembers.length > 0 ? (
+  // §4.5 Per-traveller personal days — EVERY group (independent of the sub-itinerary toggle); staff and
+  // student members declare, guests do not. Each member's window is their own dates when they deviate.
+  const personalMembers = req.isGroup ? req.travellers.filter((t) => !isGuestMember(t)) : [];
+  const personalDeclaredCount = personalMembers.filter((t) => (parsePersonalPeriods(t.personalPeriodsJson)).length > 0).length;
+  const perTravellerCard = req.isGroup ? (
     <div className="mt-5 space-y-3">
-      {anyDeviation && methodOnline && (
+      {perTravellerOn && anyDeviation && methodOnline && (
         <div className="card p-3 text-sm text-amber-900 bg-amber-50 border-amber-200">
           <b>Booking method will change to TMC agent-assisted.</b> {deviationCount} traveller{deviationCount > 1 ? 's have' : ' has'} a different itinerary. The TMS cannot book a group <b>online</b> when travellers fly different routes or dates, so on save the booking method changes from <b>TMC online</b> to <b>TMC agent-assisted</b> (§13.20).
         </div>
       )}
-      {anyDeviation && req.bookingMethod === BOOKING_METHOD.AgentAssisted && (
+      {perTravellerOn && anyDeviation && req.bookingMethod === BOOKING_METHOD.AgentAssisted && (
         <div className="card p-3 text-sm text-[var(--ecs-muted)] bg-[var(--ecs-panel)] border-[var(--ecs-border)]">
           Travellers fly different itineraries, so this group is booked <b>TMC agent-assisted</b> — the TMS cannot book a group online when itineraries differ (§13.20).
         </div>
       )}
-      <CollapsibleCard
-        title="Per-traveller itineraries (§13.20)"
-        defaultOpen={false}
-        stub={anyDeviation ? `${deviationCount} on own itinerary` : 'All follow the shared itinerary'}
-      >
-        <PerTravellerItineraries members={itineraryMembers} airports={airportOpts} sharedRoute={sharedRoute} />
-      </CollapsibleCard>
+      {personalMembers.length > 0 && (
+        <CollapsibleCard
+          title="Per-traveller personal days (§4.5)"
+          defaultOpen={personalDeclaredCount > 0}
+          stub={personalDeclaredCount > 0 ? `${personalDeclaredCount} with personal days` : 'All official business'}
+        >
+          <p className="text-sm text-[var(--ecs-muted)] mb-3">Each travelling member declares their own personal days (before, during or after the business portion). Personal days are excluded from that member&apos;s ODA and personal nights from the accommodation budget. Guests do not declare.</p>
+          <div className="space-y-3">
+            {personalMembers.map((t) => (
+              <TravellerPersonalDays
+                key={t.employeeId}
+                name={memberName(t)}
+                subtitle={memberDeptName(t)}
+                tripStart={d(t.ownStartDate ?? req.startDate)}
+                tripEnd={d(t.ownEndDate ?? req.endDate)}
+                initial={parsePersonalPeriods(t.personalPeriodsJson)}
+                disabled={!canEdit}
+                action={saveTravellerPersonal.bind(null, id, t.employeeId)}
+              />
+            ))}
+          </div>
+        </CollapsibleCard>
+      )}
+      {perTravellerOn && itineraryMembers.length > 0 && (
+        <CollapsibleCard
+          title="Per-traveller itineraries (§13.20)"
+          defaultOpen={false}
+          stub={anyDeviation ? `${deviationCount} on own itinerary` : 'All follow the shared itinerary'}
+        >
+          <PerTravellerItineraries members={itineraryMembers} airports={airportOpts} sharedRoute={sharedRoute} />
+        </CollapsibleCard>
+      )}
     </div>
   ) : null;
 

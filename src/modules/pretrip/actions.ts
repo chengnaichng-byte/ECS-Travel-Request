@@ -23,8 +23,8 @@ import { applyMaterialAmendment, isFreeEditState, isAmendableState } from './ame
 import { EcsIdentity, EcsReference, EcsFx, EcsPolicy, EcsCharging, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKING_STATUSES, EXPENSE_CATEGORY, APPROVER_ROLE, BOOKING_METHOD, BOOKING_METHOD_LABEL, BOOKING_ARRANGEMENT, POLICY_OUTCOME } from '@/shared/enums';
 import { isTmcArrangement, providerFromArrangement, recallEligible } from './booking';
-import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isNonEmployeeMember, hasNonEmployeeTraveller } from './traveller';
-import { parsePersonalPeriods, serializePersonalPeriods, personalSpan, personalNightsInStay } from './personal';
+import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isGuestMember, isNonEmployeeMember, hasNonEmployeeTraveller, memberName } from './traveller';
+import { parsePersonalPeriods, serializePersonalPeriods, personalSpan, personalNightsInStay, validatePersonalPeriods } from './personal';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
@@ -671,6 +671,31 @@ export async function saveTravellerItinerary(id: string, employeeId: string, fd:
   revalidatePath(`/requests/${id}/estimates`);
 }
 
+/** §4.5/§13.20 Save a GROUP member's own DECLARED personal day ranges (before / during / after),
+ *  independent of the other members — there is no group-wide personal extension. Stored per traveller
+ *  (TravelRequestTraveller.personalPeriodsJson); re-derives the estimates so this member's ODA and
+ *  accommodation exclude their personal days. Staff and student members only (guests do not declare). */
+export async function saveTravellerPersonal(id: string, employeeId: string, fd: FormData) {
+  if (!(await requireEdit(id))) return;
+  const req = await loadRequest(id);
+  if (!req || !req.isGroup) return;
+  const member = req.travellers.find((t) => t.employeeId === employeeId);
+  if (!member || isGuestMember(member)) return; // guests do not declare personal
+  const periods = parsePersonalPeriods(str(fd, 'personalPeriodsJson'));
+  // Validate inside the member's EFFECTIVE window — their own dates when they deviate, else the trip's.
+  const winStart = member.ownStartDate ?? req.startDate;
+  const winEnd = member.ownEndDate ?? req.endDate;
+  const errs = validatePersonalPeriods(periods, winStart, winEnd);
+  if (errs.length) redirect(`/requests/${id}/trip?error=${encodeURIComponent(errs.join(' '))}`);
+  await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId }, data: { personalPeriodsJson: serializePersonalPeriods(periods) } });
+  await syncAutoEstimates(id, false);
+  const who = EcsIdentity.employee(employeeId)?.name ?? memberName(member);
+  await audit(id, 'AMEND', periods.length
+    ? `Personal days set for ${who} (${periods.length} period${periods.length > 1 ? 's' : ''})`
+    : `Personal days cleared for ${who}`);
+  redirect(`/requests/${id}/trip`);
+}
+
 /* ------------------------------------------------- estimates (TR-05..08) */
 /** §13.14 group fan-out for an individual estimate line. When the traveller select is set to
  *  the "All travellers" sentinel, return one id per group traveller so the caller creates a
@@ -929,8 +954,13 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
   // (the last stop ends at the trip's end date). Nights = (To − From) in days; ODA days = nights. ----
   // §4.5 declared personal days reduce the funded nights/ODA days of the business stop they fall in
   // (arrive-early / stay-late / a day off during the event). Personal side-trip legs are already
-  // excluded from the stops above; these periods trim a kept stop's chargeable nights.
-  const personalPeriods = parsePersonalPeriods(req.personalPeriodsJson);
+  // excluded from the stops above; these periods trim a kept stop's chargeable nights. For a GROUP
+  // the declaration is PER MEMBER (TravelRequestTraveller.personalPeriodsJson); for an individual it
+  // is the request-level periods. Guests do not declare, so their stops keep all nights funded.
+  const periodsForTid = (tid: string | null) => {
+    if (!req.isGroup || tid == null) return parsePersonalPeriods(req.personalPeriodsJson);
+    return parsePersonalPeriods(req.travellers.find((t) => t.employeeId === tid)?.personalPeriodsJson ?? null);
+  };
   const home = 'SIN';
   type Stop = { legSeq: number; city: string; country: string; from: Date; to: Date; nights: number };
   // §13.20 stops are derived PER TRAVELLER from their EFFECTIVE itinerary — their own legs when they
@@ -976,7 +1006,7 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
     const existing = autoHotels.find((e) => (e.travellerId ?? '') === (tid ?? '') && e.accommodation?.legSeq === s.legSeq);
     const cap = EcsPolicy.hotelCap(s.city) ?? 0;
     const rate = (!resetRates && existing?.accommodation?.quotedNightly ? existing.accommodation.quotedNightly : cap) || cap;
-    const personalN = personalNightsInStay(s.from, s.to, personalPeriods);
+    const personalN = personalNightsInStay(s.from, s.to, periodsForTid(tid));
     const calc = computeAccommodation({ cityCode: s.city, nights: s.nights, personalNights: personalN, quotedNightly: rate, basis: settings.hotelEstimateBasis });
     const accData = { city: s.city, legSeq: s.legSeq, checkIn: s.from, checkOut: s.to, nights: s.nights, personalNights: personalN, quotedNightly: rate, capNightly: calc.capNightly, budgetedNightly: calc.budgetedNightly, capVariance: calc.capVariance, exceptionOutcome: calc.outcome };
     if (existing) {
@@ -999,7 +1029,7 @@ export async function syncAutoEstimates(id: string, resetRates: boolean) {
     wantOda.add(key(tid, s.legSeq));
     // §4.5 personal nights at this stop are not funded ODA days; §13.7 ECS duration tiers: days 1–15 @
     // 100%, 16–31 @ 75%, 32+ at the monthly allowance rate (applied to the FUNDED days).
-    const personalN = personalNightsInStay(s.from, s.to, personalPeriods);
+    const personalN = personalNightsInStay(s.from, s.to, periodsForTid(tid));
     const fundedDays = Math.max(s.nights - personalN, 0);
     const monthlyRate = EcsPolicy.odaMonthlyRate(s.country) ?? 0;
     const calc = computeOdaTiered({ days: fundedDays, dailyRate, monthlyRate });
