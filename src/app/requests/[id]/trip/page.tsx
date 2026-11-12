@@ -6,7 +6,7 @@ import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary, saveTravellerPersonal } from '@/modules/pretrip/actions';
 import { getSettings } from '@/modules/pretrip/settings';
-import { memberName, memberDeptName, isGuestMember, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
+import { memberName, isGuestMember, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
 import { TravellerPersonalDays } from '@/components/TravellerPersonalDays';
 import { sharedLegs } from '@/modules/pretrip/group';
 import { PerTravellerItineraries } from '@/components/PerTravellerItineraries';
@@ -165,19 +165,27 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           Travellers fly different itineraries, so this group is booked <b>TMC agent-assisted</b> — the TMS cannot book a group online when itineraries differ (§13.20).
         </div>
       )}
+      {perTravellerOn && itineraryMembers.length > 0 && (
+        <CollapsibleCard
+          title="Per-traveller itineraries (§13.20)"
+          defaultOpen={false}
+          stub={anyDeviation ? `${deviationCount} on own itinerary` : 'All follow the shared itinerary'}
+        >
+          <PerTravellerItineraries members={itineraryMembers} airports={airportOpts} sharedRoute={sharedRoute} />
+        </CollapsibleCard>
+      )}
       {personalMembers.length > 0 && (
         <CollapsibleCard
           title="Per-traveller personal days (§4.5)"
-          defaultOpen={personalDeclaredCount > 0}
+          defaultOpen={false}
           stub={personalDeclaredCount > 0 ? `${personalDeclaredCount} with personal days` : 'All official business'}
         >
-          <p className="text-sm text-[var(--ecs-muted)] mb-3">Each travelling member declares their own personal days (before, during or after the business portion). Personal days are excluded from that member&apos;s ODA and personal nights from the accommodation budget. Guests do not declare.</p>
+          <p className="text-sm text-[var(--ecs-muted)] mb-3">Tick a member to declare their own personal days (before, during or after the business portion). Personal days are excluded from that member&apos;s ODA and personal nights from the accommodation budget. Guests do not declare.</p>
           <div className="space-y-3">
             {personalMembers.map((t) => (
               <TravellerPersonalDays
                 key={t.employeeId}
                 name={memberName(t)}
-                subtitle={memberDeptName(t)}
                 tripStart={d(t.ownStartDate ?? req.startDate)}
                 tripEnd={d(t.ownEndDate ?? req.endDate)}
                 initial={parsePersonalPeriods(t.personalPeriodsJson)}
@@ -186,15 +194,6 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               />
             ))}
           </div>
-        </CollapsibleCard>
-      )}
-      {perTravellerOn && itineraryMembers.length > 0 && (
-        <CollapsibleCard
-          title="Per-traveller itineraries (§13.20)"
-          defaultOpen={false}
-          stub={anyDeviation ? `${deviationCount} on own itinerary` : 'All follow the shared itinerary'}
-        >
-          <PerTravellerItineraries members={itineraryMembers} airports={airportOpts} sharedRoute={sharedRoute} />
         </CollapsibleCard>
       )}
     </div>

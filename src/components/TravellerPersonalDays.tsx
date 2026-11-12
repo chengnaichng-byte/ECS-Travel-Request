@@ -1,26 +1,32 @@
 'use client';
-// §4.5/§13.20 Per-traveller personal days for a GROUP member. Each staff / student member declares
-// their OWN personal day ranges (before / during / after the business portion), independent of the
-// others — there is no group-wide personal extension. Its own form + Save (the per-member rows cannot
-// nest inside the main trip form), posting the declared periods for this member only.
+// §4.5/§13.20 Per-traveller personal days for a GROUP member — a compact row per member that mirrors
+// the per-traveller itineraries card: a tick reveals that member's personal-days editor; an unticked
+// member has none. Each staff / student member declares their OWN ranges (before / during / after),
+// independent of the others — there is no group-wide personal extension. Its own form + Save (the
+// per-member rows cannot nest inside the main trip form). Guests do not declare.
 import { useMemo, useState } from 'react';
 import { type PersonalPeriod } from '@/modules/pretrip/personal';
 
 const toD = (s: string) => (s ? new Date(`${s}T00:00:00Z`) : null);
 
-export function TravellerPersonalDays({ name, subtitle, tripStart, tripEnd, initial, disabled, action }: {
+export function TravellerPersonalDays({ name, tripStart, tripEnd, initial, disabled, action }: {
   name: string;
-  subtitle?: string;
   tripStart: string;    // the member's effective window (ISO), for min/max + validation
   tripEnd: string;
   initial: PersonalPeriod[];
   disabled?: boolean;
   action: (fd: FormData) => void | Promise<void>;
 }) {
-  const [periods, setPeriods] = useState<PersonalPeriod[]>(initial);
+  const [declares, setDeclares] = useState(initial.length > 0);
+  const [periods, setPeriods] = useState<PersonalPeriod[]>(initial.length ? initial : []);
   const add = () => setPeriods((ps) => [...ps, { start: tripStart || '', end: tripEnd || '' }]);
   const set = (i: number, patch: Partial<PersonalPeriod>) => setPeriods((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const remove = (i: number) => setPeriods((ps) => ps.filter((_, j) => j !== i));
+
+  const toggle = (on: boolean) => {
+    setDeclares(on);
+    if (on && periods.length === 0) setPeriods([{ start: tripStart || '', end: tripEnd || '' }]);
+  };
 
   const errors = useMemo(() => {
     const e: string[] = [];
@@ -34,21 +40,19 @@ export function TravellerPersonalDays({ name, subtitle, tripStart, tripEnd, init
     return e;
   }, [periods, tripStart, tripEnd, name]);
 
-  return (
-    <form action={action} className="rounded-lg border border-[var(--ecs-border)] p-3">
-      <input type="hidden" name="personalPeriodsJson" value={JSON.stringify(periods.filter((p) => p.start && p.end))} />
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <div className="text-sm font-semibold text-[var(--ecs-navy)]">{name}</div>
-          {subtitle && <div className="text-[11px] text-[var(--ecs-muted)]">{subtitle}</div>}
-        </div>
-        {!disabled && <button type="button" onClick={add} className="text-sm font-medium text-[var(--ecs-navy)] hover:underline shrink-0">+ Add personal days</button>}
-      </div>
+  const savedStatus = initial.length ? `${initial.length} personal period${initial.length > 1 ? 's' : ''}` : 'no personal days';
 
-      {periods.length === 0 ? (
-        <p className="text-sm text-[var(--ecs-muted)] mt-2 italic">No personal days — all official business.</p>
-      ) : (
-        <div className="mt-2 space-y-2">
+  return (
+    <div className="rounded border border-[var(--ecs-border)] p-3">
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <input type="checkbox" checked={declares} onChange={(e) => toggle(e.target.checked)} disabled={disabled} className="w-4 h-4" />
+        {name}
+        <span className="text-xs font-normal text-[var(--ecs-muted)]">· {declares ? 'has personal days' : savedStatus}</span>
+      </label>
+
+      {declares && (
+        <form action={action} className="mt-3 space-y-2">
+          <input type="hidden" name="personalPeriodsJson" value={JSON.stringify(periods.filter((p) => p.start && p.end))} />
           {periods.map((p, i) => (
             <div key={i} className="grid md:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end">
               <div>
@@ -66,16 +70,20 @@ export function TravellerPersonalDays({ name, subtitle, tripStart, tripEnd, init
               {!disabled && <button type="button" onClick={() => remove(i)} aria-label="Remove" className="h-[38px] px-3 rounded border border-[var(--ecs-border)] text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] hover:border-[var(--ecs-red)]">✕</button>}
             </div>
           ))}
-        </div>
+          {errors.length > 0 && <ul className="text-[12px] text-red-700 list-disc pl-4">{errors.map((x, i) => <li key={i}>{x}</li>)}</ul>}
+          <div className="flex items-center gap-2 pt-1">
+            {!disabled && <button type="button" onClick={add} className="btn-secondary text-xs">＋ Add personal days</button>}
+            {!disabled && <button type="submit" disabled={errors.length > 0} className="btn-primary text-xs disabled:opacity-50">Save {name.split(' ').slice(-1)[0]}&apos;s personal days</button>}
+          </div>
+        </form>
       )}
 
-      {errors.length > 0 && <ul className="mt-2 text-[12px] text-red-700 list-disc pl-4">{errors.map((x, i) => <li key={i}>{x}</li>)}</ul>}
-
-      {!disabled && (
-        <div className="mt-3">
-          <button type="submit" disabled={errors.length > 0} className="px-3 py-1.5 rounded bg-[var(--ecs-navy)] text-white text-sm font-medium disabled:opacity-50">Save {name.split(' ').slice(-1)[0]}&apos;s personal days</button>
-        </div>
+      {!declares && initial.length > 0 && !disabled && (
+        <form action={action} className="mt-2">
+          <input type="hidden" name="personalPeriodsJson" value="[]" />
+          <button className="btn-ghost text-xs">Clear personal days</button>
+        </form>
       )}
-    </form>
+    </div>
   );
 }
