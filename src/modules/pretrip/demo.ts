@@ -83,8 +83,8 @@ async function buildDraft(s: ScenarioInput): Promise<string> {
   await audit(id, s.requestorId, 'CREATE', `Draft ${requestNumber} created`);
 
   // Itinerary
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: s.destAirport, departDate: day(s.start), travelClassId: s.travelClassId } });
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: s.destAirport, destCode: 'SIN', departDate: day(s.end), travelClassId: s.travelClassId } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: s.destAirport, departDate: day(s.start), arriveDate: day(s.start), travelClassId: s.travelClassId } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: s.destAirport, destCode: 'SIN', departDate: day(s.end), arriveDate: day(s.end), travelClassId: s.travelClassId } });
 
   // Airfare
   const airSgd = EcsFx.toSgd(s.airfare.amount, s.airfare.currency);
@@ -1025,8 +1025,8 @@ async function buildGuestPendingS21() {
   } });
   const id = req.id;
   await audit(id, 'E-PA', 'CREATE', `Guest travel draft ${requestNumber} created for Prof Hiroshi Tanaka (University of Tokyo)`);
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: 'HND', departDate: day(start), durationHours: 7, travelClassId: 'TC-ECO' } });
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: 'HND', destCode: 'SIN', departDate: day(end), durationHours: 0, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: 'HND', departDate: day(start), arriveDate: day(start), durationHours: 7, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: 'HND', destCode: 'SIN', departDate: day(end), arriveDate: day(end), durationHours: 0, travelClassId: 'TC-ECO' } });
   // §8 guest estimate = airfare + accommodation only (no ODA — guests file no claim).
   await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: 1250, sgdAmount: 1250, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: 'HND', proposedClassId: 'TC-ECO', fareCeiling: 1250 } });
   const hcalc = computeAccommodation({ cityCode: 'TYO', nights: 3, personalNights: 0, quotedNightly: 320, basis: settings.hotelEstimateBasis });
@@ -1055,8 +1055,8 @@ async function seedGuestRequest(o: { guestName: string; guestEmail: string; gues
   } });
   const id = req.id;
   await audit(id, 'E-PA', 'CREATE', `Guest travel draft ${requestNumber} created for ${o.guestName} (${o.guestOrg})`);
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: o.destAirport, departDate: day(o.start), durationHours: o.durationHours, travelClassId: 'TC-ECO' } });
-  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: o.destAirport, destCode: 'SIN', departDate: day(o.end), durationHours: 0, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 1, originCode: 'SIN', destCode: o.destAirport, departDate: day(o.start), arriveDate: day(o.start), durationHours: o.durationHours, travelClassId: 'TC-ECO' } });
+  await prisma.itineraryLeg.create({ data: { requestId: id, seq: 2, originCode: o.destAirport, destCode: 'SIN', departDate: day(o.end), arriveDate: day(o.end), durationHours: 0, travelClassId: 'TC-ECO' } });
   await prisma.estimatedExpense.create({ data: { requestId: id, category: EXPENSE_CATEGORY.Airfare, expenseTypeId: 'ET-AIR', currency: 'SGD', foreignAmount: o.airfare, sgdAmount: o.airfare, estimateBasis: 'QUOTED', originCode: 'SIN', destCode: o.destAirport, proposedClassId: 'TC-ECO', fareCeiling: o.airfare } });
   const guestRate = o.nightly ?? (EcsPolicy.hotelCap(o.destCity) ?? 0);
   const hcalc = computeAccommodation({ cityCode: o.destCity, nights: o.nights, personalNights: 0, quotedNightly: guestRate, basis: settings.hotelEstimateBasis });

@@ -53,7 +53,9 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const tmcProviderOpts = (await listTmcProviders()).filter((p) => p.active).map((p) => ({ id: p.id, name: p.name }));
   const tmcText = isTmcArrangement(req.bookingArrangement) ? (await resolveTmcProvider(req)).provider.name : 'Not via a TMC';
   const tripType = (req.tripType === 'ONE_WAY' || req.tripType === 'MULTI_CITY' ? req.tripType : 'ROUND_TRIP') as 'ROUND_TRIP' | 'ONE_WAY' | 'MULTI_CITY';
-  const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
+  // §4.4 Arrive defaults to Depart (same-day) when blank — nearly every single flight lands the same
+  // calendar day; editable for the odd red-eye. (saveTrip persists this too.)
+  const initialLegs = sortedLegs.map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate) || d(l.departDate), nights: l.nights, durationHours: l.durationHours != null ? String(l.durationHours) : '', isPersonal: l.isPersonal }));
   // airport → city/country names, so the leg builder can show the derived main destination.
   const airportMeta: Record<string, { city: string; country: string; cityCode: string; countryCode: string }> = {};
   for (const a of airports) {
@@ -80,7 +82,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
     employeeId: t.employeeId,
     name: memberName(t),
     legs: req.legs.filter((l) => l.travellerId === t.employeeId).sort((a, b) => a.seq - b.seq)
-      .map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate), isPersonal: l.isPersonal })),
+      .map((l) => ({ originCode: l.originCode, destCode: l.destCode, departDate: d(l.departDate), arriveDate: d(l.arriveDate) || d(l.departDate), isPersonal: l.isPersonal })),
     airfareEstimateSgd: t.airfareEstimateSgd,
     action: saveTravellerItinerary.bind(null, id, t.employeeId),
   })) : [];
