@@ -13,15 +13,18 @@ import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, sa
 import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { getCtaAccount } from '@/modules/pretrip/ctaMaster';
+import { airfareUpgrade } from '@/modules/pretrip/upgrade';
+import { listUpgradeAccounts, effectiveDeltaCode } from '@/modules/pretrip/upgradeConfig';
 import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
 import { currencies } from '@/data/fxRates';
 import { employees } from '@/data/employees';
-import { CLAIM_STATUS, APPROVER_ROLE, TE_TREATMENT } from '@/shared/enums';
+import { CLAIM_STATUS, APPROVER_ROLE, TE_TREATMENT, EXPENSE_CATEGORY } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { ClaimDecisionBar } from '@/components/ClaimDecisionBar';
+import { LegacyClaimView } from '@/components/LegacyClaimView';
 import { Card, Empty } from '@/components/ui';
 
 const ROLE_LABEL: Record<string, string> = { [APPROVER_ROLE.Verifier]: 'Verifier', [APPROVER_ROLE.Exception]: 'Exception Approver', [APPROVER_ROLE.RO]: 'RO', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA' };
@@ -34,12 +37,15 @@ const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
 export default async function ClaimPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id }, include: { lines: true, approvalSteps: { orderBy: { seq: 'asc' } } } });
-  if (!claim || !claim.requestId) notFound();
+  if (!claim) notFound();
+  const persona = await currentPersonaId();
+  // TMC transition — a LEGACY claim (pre-go-live PNR, no Pre-Trip TR) has no approved request, so it
+  // renders a focused view; none of the TA-anchored machinery below applies.
+  if (!claim.requestId) return <LegacyClaimView claim={claim} persona={persona} />;
   const req = await loadRequest(claim.requestId);
   if (!req) notFound();
   const settings = await getSettings();
   const prep = prepopulateClaim(req, claim.claimantId, settings.airfareTreatment, prepopContract(await getContractSettings()));
-  const persona = await currentPersonaId();
   const canEdit = claim.status === CLAIM_STATUS.Draft || claim.status === CLAIM_STATUS.SentBack;
   const canSubmit = canEdit && (persona === claim.claimantId || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
   const pendingStep = claim.approvalSteps.find((s) => s.status === 'Pending');
@@ -53,6 +59,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const booking = req.bookings.find((b) => b.travellerId === claim.claimantId) ?? req.bookings[0];
   const bookingRef = `${req.authorisationNo ?? '—'}${booking?.pnr ? ` · ${booking.pnr}` : ''}`;
   const labelOf = (l: { category: string; expenseTypeId: string }) => EcsReference.expenseType(l.expenseTypeId)?.name ?? prep.lines.find((p) => p.category === l.category)?.label ?? l.category;
+  // §4.5 / contract v1.4 — the declared personal-extension reflection on the claim header (tePersonalDays,
+  // Reference). Driven by prepopulateClaim so a contract Exclude hides it; per-traveller for a group member.
+  const personalField = prep.header.find((h) => h.label === 'Personal extension (declared)');
 
   // DD-19 / DD-30 — CTA-settled (Reference) lines are shown for the full cost picture but are NOT
   // reimbursed (the employee never fronted them). Auto-deduct them from the reimbursable total so
@@ -69,6 +78,43 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const ctaPostings = booking ? await prisma.ctaPostingDocument.findMany({ where: { bookingId: booking.id } }) : [];
   const postingByType = new Map(ctaPostings.map((d) => [d.chargeType, d] as const));
   const postingFor = (cat: string) => postingByType.get(cat === 'AIRFARE' ? 'Airfare' : cat === 'ACCOMMODATION' ? 'Accommodation' : '');
+
+  // §4.5 / contract tePersonalDays (Phase 2) — the funded day/night BASIS behind the ODA and
+  // accommodation amounts, from the approved request's per-city estimates, scoped to this claimant
+  // (group → their attributed + shared estimates). Read-only: the amounts are already net of personal
+  // time (ODA funded = eligibleDays; accommodation funded = nights − personalNights); this makes the
+  // funded-vs-stay split visible on the claim without re-deriving anything.
+  const claimantEstimates = req.isGroup
+    ? req.expenses.filter((e) => !e.travellerId || e.travellerId === claim.claimantId || e.isShared)
+    : req.expenses;
+  const odaBasis = claimantEstimates.map((e) => e.oda).filter((o): o is NonNullable<typeof o> => !!o);
+  const accomBasis = claimantEstimates.map((e) => e.accommodation).filter((a): a is NonNullable<typeof a> => !!a);
+  const hasFundedBasis = odaBasis.length > 0 || accomBasis.length > 0;
+  const anyPersonalBasis = odaBasis.some((o) => o.personalDays > 0) || accomBasis.some((a) => a.personalNights > 0);
+  // Phase 4 — soft guard: the approved ODA / accommodation line IS the funded (personal-excluded)
+  // amount. A claimed actual ABOVE it means more days/nights than funded are being claimed (personal
+  // days creeping in). Not a hard block (the amounts are advisory, reviewed at claim), just a flag.
+  const overFundedLines = claim.lines.filter((l) =>
+    (l.category === EXPENSE_CATEGORY.ODA || l.category === EXPENSE_CATEGORY.Accommodation) && !isRef(l) && l.actualSgd > l.approvedSgd + 0.005);
+
+  // §13.19 Phase 3 — M6 (travel-class entitlement differential) on the REIMBURSABLE airfare path.
+  // A CTA-billed airfare line keeps its booking-time M6 split (Reference, not reimbursed); only an
+  // employee-settled / self-booked airfare line (Editable) re-derives the split at claim, so the
+  // NTU-funded differential routes to the governing BA's M6 account and the entitlement stays on the
+  // normal allocation. Reuses upgrade.ts + the same ChargingAccountEditor machinery as the TR.
+  const govBA = (req.allocations.find((a) => a.isMain) ?? req.allocations[0])?.businessArea ?? null;
+  const upgradeAccounts = await listUpgradeAccounts();
+  const m6Accounts: AccountOpt[] = upgradeAccounts.map((a) => ({ code: a.code, name: a.name, type: 'CC', companyCode: a.companyCode, businessArea: a.businessArea, research: false, crossCharge: false, closed: !a.active }));
+  let m6DeltaSgd = 0;
+  let m6DeltaCode: string | null = null;
+  for (const e of claimantEstimates.filter((e) => e.category === EXPENSE_CATEGORY.Airfare)) {
+    const u = airfareUpgrade({ sgdAmount: e.sgdAmount, entitlementFareSgd: e.entitlementFareSgd, upgradeFunding: e.upgradeFunding, upgradeDeltaCode: e.upgradeDeltaCode });
+    if (u.isUpgrade && u.funding === 'NTU' && u.deltaSgd > 0) {
+      m6DeltaSgd += u.deltaSgd;
+      m6DeltaCode = effectiveDeltaCode(upgradeAccounts, govBA, settings.upgradeDeltaSelectionRequired, e.upgradeDeltaCode) ?? m6DeltaCode;
+    }
+  }
+  m6DeltaSgd = Math.round(m6DeltaSgd * 100) / 100;
 
   // DD-08 / E11 — if the claimant moved the charging off the approved request's DOA, the claim
   // will route to the NEW account's DOA on submit (no auto-grant). Surface that before submit.
@@ -95,7 +141,16 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
     if (l.allocJson) { try { const a = JSON.parse(l.allocJson); if (Array.isArray(a) && a.length) return a.map((x: { code: string; pct: number; io?: string }) => ({ code: x.code, pct: Number(x.pct), io: x.io || '' })); } catch { /* ignore */ } }
     return l.chargingCode ? [{ code: l.chargingCode, pct: 100, io: '' }] : undefined;
   };
-  const costLines: CostLineX[] = claim.lines.map((l) => ({ id: l.id, typeId: l.expenseTypeId, typeName: labelOf(l), net: Math.max(l.actualSgd - l.sponsorSgd, 0), category: l.category ?? l.expenseTypeId, isShared: false, deptAllocs: [], initialAllocs: claimInitialAllocs(l) }));
+  const costLines: CostLineX[] = claim.lines.map((l) => {
+    const net = Math.max(l.actualSgd - l.sponsorSgd, 0);
+    // M6 split only on a REIMBURSABLE airfare line (CTA/Reference airfare was split at booking).
+    const m6OnLine = l.category === EXPENSE_CATEGORY.Airfare && !isRef(l) && m6DeltaSgd > 0;
+    return {
+      id: l.id, typeId: l.expenseTypeId, typeName: labelOf(l), net,
+      category: l.category ?? l.expenseTypeId, isShared: false, deptAllocs: [], initialAllocs: claimInitialAllocs(l),
+      ...(m6OnLine ? { upgradeDeltaSgd: Math.min(m6DeltaSgd, net), upgradeDeltaCode: m6DeltaCode ?? undefined } : {}),
+    };
+  });
   const initialRows = cj.rows.map((r) => ({ ba: chargingCodes.find((c) => c.code === r.code)?.businessArea ?? '', code: r.code, io: r.io ?? '', pct: r.percent }));
   const initialLineMap: Record<string, string> = {};
   for (const l of claim.lines) if (l.chargingCode) initialLineMap[l.id] = l.chargingCode;
@@ -177,6 +232,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
             <div><label className="label">Travel Class</label><input className="field" value={EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—'} disabled /></div>
             <div><label className="label">Travel Purpose</label><input className="field" value={EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—'} disabled /></div>
             <div><label className="label">Trip Description</label><input className="field" value={req.description ?? '—'} disabled /></div>
+            {personalField && <div><label className="label">Personal Extension (excluded)</label><input className="field" value={personalField.value} disabled title="Declared personal days — excluded from funded ODA / accommodation (contract tePersonalDays)" /></div>}
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
               <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
@@ -227,6 +283,63 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
         </Card>
       </form>
 
+      {hasFundedBasis && (
+        <Card title="Funded basis — personal days / nights excluded (approved request)">
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">The ODA and accommodation amounts above are already net of declared personal time (§4.5). This shows the funded count against the actual stay per city.{anyPersonalBasis ? '' : ' No personal days are declared on this trip, so funded = full stay.'}</p>
+          {overFundedLines.length > 0 && (
+            <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+              <b>Check personal-day claiming:</b> {overFundedLines.map((l) => labelOf(l)).join(', ')} claimed above the funded (personal-excluded) approved amount. The funded day / night counts above exclude declared personal time; the claimed ODA / accommodation should not exceed them.
+            </div>
+          )}
+          {odaBasis.length > 0 && (
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-sm">
+                <thead><tr>
+                  <th className="th">Overseas Daily Allowance — city</th><th className="th">Arrive</th><th className="th">Depart</th>
+                  <th className="th text-right">Stay days</th><th className="th text-right">Personal</th><th className="th text-right">Funded days</th><th className="th text-right">Rate/day</th>
+                </tr></thead>
+                <tbody>
+                  {odaBasis.map((o, i) => (
+                    <tr key={i}>
+                      <td className="td">{EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country}</td>
+                      <td className="td whitespace-nowrap">{d(o.arrive) || '—'}</td>
+                      <td className="td whitespace-nowrap">{d(o.depart) || '—'}</td>
+                      <td className="td text-right">{o.eligibleDays + o.personalDays}</td>
+                      <td className={`td text-right ${o.personalDays > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`}>{o.personalDays}</td>
+                      <td className="td text-right font-medium">{o.eligibleDays}</td>
+                      <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(o.dailyRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {accomBasis.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr>
+                  <th className="th">Accommodation — city</th><th className="th">Check-in</th><th className="th">Check-out</th>
+                  <th className="th text-right">Stay nights</th><th className="th text-right">Personal</th><th className="th text-right">Funded nights</th><th className="th text-right">Avg/night</th>
+                </tr></thead>
+                <tbody>
+                  {accomBasis.map((a, i) => (
+                    <tr key={i}>
+                      <td className="td">{EcsReference.city(a.city)?.name ?? a.city}</td>
+                      <td className="td whitespace-nowrap">{d(a.checkIn) || '—'}</td>
+                      <td className="td whitespace-nowrap">{d(a.checkOut) || '—'}</td>
+                      <td className="td text-right">{a.nights}</td>
+                      <td className={`td text-right ${a.personalNights > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`}>{a.personalNights}</td>
+                      <td className="td text-right font-medium">{a.nights - a.personalNights}</td>
+                      <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(a.budgetedNightly)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
       {req.deviations.length > 0 && (
         <Card title="Booking deviations vs approved (§6.4)">
           {(() => {
@@ -269,6 +382,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
         companyCodes={companyCodes.map((c) => ({ code: c.code, name: c.name }))}
         businessAreas={businessAreas.map((b) => ({ code: b.code, name: b.name, companyCode: b.companyCode }))}
         accounts={accounts}
+        extraAccounts={m6Accounts}
         expenseTypes={etOpts}
         lines={costLines}
         defaultAccount={defaultAccount}

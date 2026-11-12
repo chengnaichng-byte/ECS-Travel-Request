@@ -677,6 +677,7 @@ model TravelExpenseClaim {
   claimNumber   String  @unique
   requestId     String?
   request       TravelRequest? @relation(fields: [requestId], references: [id])
+  legacyPnr     String?                      // TMC-transition: set (and requestId null) for a claim raised on a pre-go-live legacy PNR with no Pre-Trip TR
   claimantId    String
   status        String  @default("Draft")   // Draft | Submitted
   reportType    String  @default("Travel expense")
@@ -696,6 +697,22 @@ model TravelExpenseClaim {
   lines         TEExpenseLine[]
   approvalSteps ClaimApprovalStep[]
   link          TravelExpenseLink?
+}
+
+/// TMC transition — a pre-go-live legacy TMC booking with NO Pre-Trip TR. Travel booked under the
+/// existing TMC keeps being claimed for months after go-live; such a PNR is claimed via the legacy
+/// path (picker), not the TA. `consumedByClaimId` is the UNIFIED claimed-PNR ledger: set when any
+/// claim consumes this PNR so it cannot be claimed twice, cleared when that claim is deleted/recalled.
+model LegacyBooking {
+  id             String    @id @default(cuid())
+  pnr            String    @unique
+  tmcProviderId  String?                       // TMC-source tag (the pre-go-live provider that made the booking)
+  travellerName  String
+  route          String?
+  amountSgd      Float     @default(0)
+  bookedOn       DateTime?
+  consumedByClaimId String?                    // claimed-PNR ledger: the claim that consumed this PNR (null = available)
+  createdAt      DateTime  @default(now())
 }
 
 /// §51 Claim approval step (configurable TE workflow): Verifier → (Exception) → (RO) → DOA.

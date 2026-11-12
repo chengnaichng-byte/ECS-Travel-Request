@@ -14,6 +14,7 @@ import { EcsReference, EcsIdentity, EcsDelegation } from '@/shared/ecs/services'
 import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { resolveClaimTraveller } from './claimRemit';
 import { buildClaimRoute, type ClaimLike } from './workflow';
+import { consumeLegacyBooking, releaseLegacyBookingsForClaim, legacyBookingByPnr } from './pnrLedger';
 import { CLAIM_STATUS, claimStatusForRole } from '@/shared/enums';
 
 const claimYear = () => new Date().getFullYear();
@@ -289,4 +290,36 @@ export async function saveClaimCharging(claimId: string, fd: FormData) {
   // Land on a fresh render of the claim so the per-line account selects re-hydrate cleanly from
   // the saved split (an in-place revalidate can leave native <select>s showing a stale display).
   redirect(`/claims/${claimId}`);
+}
+
+/** TMC transition — create a DRAFT claim against a pre-go-live LEGACY PNR (no Pre-Trip TR). The PNR is
+ *  marked consumed in the unified ledger so it cannot be claimed twice (released on delete). */
+export async function createClaimFromLegacyPnr(pnr: string) {
+  const persona = await currentPersonaId();
+  const booking = await legacyBookingByPnr(pnr);
+  if (!booking) redirect('/claims/transition?error=notfound');
+  if (booking.consumedByClaimId) redirect('/claims/transition?error=consumed');
+  const claim = await prisma.travelExpenseClaim.create({
+    data: {
+      claimNumber: await nextClaimNumber(claimYear()),
+      requestId: null, legacyPnr: pnr, claimantId: persona, trsNotBooked: false,
+    },
+  });
+  const ok = await consumeLegacyBooking(pnr, claim.id);
+  if (!ok) { await prisma.travelExpenseClaim.delete({ where: { id: claim.id } }); redirect('/claims/transition?error=consumed'); }
+  await prisma.auditEvent.create({ data: { requestId: null, actorId: persona, kind: 'TE_LINK', summary: `Legacy TE claim ${claim.claimNumber} created from legacy PNR ${pnr} (${booking.tmcSource}) — TMC transition` } });
+  redirect(`/claims/${claim.id}`);
+}
+
+/** Delete a DRAFT claim and RELEASE any legacy PNR it consumed back into the picker (TMC transition). */
+export async function deleteClaim(claimId: string) {
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId } });
+  if (!claim || claim.status !== CLAIM_STATUS.Draft) return;
+  await releaseLegacyBookingsForClaim(claimId);
+  await prisma.claimApprovalStep.deleteMany({ where: { claimId } });
+  await prisma.tEExpenseLine.deleteMany({ where: { claimId } });
+  await prisma.travelExpenseLink.deleteMany({ where: { claimId } });
+  await prisma.travelExpenseClaim.delete({ where: { id: claimId } });
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} deleted${claim.legacyPnr ? ` — legacy PNR ${claim.legacyPnr} released to the picker` : ''}` } });
+  redirect('/claims/transition');
 }

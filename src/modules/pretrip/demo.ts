@@ -868,6 +868,22 @@ export async function demoComplexDoaReview() {
   redirect(`/requests/${id}`);
 }
 
+/** TMC transition — seed a few pre-go-live LEGACY PNRs (no Pre-Trip TR) for the transition picker, one
+ *  already consumed to demonstrate the claimed-PNR ledger hiding it. */
+export async function seedLegacyBookings() {
+  const provs = await prisma.tmcProviderConfig.findMany({ select: { code: true }, orderBy: { code: 'asc' } });
+  const p0 = provs[0]?.code ?? null;
+  const p1 = provs[1]?.code ?? p0;
+  await prisma.legacyBooking.deleteMany({});
+  const rows = [
+    { pnr: 'DTMAGS-10006291', tmcProviderId: p0, travellerName: 'Dr Alice Tan', route: 'SIN → LHR → SIN', amountSgd: 4120, bookedOn: new Date('2026-08-12') },
+    { pnr: 'DTMAGS-10006305', tmcProviderId: p1, travellerName: 'Dr Henry Ong', route: 'SIN → NRT → SIN', amountSgd: 1980, bookedOn: new Date('2026-08-20') },
+    { pnr: 'DTMAGS-10006318', tmcProviderId: p0, travellerName: 'Prof Ben Lim', route: 'SIN → SFO → SIN', amountSgd: 5240, bookedOn: new Date('2026-09-01') },
+    { pnr: 'DTMAGS-10006284', tmcProviderId: p0, travellerName: 'Dr Grace Ho', route: 'SIN → ICN → SIN', amountSgd: 1460, bookedOn: new Date('2026-07-30'), consumedByClaimId: 'demo-consumed-claim' },
+  ];
+  for (const r of rows) await prisma.legacyBooking.create({ data: r });
+}
+
 export async function seedDemoScenarios() {
   const existing = await prisma.travelRequest.count();
   if (existing > 0) { revalidatePath('/dashboard'); return; }
@@ -998,6 +1014,9 @@ export async function seedDemoScenarios() {
   const multiCity = await prisma.travelRequest.findMany({ where: { tripType: 'MULTI_CITY', status: REQUEST_STATUS.Approved }, select: { id: true } });
   for (const r of multiCity) await prisma.travelRequest.update({ where: { id: r.id }, data: { visaLetterRequired: true } });
   await prisma.moduleSettings.updateMany({ data: { visaLetterBatchLastRunAt: null } });
+
+  // TMC transition — seed the legacy PNR pool for the transition picker.
+  await seedLegacyBookings();
 
   revalidatePath('/dashboard');
 }

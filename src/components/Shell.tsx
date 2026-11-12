@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   ] },
   { href: '/reports', label: 'Reporting', icon: '▥' },
   { href: '/visa-letters', label: 'Visa Letters', icon: '✉' },
+  { href: '/claims/transition', label: 'TMC Transition Claim', icon: '⇄' },
 ];
 
 const STUBS = ['GST Codes', 'Entertainment Tier', 'Mileage', 'CTC Cards', 'Rejection Reasons', 'Employee Tier', 'Define Research WBS', 'Announcements'];

@@ -10,6 +10,7 @@ import { travellerNightsAtCity } from '@/modules/pretrip/group';
 import { isReimbursable } from '@/modules/pretrip/settlement';
 import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { airfareUpgrade } from '@/modules/pretrip/upgrade';
+import { parsePersonalPeriods, personalSpan, personalDaysInStay } from '@/modules/pretrip/personal';
 import type { FullRequest } from '@/modules/pretrip/queries';
 
 export interface HeaderField { label: string; value: string; treatment: string; }
@@ -72,6 +73,23 @@ export function prepopulateClaim(
   const myClassId = myRow?.chosenClassId ?? req.travelClassId ?? '';
   const myClass = EcsReference.travelClass(myClassId)?.name ?? travelClass;
 
+  // §4.5 Declared personal extension, carried into the claim header as a Reference (tePersonalDays,
+  // contract v1.4). Individual → the request's declared periods; a group member → that member's own
+  // periods. ODA / accommodation funded amounts are already net of these (eligibleDays /
+  // chargeableNights); the header line makes the official-vs-personal split visible on the claim.
+  let myPeriods = parsePersonalPeriods(req.isGroup ? (myRow?.personalPeriodsJson ?? null) : req.personalPeriodsJson);
+  // Robustness fallback: legacy / seeded individual requests may carry only the derived span
+  // (personalStart / personalEnd) and no declared periods — synthesise a single period from it so
+  // the header still reflects the personal split. (Group personal is per-member declared; no span fallback.)
+  if (!myPeriods.length && !req.isGroup && req.personalStart && req.personalEnd) {
+    myPeriods = [{ start: req.personalStart.toISOString().slice(0, 10), end: req.personalEnd.toISOString().slice(0, 10) }];
+  }
+  const pSpan = personalSpan(myPeriods);
+  const personalDays = pSpan ? personalDaysInStay(pSpan.start, pSpan.end, myPeriods) : 0;
+  const personalValue = pSpan
+    ? `${fmtDate(pSpan.start)} → ${fmtDate(pSpan.end)} · ${personalDays} personal day${personalDays === 1 ? '' : 's'} (excluded)`
+    : 'None declared';
+
   // Header fields carry their contract key so an admin override can change the
   // treatment or exclude the field (§13.8 field authority, now admin-editable).
   const headerDefs: (HeaderField & { key: string })[] = [
@@ -87,6 +105,7 @@ export function prepopulateClaim(
     { key: 'teApprovedClass', label: 'Travel class (approved)', value: myClass, treatment: TE_TREATMENT.Reference },
     { key: 'teCharging', label: 'Charging & cost allocation', value: req.allocations.map((a) => `${a.chargingCode} ${a.percent}%`).join(', ') || '—', treatment: TE_TREATMENT.Locked },
     { key: 'teBookingRef', label: 'Booking reference (PNR / ticket)', value: bookingRef, treatment: TE_TREATMENT.Reference },
+    { key: 'tePersonalDays', label: 'Personal extension (declared)', value: personalValue, treatment: TE_TREATMENT.Reference },
   ];
   const header: HeaderField[] = headerDefs
     .map((h) => ({ ...h, treatment: contract?.header?.[h.key] ?? h.treatment }))

@@ -8,6 +8,7 @@ import { CONTRACT_FIELDS, CONTRACT_GUARDS } from '@/config/integrationContracts'
 import { evaluateFlow } from '@/modules/pretrip/integration';
 import { isResearchByCharging } from '@/modules/pretrip/research';
 import { resolveClaimTraveller } from '@/modules/te/claimRemit';
+import { prepopulateClaim } from '@/modules/te/prepopulate';
 import { recallEligible } from '@/modules/pretrip/booking';
 import { settleCancellation } from '@/modules/pretrip/ctaPosting';
 import { isRequestVisibleTo } from '@/modules/pretrip/scope';
@@ -427,6 +428,34 @@ function mixedGrpReq(): FullRequest {
 
   ok('personal: period inside the trip window validates', validatePersonalPeriods(periods, D('2027-07-16'), D('2027-07-21')).length === 0);
   ok('personal: a period outside the trip window is rejected', validatePersonalPeriods(periods, D('2027-07-18'), D('2027-07-21')).length > 0);
+}
+
+// ---------- tePersonalDays emission (contract v1.4, Phase 1) ----------
+{
+  const PERSONAL_LABEL = 'Personal extension (declared)';
+  // Individual with declared periods → header carries the span + day count, treatment REFERENCE.
+  const r = indReq() as unknown as { personalPeriodsJson: string | null };
+  r.personalPeriodsJson = JSON.stringify([{ start: '2027-01-04', end: '2027-01-05' }]);
+  const p = prepopulateClaim(r as unknown as FullRequest, 'E-TRAV', 'REFERENCE');
+  const h = p.header.find((x) => x.label === PERSONAL_LABEL);
+  ok('tePersonalDays: emitted for an individual with declared periods', !!h && /2 personal days \(excluded\)/.test(h!.value), JSON.stringify(h));
+  ok('tePersonalDays: treatment is REFERENCE', !!h && h!.treatment === 'REFERENCE', JSON.stringify(h));
+
+  // No periods → "None declared" (field still present).
+  const p0 = prepopulateClaim(indReq(), 'E-TRAV', 'REFERENCE');
+  const h0 = p0.header.find((x) => x.label === PERSONAL_LABEL);
+  ok('tePersonalDays: shows None declared when there are no personal periods', !!h0 && /None declared/.test(h0!.value), JSON.stringify(h0));
+
+  // Group member → the claimant's OWN per-traveller periods drive the value.
+  const g = mixedGrpReq();
+  (g.travellers[0] as unknown as { personalPeriodsJson: string }).personalPeriodsJson = JSON.stringify([{ start: '2027-01-04', end: '2027-01-04' }]);
+  const pg = prepopulateClaim(g, 'E-TRAV', 'REFERENCE');
+  const hg = pg.header.find((x) => x.label === PERSONAL_LABEL);
+  ok('tePersonalDays: group member uses their own declared periods', !!hg && /1 personal day \(excluded\)/.test(hg!.value), JSON.stringify(hg));
+
+  // A contract Exclude drops the field from the header.
+  const pe = prepopulateClaim(r as unknown as FullRequest, 'E-TRAV', 'REFERENCE', { header: { tePersonalDays: 'EXCLUDED' } });
+  ok('tePersonalDays: contract Exclude removes it from the header', !pe.header.some((x) => x.label === PERSONAL_LABEL));
 }
 
 console.log(log.join('\n'));
