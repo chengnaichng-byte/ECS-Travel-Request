@@ -437,14 +437,16 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                   <th className="th">Attachment</th><th className="th">Is duplicated?</th><th className="th">Send back history</th>
                 </tr></thead>
                 <tbody>
-                  {claim.lines.map((l) => (
+                  {claim.lines.map((l) => {
+                    const ev = expenseView(l);
+                    return (
                     <tr key={l.id} className="hover:bg-[var(--ecs-panel-2)]">
                       <td className="td">
                         <div className="flex items-center gap-0.5">
-                          <ViewExpenseModal e={expenseView(l)} />
+                          <ViewExpenseModal e={ev} />
                           {canEdit && !isRef(l) && (() => {
                             const rec = l.attachments.find((a) => a.docType === 'RECEIPT');
-                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}` } : null }} />;
+                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} oda={ev.oda} accom={ev.accom} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}` } : null }} />;
                           })()}
                           {canEdit && (l.manualEntry
                             ? <button formAction={removeClaimExpense.bind(null, id, l.id)} title="Remove line" className="inline-grid place-items-center w-7 h-7 rounded hover:bg-red-50 text-[var(--ecs-red)]"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></button>
@@ -492,7 +494,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                       <td className="td text-center text-[var(--ecs-muted)]">—</td>
                       <td className="td text-[var(--ecs-muted)] whitespace-nowrap">—</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr>

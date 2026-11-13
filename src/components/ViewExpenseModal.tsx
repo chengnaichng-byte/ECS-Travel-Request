@@ -7,9 +7,9 @@
 // tagged NEW. Read-only (the Expense items table keeps the inline actual/receipt editing).
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { OdaTable, AccomTable, type OdaRow, type AccomRow } from '@/components/StayBreakdown';
 
-export interface OdaRow { country: string; city: string; arrive: string; depart: string; stay: number; personal: number; funded: number; rate: number; amount: number }
-export interface AccomRow { country: string; city: string; checkIn: string; checkOut: string; nights: number; personal: number; funded: number; rate: number; amount: number }
+export type { OdaRow, AccomRow };
 export interface M6Split { fare: number; entitlement: number; differential: number; account: string }
 export interface ExpenseView {
   label: string; date: string; isRef: boolean; manualEntry: boolean; receiptRequired: boolean; approvedSgd: number; actualSgd: number;
@@ -160,59 +160,10 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
 
               <F label="Reason For Expense" value={e.reason || '—'} wide />
 
-              {/* ODA per-city breakdown — ECS columns, with the Personal / Funded split (NEW) inserted. */}
-              {e.oda && e.oda.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mb-1">Overseas Daily Allowance — per city <span className="font-normal normal-case text-[#0f6e56]">· funded (personal-excluded) split added</span></div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead><tr>
-                        <th className="th">Destination Country/Region</th><th className="th">City</th><th className="th">Arrival Date</th><th className="th">Departure Date</th><th className="th text-right">Duration</th>
-                        <th className="th text-right" style={{ background: HI }}>Personal<NewTag /></th><th className="th text-right" style={{ background: HI }}>Funded days<NewTag /></th>
-                        <th className="th text-right">ODA Rate</th><th className="th text-right">Amount (SGD)</th>
-                      </tr></thead>
-                      <tbody>
-                        {e.oda.map((o, i) => (
-                          <tr key={i}>
-                            <td className="td">{o.country}</td><td className="td">{o.city}</td><td className="td whitespace-nowrap">{o.arrive}</td><td className="td whitespace-nowrap">{o.depart}</td>
-                            <td className="td text-right whitespace-nowrap">{o.stay} day{o.stay === 1 ? '' : 's'}</td>
-                            <td className={`td text-right ${o.personal > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`} style={{ background: HI }}>{o.personal}</td>
-                            <td className="td text-right font-medium" style={{ background: HI }}>{o.funded}</td>
-                            <td className="td text-right text-[var(--ecs-muted)]">{fmt(o.rate)}</td><td className="td text-right">{fmt(o.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Hotel per-stay breakdown — ECS columns, with the Personal / Funded split (NEW) inserted. */}
-              {e.accom && e.accom.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mb-1">Accommodation — per stay <span className="font-normal normal-case text-[#0f6e56]">· funded (personal-excluded) split added</span></div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead><tr>
-                        <th className="th">Destination Country/Region</th><th className="th">City</th><th className="th">Check In Date</th><th className="th">Check Out Date</th><th className="th text-right">Duration</th>
-                        <th className="th text-right" style={{ background: HI }}>Personal<NewTag /></th><th className="th text-right" style={{ background: HI }}>Funded nights<NewTag /></th>
-                        <th className="th text-right">Amount (SGD)</th><th className="th text-right">Avg rate/night (SGD)</th>
-                      </tr></thead>
-                      <tbody>
-                        {e.accom.map((a, i) => (
-                          <tr key={i}>
-                            <td className="td">{a.country}</td><td className="td">{a.city}</td><td className="td whitespace-nowrap">{a.checkIn}</td><td className="td whitespace-nowrap">{a.checkOut}</td>
-                            <td className="td text-right whitespace-nowrap">{a.nights} night{a.nights === 1 ? '' : 's'}</td>
-                            <td className={`td text-right ${a.personal > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`} style={{ background: HI }}>{a.personal}</td>
-                            <td className="td text-right font-medium" style={{ background: HI }}>{a.funded}</td>
-                            <td className="td text-right">{fmt(a.amount)}</td><td className="td text-right text-[var(--ecs-muted)]">{fmt(a.rate)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+              {/* ODA per-city / accommodation per-stay breakdown — shared with the Edit modal so both show
+                  identical columns + the Personal / Funded split (NEW). */}
+              {e.oda && e.oda.length > 0 && <OdaTable oda={e.oda} />}
+              {e.accom && e.accom.length > 0 && <AccomTable accom={e.accom} />}
 
               {/* NEW — travel-class (M6) entitlement split for a reimbursable airfare. */}
               {e.m6 && (

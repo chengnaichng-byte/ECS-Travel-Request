@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExpenseDetailFields, type ExpenseTypeOpt } from '@/components/ExpenseDetailFields';
+import { StayBreakdown, type OdaRow, type AccomRow } from '@/components/StayBreakdown';
 
 export interface EditLine {
   expenseTypeId: string; label: string; manualEntry: boolean;
@@ -19,12 +20,14 @@ export interface EditLine {
 const ICON_BTN = 'inline-grid place-items-center w-7 h-7 rounded hover:bg-[var(--ecs-panel-2)] text-[var(--ecs-navy-2)]';
 const RECEIPTS: [string, string][] = [['LOCAL_GST', 'Local Receipt (With GST)'], ['FOREIGN_NO_GST', 'Receipt (Foreign / Local Without GST)'], ['NO_RECEIPT', 'No Receipt']];
 
-export function EditExpenseModal({ action, removeReceipt, expenseTypes, currencies, line }: {
+export function EditExpenseModal({ action, removeReceipt, expenseTypes, currencies, line, oda, accom }: {
   action: (fd: FormData) => void;
   removeReceipt?: (fd: FormData) => void;
   expenseTypes: ExpenseTypeOpt[];
   currencies: string[];
   line: EditLine;
+  oda?: OdaRow[];       // §4.5 per-city ODA funded breakdown (ODA lines) — same data the View modal shows
+  accom?: AccomRow[];   // §4.5 per-stay accommodation breakdown (accommodation lines) — nights / dates / funded split
 }) {
   const [open, setOpen] = useState(false);
   const [receiptType, setReceiptType] = useState(line.receiptType);
@@ -119,7 +122,26 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
             </div>
           )}
 
-          {/* ── 2. EXPENSE DETAILS — full ECS datapoint set (the fields OCR would pre-fill) ── */}
+          {/* ── 2. STAY BREAKDOWN — the pre-filled dates / nights the banner refers to, shown with the
+              same columns + funded (personal-excluded) split as the read-only View. The stay dates, nights
+              and nightly rate are edited in the claim's "Funded basis" card; here they explain the amount
+              (funded nights × rate), so Amount isn't a bare lump sum. ODA lines show the per-city allowance. */}
+          {((accom && accom.length > 0) || (oda && oda.length > 0)) && (
+            <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="text-sm font-semibold text-[var(--ecs-navy)]">
+                  {accom && accom.length > 0 ? 'Accommodation stay' : 'Overseas daily allowance'}
+                  <span className="font-normal text-[var(--ecs-muted)]"> — dates &amp; {accom && accom.length > 0 ? 'nights' : 'days'} from the approved TR &amp; TMC feed</span>
+                </div>
+              </div>
+              <StayBreakdown oda={oda} accom={accom} />
+              <p className="text-[11px] text-[var(--ecs-muted)]">
+                The <b>funded amount</b> is {accom && accom.length > 0 ? 'funded nights' : 'funded days'} × rate (personal time excluded). To change the stay dates, {accom && accom.length > 0 ? 'nights' : 'days'} or rate, use the <b>Funded basis</b> panel on the claim; enter the <b>actual amount paid</b> in Amount (SGD) below and attach the receipt.
+              </p>
+            </div>
+          )}
+
+          {/* ── 3. EXPENSE DETAILS — full ECS datapoint set (the fields OCR would pre-fill) ── */}
           <ExpenseDetailFields
             expenseTypes={expenseTypes}
             currencies={currencies}
