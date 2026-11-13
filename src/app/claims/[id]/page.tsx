@@ -147,8 +147,28 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   // §4.5 claim-side editable basis: the claim's own rows if edited, else seeded from the TR. This drives
   // the editable funded-basis tables, the header personal-day count, and the ODA/accommodation expense
   // amounts — the TR values stay the approved reference (over-funded guard).
-  const effOda = effectiveOdaBasis(claim.odaBasisJson, odaBasis);
-  const effAccom = effectiveAccomBasis(claim.accomBasisJson, accomBasis, req.startDate, req.endDate);
+  // §7.3 (a) ACTUAL stay windows from the TMC feed — a claim reimburses what was actually booked, so the
+  // ODA / accommodation stay DATES come from the booked AIR segments (arrival at a city until the next
+  // departure brackets the real stay), not the TR plan. The TR rate and approved amount stay the
+  // reference. Off-TRS claims have no feed → the TR dates are kept (feedSynced = false).
+  const airSegs = req.bookings.flatMap((b) => b.segments ?? []).filter((s) => s.type === 'AIR' && s.departDate)
+    .sort((a, b) => a.departDate!.getTime() - b.departDate!.getTime());
+  const feedStops: { cityCode: string; from: string; to: string }[] = [];
+  for (let i = 0; i < airSegs.length; i++) {
+    const s = airSegs[i];
+    const cityCode = EcsReference.airport(s.destCode ?? '')?.cityCode ?? s.destCode ?? '';
+    if (!cityCode || cityCode === 'SIN') continue; // the fly-home leg is not a stop
+    const from = s.arriveDate ?? s.departDate;
+    const next = airSegs[i + 1];
+    const to = next ? (next.departDate ?? next.arriveDate) : req.endDate;
+    if (!from || !to) continue;
+    feedStops.push({ cityCode, from: d(from), to: d(to) });
+  }
+  const feedSynced = feedStops.length > 0;
+  const feedStopFor = (city: string | null) => feedStops.find((s) => s.cityCode === city);
+  // Override the TR-seeded stay dates with the actual feed windows (matched by city); the rate stays TR.
+  const effOda = effectiveOdaBasis(claim.odaBasisJson, odaBasis).map((o) => { const f = feedStopFor(o.city); return f ? { ...o, arrive: f.from, depart: f.to } : o; });
+  const effAccom = effectiveAccomBasis(claim.accomBasisJson, accomBasis, req.startDate, req.endDate).map((a) => { const f = feedStopFor(a.city); return f ? { ...a, checkIn: f.from, checkOut: f.to } : a; });
   const effPeriods = effectivePeriods(claim.claimPersonalPeriodsJson, req.personalPeriodsJson);
   const basisEdited = !!claim.odaBasisJson || !!claim.accomBasisJson || !!claim.claimPersonalPeriodsJson;
   const basisPersonalDays = personalDaysTotal(effOda, effPeriods);
@@ -572,7 +592,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
               <PersonalPeriodsEditor initial={effPeriods} stops={basisStops} canEdit={canEdit} />
               <p className="text-[10px] text-[var(--ecs-muted)] mt-2">Personal <b>days</b> (ODA) and <b>nights</b> (accommodation) are counted from these dates and matched to the city whose stay they fall in — they differ by a night because a stay&apos;s last day has no onward night. Saving recomputes the funded amounts, <b>updates the ODA / accommodation claim lines</b>, and the header personal-day count.</p>
             </div>
-            <p className="text-[11px] text-[var(--ecs-muted)] mb-2">The table below is the approved funded <b>reference</b> (from the TR, personal-excluded) — not an input. The actual amounts are claimed in the Expense items above.</p>
+            <p className="text-[11px] text-[var(--ecs-muted)] mb-2">{feedSynced ? <>The stay dates are the <b>actual booked dates</b> (from the TMC feed / PNRs); the rate is the TR-approved rate.</> : <>The stay dates are from the approved TR (no TMC booking received).</>} This is the funded (personal-excluded) <b>reference</b> — not an input; actual amounts are claimed in the Expense items above.</p>
             {effOda.length > 0 && (
               <div className="overflow-x-auto mb-4">
                 <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>

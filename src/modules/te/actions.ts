@@ -15,7 +15,7 @@ import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { resolveClaimTraveller } from './claimRemit';
 import { buildClaimRoute, buildExceptionClaimRoute, type ClaimLike } from './workflow';
 import { consumeLegacyBooking, releaseLegacyBookingsForClaim, legacyBookingByPnr } from './pnrLedger';
-import { readOdaBasisForm, readAccomBasisForm, readPeriodsForm, fundedOdaTotal, fundedAccomTotal } from './basis';
+import { readOdaBasisForm, readAccomBasisForm, readPeriodsForm, fundedOdaTotal, fundedAccomTotal, effectivePeriods } from './basis';
 import { CLAIM_STATUS, claimStatusForRole, EXPENSE_CATEGORY } from '@/shared/enums';
 
 const claimYear = () => new Date().getFullYear();
@@ -164,6 +164,22 @@ export async function submitClaim(claimId: string) {
       await prisma.auditEvent.create({ data: { requestId: req.id, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — ${pending.length} booking deviation(s) need offline-approval evidence or an approved waiver (§8): ${pending.map((d) => d.scopeRef ?? d.field).join(', ')}` } });
       revalidatePath(`/claims/${claimId}`);
       return;
+    }
+    // §7.3 (b) A pre-trip personal declaration can fall outside the ACTUAL travel when the trip moved after
+    // the plan. When the TMC feed is present, every claim personal period must lie within the actual travel
+    // window (earliest booked arrival → latest booked departure); otherwise the claimant must correct it.
+    const actualDates = req.bookings.flatMap((b) => b.segments ?? []).filter((s) => s.type === 'AIR').flatMap((s) => [s.arriveDate, s.departDate]).filter((x): x is Date => !!x);
+    if (actualDates.length) {
+      const actualFrom = new Date(Math.min(...actualDates.map((x) => x.getTime())));
+      const actualTo = new Date(Math.max(...actualDates.map((x) => x.getTime())));
+      const toDate = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+      const outside = effectivePeriods(claim.claimPersonalPeriodsJson, req.personalPeriodsJson).filter((p) => toDate(p.start) < actualFrom || toDate(p.end) > actualTo);
+      if (outside.length) {
+        const fmt = (x: Date) => x.toISOString().slice(0, 10);
+        await prisma.auditEvent.create({ data: { requestId: req.id, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — ${outside.length} personal period(s) fall outside the actual booked travel (${fmt(actualFrom)} → ${fmt(actualTo)}): ${outside.map((p) => `${p.start}→${p.end}`).join(', ')}. Update the personal days on the funded basis to match the booked travel.` } });
+        revalidatePath(`/claims/${claimId}`);
+        return;
+      }
     }
     steps = buildClaimRoute(asClaimLike(claim), req, claimWfOpts(await getSettings()));
   }
