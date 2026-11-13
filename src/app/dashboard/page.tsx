@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoPersonalDraft, demoDoaReview, demoComplexDoaReview, demoPersonalDoaReview, demoGroupDoaReview, demoClaimEnhancements } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoPersonalDraft, demoDoaReview, demoComplexDoaReview, demoPersonalDoaReview, demoGroupDoaReview, demoClaimEnhancements, demoExceptionClaim } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 import { isRequestVisibleTo } from '@/modules/pretrip/scope';
 
@@ -108,6 +108,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             <form action={demoPersonalDoaReview}><button className="btn-secondary text-xs" title="Seed a submitted request at Pending DOA with a personal travel extension (Dr Leon Tan, Seoul + 3 personal nights). The personal portion is excluded from the NTU-funded hotel and ODA. Act as the assigned DOA.">▶ DOA review · personal extension · as DOA</button></form>
             <form action={demoGroupDoaReview}><button className="btn-secondary text-xs" title="Seed a submitted GROUP request at Pending DOA — a three-traveller Tokyo conference on a shared TA (per-traveller airfare, ODA and accommodation; 60/40 cross-charge). Act as the assigned DOA.">▶ DOA review · group booking (3 travellers) · as DOA</button></form>
             <form action={demoClaimEnhancements}><button className="btn-secondary text-xs" title="Seed an approved SELF-BOOKED Tokyo trip (Dr Alice Tan) with 3 personal days and an M6 travel-class entitlement, create the TE claim and open it. Shows the claim-side build: the Personal Extension header field, the Funded basis (personal excluded), the M6 differential split in the Accounting Entries, and the over-funded guard. Act as the traveller.">▶ Claim-side build · personal days + M6 at claim · as Dr Alice Tan</button></form>
+            <form action={demoExceptionClaim}><button className="btn-secondary text-xs" title="Seed a TE claim raised DIRECTLY on the claim side with NO Pre-Trip Travel Request (Dr Alice Tan) — emergency short-notice travel. Everything is entered manually, booking reference optional, a reason for the missing TR given, three expense lines. Left as a Draft; Submit routes Verifier → Exception → RO → DOA (no auto-grant). Act as the traveller.">▶ Exception claim · no Travel Request · as Dr Alice Tan</button></form>
           </div>
         </div>
       )}

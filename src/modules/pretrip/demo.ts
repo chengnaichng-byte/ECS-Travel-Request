@@ -913,6 +913,41 @@ export async function demoClaimEnhancements() {
   redirect(`/claims/${claim!.id}`);
 }
 
+/** Demo — an EXCEPTION TE claim raised directly on the claim side with NO Pre-Trip TR (Dr Alice Tan).
+ *  Emergency short-notice travel: every field is manual, a reason for the missing TR is given, three
+ *  expense lines are added, booking reference is present but optional. Left as a Draft so the full
+ *  editable exception form is shown; Submit then routes Verifier → Exception → RO → DOA (no auto-grant). */
+export async function demoExceptionClaim() {
+  const TAG = '[demo:exception]';
+  // Idempotent: remove a prior demo exception claim (and its children) before re-seeding.
+  const prior = await prisma.travelExpenseClaim.findMany({ where: { noTrException: true, exDescription: { contains: TAG } }, select: { id: true } });
+  if (prior.length) {
+    const ids = prior.map((c) => c.id);
+    await prisma.claimApprovalStep.deleteMany({ where: { claimId: { in: ids } } });
+    await prisma.tEExpenseLine.deleteMany({ where: { claimId: { in: ids } } });
+    await prisma.travelExpenseLink.deleteMany({ where: { claimId: { in: ids } } });
+    await prisma.travelExpenseClaim.deleteMany({ where: { id: { in: ids } } });
+  }
+  const claim = await prisma.travelExpenseClaim.create({ data: {
+    claimNumber: await nextClaimNumber(YEAR),
+    requestId: null, noTrException: true, claimantId: 'E-TRAV', trsNotBooked: true,
+    noTrReason: 'Emergency short-notice travel — flew to London the same day to cover an incident; there was no time to raise a pre-trip Travel Request.',
+    exPurpose: 'Incident response (emergency)', exDestination: 'United Kingdom · London', exTravelClass: 'TC-ECO',
+    exDescription: `Emergency no-TR exception claim ${TAG}`, exBookingRef: 'Self-booked — e-ticket 125-4412890',
+    travelStart: day(demoDay(2)), travelEnd: day(demoDay(5)),
+    chargingMode: 'MAIN', chargingMainCode: 'CC-1000',
+    chargingJson: JSON.stringify({ rows: [{ code: 'CC-1000', percent: 100, amount: 0, io: '', isMain: true }], lineMap: {} }),
+    lines: { create: [
+      { category: 'AIRFARE', expenseTypeId: 'ET-AIR', treatment: 'EDITABLE', manualEntry: true, approvedSgd: 0, actualSgd: 2180, varianceSgd: 2180, transactionDate: day(demoDay(2)), currency: 'SGD', foreignAmount: 2180, reason: 'Return economy airfare SIN–LON (emergency, next flight out)', receiptType: 'FOREIGN_NO_GST' },
+      { category: 'ACCOMMODATION', expenseTypeId: 'ET-ACC', treatment: 'EDITABLE', manualEntry: true, approvedSgd: 0, actualSgd: 840, varianceSgd: 840, transactionDate: day(demoDay(2)), currency: 'SGD', foreignAmount: 840, reason: 'Hotel — 3 nights near the site', receiptType: 'FOREIGN_NO_GST' },
+      { category: 'ODA', expenseTypeId: 'ET-ODA', treatment: 'EDITABLE', manualEntry: true, approvedSgd: 0, actualSgd: 420, varianceSgd: 420, transactionDate: day(demoDay(2)), currency: 'SGD', foreignAmount: 420, reason: 'Overseas daily allowance (3 days)', receiptType: 'NO_RECEIPT' },
+    ] },
+  } });
+  await prisma.auditEvent.create({ data: { requestId: null, actorId: 'E-TRAV', kind: 'TE_LINK', summary: `Demo — exception TE claim ${claim.claimNumber} raised without a Travel Request (Dr Alice Tan)` } });
+  await switchPersona('E-TRAV', 'REQUESTOR');
+  redirect(`/claims/${claim.id}`);
+}
+
 /** TMC transition — seed a few pre-go-live LEGACY PNRs (no Pre-Trip TR) for the transition picker, one
  *  already consumed to demonstrate the claimed-PNR ledger hiding it. */
 export async function seedLegacyBookings() {
