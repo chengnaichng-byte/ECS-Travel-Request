@@ -45,9 +45,6 @@ next-env.d.ts
 /prisma/*.db-journal
 /prisma/*.db-wal
 
-# generated feature-walkthrough artifact source (large; republish from here, don't version)
-/ecs-walkthrough.html
-
 # scratch scripts
 /_*.mjs
 
