@@ -141,7 +141,7 @@ export default async function Home() {
     <div className="w-full max-w-6xl">
       <div className="mb-5">
         <h1 className="text-2xl font-semibold text-[var(--ecs-navy)]">{greeting}, {persona.name}</h1>
-        <p className="text-sm text-[var(--ecs-muted)] mt-0.5">{persona.title}{persona.roles.length ? ` · ${persona.roles[0]}` : ''} — here is where your trips and claims stand.</p>
+        <p className="text-sm text-[var(--ecs-muted)] mt-0.5">{persona.title}{persona.roles.length ? ` · ${persona.roles[0]}` : ''} — plan, book and claim your travel, all from here.</p>
       </div>
 
       {/* Announcement strip — configurable travel notices (replaces the mixed TR/TE stat band). */}
