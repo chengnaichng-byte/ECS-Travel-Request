@@ -868,6 +868,51 @@ export async function demoComplexDoaReview() {
   redirect(`/requests/${id}`);
 }
 
+/** CLAIM-SIDE enhancements demo — seeds an approved SELF-BOOKED trip (so the airfare is reimbursed,
+ *  not CTA) with a declared PERSONAL extension and an M6 travel-class entitlement, creates the TE
+ *  claim, acts as the traveller and opens the claim. Shows all four claim-side features on one claim:
+ *  the tePersonalDays header field, the funded-vs-stay basis (personal excluded), the M6 differential
+ *  split in the Accounting Entries, and the soft over-funded guard (actuals seeded ~8% over). */
+export async function demoClaimEnhancements() {
+  const TAG = '[demo:claim-enh]';
+  // clearDemoByTag only removes the request (a linked claim's requestId would SetNull → orphan), so
+  // delete this demo's prior claims first.
+  const stale = await prisma.travelRequest.findMany({ where: { description: { contains: TAG } }, select: { id: true } });
+  if (stale.length) {
+    const cids = (await prisma.travelExpenseClaim.findMany({ where: { requestId: { in: stale.map((s) => s.id) } }, select: { id: true } })).map((c) => c.id);
+    if (cids.length) {
+      await prisma.claimApprovalStep.deleteMany({ where: { claimId: { in: cids } } });
+      await prisma.tEExpenseLine.deleteMany({ where: { claimId: { in: cids } } });
+      await prisma.travelExpenseLink.deleteMany({ where: { claimId: { in: cids } } });
+      await prisma.travelExpenseClaim.deleteMany({ where: { id: { in: cids } } });
+    }
+  }
+  await clearDemoByTag(TAG);
+  const off = 48;
+  const id = await buildDraft({
+    requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-TC-ACAD', isResearch: false,
+    destCountry: 'JP', destCity: 'TYO', destAirport: 'HND', start: demoDay(off), end: demoDay(off + 7),
+    personalStart: demoDay(off + 5), personalEnd: demoDay(off + 7), // 3 personal days at the tail of the trip
+    travelClassId: 'TC-PEY', bookingMethod: BOOKING_METHOD.SelfBooked, // self-booked → airfare reimbursable at claim (M6 applies)
+    airfare: { amount: 3400, currency: 'SGD', classId: 'TC-PEY' },
+    hotel: { city: 'TYO', nights: 7, personalNights: 3 },
+    oda: { country: 'JP', city: 'TYO', arrive: demoDay(off), depart: demoDay(off + 7), personalDays: 3 },
+    conference: { amount: 700 },
+    charging: [{ code: 'CC-1000', pct: 100 }],
+  });
+  // M6 entitlement differential on the airfare (NTU-funded), + the declared personal periods.
+  const air = await prisma.estimatedExpense.findFirst({ where: { requestId: id, category: EXPENSE_CATEGORY.Airfare } });
+  if (air) await prisma.estimatedExpense.update({ where: { id: air.id }, data: { proposedClassId: 'TC-PEY', ...(await m6LineFields(air.sgdAmount, 'E-TRAV', 'TC-PEY', 'BA-CS', day(demoDay(off)))) } });
+  // bookingArrangement (not bookingMethod) drives DD-19 settlement: SELF_BOOKED → the airfare is
+  // EMPLOYEE-paid (reimbursable/Editable) at claim, so the M6 differential splits there (Phase 3).
+  await prisma.travelRequest.update({ where: { id }, data: { bookingArrangement: 'SELF_BOOKED', description: `Claim-side demo — personal days + M6 at claim ${TAG}`, personalPeriodsJson: JSON.stringify([{ start: demoDay(off + 5), end: demoDay(off + 7) }]) } });
+  await submit(id); await approveAll(id);
+  await makeClaim(id, 'E-TRAV', 1.08); // actuals ~8% over approved → the soft over-funded guard shows
+  await switchPersona('E-TRAV', 'REQUESTOR');
+  const claim = await prisma.travelExpenseClaim.findFirst({ where: { requestId: id }, select: { id: true } });
+  redirect(`/claims/${claim!.id}`);
+}
+
 /** TMC transition — seed a few pre-go-live LEGACY PNRs (no Pre-Trip TR) for the transition picker, one
  *  already consumed to demonstrate the claimed-PNR ledger hiding it. */
 export async function seedLegacyBookings() {

@@ -99,8 +99,8 @@ export default async function Home() {
     { label: 'Approved, not booked', value: approvedUnbooked.length, ink: '#0f6e56', href: statHref('unbooked') },
     { label: 'Upcoming trips', value: upcoming.length, ink: '#3c3489', href: statHref('upcoming') },
     { label: 'Trips to claim', value: toClaim.length, ink: '#993556', href: statHref('toclaim') },
-    { label: 'Claims to finish', value: claimsToFinish.length, ink: '#993556', href: claimsToFinish[0] ? `/claims/${claimsToFinish[0].id}` : null },
-    { label: 'Claims awaiting approval', value: claimsPending.length, ink: '#993556', href: claimsPending[0] ? `/claims/${claimsPending[0].id}` : null },
+    { label: 'Claims to finish', value: claimsToFinish.length, ink: '#993556', href: claimsToFinish[0] ? `/claims/${claimsToFinish[0].id}` : '/claims' },
+    { label: 'Claims awaiting approval', value: claimsPending.length, ink: '#993556', href: claimsPending[0] ? `/claims/${claimsPending[0].id}` : '/claims' },
   ];
 
   const next = upcoming[0];
@@ -140,7 +140,7 @@ export default async function Home() {
     { group: 'Book & travel', title: 'Book your trip (TMC)', desc: 'Online booking tool, once approved', href: TMC_URL, state: 'ext', tint: '#e6f1fb', ink: '#185fa5', icon: I(ICON.plane), show: true },
     // Claim & settle
     { group: 'Claim & settle', title: 'Raise an expense claim', desc: 'Travel (TE) or general (GE) claim', href: ECS_URL, state: 'ecs', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.receipt), show: true },
-    { group: 'Claim & settle', title: 'My claims', desc: 'Track your TE and GE claims', href: ECS_URL, state: 'ecs', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.wallet), show: true },
+    { group: 'Claim & settle', title: 'My claims', desc: 'Your Pre-Trip travel expense claims', href: '/claims', state: 'live', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.wallet), show: true },
     // Your account
     { group: 'Your account', title: 'My profile', desc: 'Your details, grade and default charging', href: '/staff-profile', state: 'live', tint: '#eeedfe', ink: '#3c3489', icon: I(ICON.user), show: true },
     { group: 'Your account', title: 'Announcements', desc: 'Travel notices and policy updates', href: '#', state: 'soon', tint: '#fcf3d6', ink: '#7a5a00', icon: I(ICON.megaphone), show: true },
