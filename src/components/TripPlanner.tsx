@@ -162,6 +162,29 @@ export function TripPlanner({
     return { code: main.l.destCode, city: m.city, country: m.country, cityCode: m.cityCode, countryCode: m.countryCode, nights: computeLegNights(legs, main.i) };
   }, [legs, airportMeta]);
 
+  // §4.5 Auto-match each declared personal period to the city it falls in — derived from the itinerary
+  // stop windows (arrival at a destination until the next leg departs), the SAME basis the funding engine
+  // uses. So the traveller declares the dates only; the location is resolved from the legs.
+  const personalStops = useMemo(() => {
+    const out: { city: string; cityCode: string; from: Date; to: Date }[] = [];
+    for (let i = 0; i < legs.length; i++) {
+      const m = airportMeta?.[legs[i].destCode];
+      if (!m || m.cityCode === 'SIN') continue; // the fly-home leg is not a funded stop
+      const from = toD(legs[i].arriveDate) ?? toD(legs[i].departDate);
+      const next = legs[i + 1];
+      const to = next ? (toD(next.departDate) ?? toD(next.arriveDate)) : toD(end);
+      if (!from || !to) continue;
+      out.push({ city: m.city, cityCode: m.cityCode, from, to });
+    }
+    return out;
+  }, [legs, airportMeta, end]);
+  const matchPersonalCity = (p: PersonalPeriod): string | null => {
+    const ps = toD(p.start), pe = toD(p.end);
+    if (!ps || !pe) return null;
+    const hit = personalStops.find((s) => ps <= s.to && pe >= s.from); // date-overlap with a stop window
+    return hit?.city ?? null;
+  };
+
   const setLeg = (i: number, p: Partial<LegIn>) => setLegs((ls) => {
     const oldDest = ls[i]?.destCode ?? '';
     let next = ls.map((l, j) => (j === i ? { ...l, ...p } : l));
@@ -299,46 +322,6 @@ export function TripPlanner({
           {' '}The outbound and return legs below pre-fill from the trip dates.
         </p>
 
-        {/* §4.5 Declared personal days — the traveller states which days are personal (before, during or
-            after the business portion; one or many). Funded days / nights = the trip minus these. For a
-            group each member declares their own below, so this request-level editor shows for individuals. */}
-        {isGroup ? (
-          <div className="mt-4 border-t border-[var(--ecs-border)] pt-3">
-            <label className="label mb-0">Personal days (§4.5)</label>
-            <p className="text-xs text-[var(--ecs-muted)] mt-1">Each travelling member declares their own personal days (before, during or after the business portion) in the <b>per-traveller personal days</b> section below.</p>
-          </div>
-        ) : (
-        <div className="mt-4 border-t border-[var(--ecs-border)] pt-3">
-          <div className="flex items-center justify-between">
-            <label className="label mb-0">Personal days (§4.5)</label>
-            {!disabled && <button type="button" onClick={addPeriod} className="text-sm font-medium text-[var(--ecs-navy)] hover:underline">+ Add personal days</button>}
-          </div>
-          <p className="text-xs text-[var(--ecs-muted)] mt-1">Declare any personal day ranges within the trip — immediately before, during, or immediately after the official business. These days are excluded from ODA and their nights from the accommodation budget; nothing is derived automatically.</p>
-          {periods.length === 0 ? (
-            <p className="text-sm text-[var(--ecs-muted)] mt-2 italic">No personal days — the whole trip is official business.</p>
-          ) : (
-            <div className="mt-2 space-y-2">
-              {periods.map((p, i) => (
-                <div key={i} className="grid md:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end">
-                  <div>
-                    <label className="text-[11px] text-[var(--ecs-muted)]">From</label>
-                    <input type="date" value={p.start} min={start || undefined} max={end || undefined} onChange={(e) => setPeriod(i, { start: e.target.value })} disabled={disabled} className="field" />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-[var(--ecs-muted)]">To</label>
-                    <input type="date" value={p.end} min={p.start || start || undefined} max={end || undefined} onChange={(e) => setPeriod(i, { end: e.target.value })} disabled={disabled} className="field" />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-[var(--ecs-muted)]">Note (optional)</label>
-                    <input type="text" value={p.note ?? ''} onChange={(e) => setPeriod(i, { note: e.target.value })} disabled={disabled} className="field" placeholder="e.g. personal days before the conference" />
-                  </div>
-                  {!disabled && <button type="button" onClick={() => removePeriod(i)} aria-label="Remove" className="h-[38px] px-3 rounded border border-[var(--ecs-border)] text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] hover:border-[var(--ecs-red)]">✕</button>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        )}
       </Card>
 
       <Card title="Destination & Itinerary">
@@ -354,7 +337,7 @@ export function TripPlanner({
               ))}
             </div>
             <p className="text-xs text-[var(--ecs-muted)] mt-1">
-              {type === 'ROUND_TRIP' ? 'There and back to one destination — two legs (a personal segment is allowed).' : type === 'ONE_WAY' ? 'A single outbound journey, no return — one leg.' : 'Several stops — multiple cities and/or countries, including open-jaw. Add as many legs as needed.'}
+              {type === 'ROUND_TRIP' ? 'There and back to one destination — two legs.' : type === 'ONE_WAY' ? 'A single outbound journey, no return — one leg.' : 'Several stops — multiple cities and/or countries, including open-jaw. Add as many legs as needed.'}
             </p>
           </div>
 
@@ -370,7 +353,7 @@ export function TripPlanner({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr>
-                  <th className="th">Leg</th><th className="th">From</th><th className="th">To</th><th className="th">Depart</th><th className="th">Arrive</th><th className="th">Nights <span className="font-normal normal-case text-[var(--ecs-muted)]">(auto)</span></th><th className="th">Personal</th>{multi && <th className="th"></th>}
+                  <th className="th">Leg</th><th className="th">From</th><th className="th">To</th><th className="th">Depart</th><th className="th">Arrive</th><th className="th">Nights <span className="font-normal normal-case text-[var(--ecs-muted)]">(auto)</span></th>{multi && <th className="th"></th>}
                 </tr></thead>
                 <tbody>
                   {legs.map((l, i) => (
@@ -381,7 +364,6 @@ export function TripPlanner({
                       <td className="td"><input type="date" className="field" disabled={disabled} value={l.departDate} onChange={(e) => setLeg(i, { departDate: e.target.value, arriveDate: l.arriveDate || e.target.value })} /></td>
                       <td className="td"><input type="date" className="field" disabled={disabled} value={l.arriveDate} onChange={(e) => setLeg(i, { arriveDate: e.target.value })} /></td>
                       <td className="td"><span className="inline-flex items-center justify-center min-w-[3rem] text-sm text-[var(--ecs-muted)]" title="Auto-computed from the dates — the stay until the next leg departs">{computeLegNights(legs, i)}</span></td>
-                      <td className="td text-center"><input type="checkbox" disabled={disabled} checked={l.isPersonal} onChange={(e) => setLeg(i, { isPersonal: e.target.checked })} /></td>
                       {multi && (
                         <td className="td whitespace-nowrap">
                           <button type="button" className="btn-ghost text-xs" disabled={disabled || i === 0} onClick={() => move(i, -1)}>↑</button>
@@ -399,6 +381,52 @@ export function TripPlanner({
               Airports are the shared ECS Location master (IATA) — the same reference the TMC books against; each leg&apos;s code is carried verbatim into the booking instruction. In production this master is synced from the TMC/GDS airport feed. The main destination (for ODA defaults and class entitlement) is the longest-stay country — and the longest-stay city within it — derived from the legs on save.
             </p>
           </div>
+
+          {/* §4.5 Declared personal days — placed WITH the itinerary so each range is auto-matched to the
+              city it falls in (from the leg date windows). The traveller enters dates only; location is
+              derived. Replaces the former per-leg "Personal" checkbox. Group → per-member below. */}
+          {isGroup ? (
+            <div className="border-t border-[var(--ecs-border)] pt-3">
+              <label className="label mb-0">Personal days (§4.5)</label>
+              <p className="text-xs text-[var(--ecs-muted)] mt-1">Each travelling member declares their own personal days (before, during or after the business portion) in the <b>per-traveller personal days</b> section below — matched to the city from their own itinerary.</p>
+            </div>
+          ) : (
+            <div className="border-t border-[var(--ecs-border)] pt-3">
+              <div className="flex items-center justify-between">
+                <label className="label mb-0">Personal days (§4.5)</label>
+                {!disabled && <button type="button" onClick={addPeriod} className="text-sm font-medium text-[var(--ecs-navy)] hover:underline">+ Add personal days</button>}
+              </div>
+              <p className="text-xs text-[var(--ecs-muted)] mt-1">Declare any personal day ranges within the trip — before, during, or after the official business. Enter the <b>dates only</b>; the system matches each range to the city you&apos;re in from the itinerary above, and excludes those days from that city&apos;s ODA and its nights from the accommodation budget.</p>
+              {periods.length === 0 ? (
+                <p className="text-sm text-[var(--ecs-muted)] mt-2 italic">No personal days — the whole trip is official business.</p>
+              ) : (
+                <div className="mt-2 space-y-3">
+                  {periods.map((p, i) => { const city = matchPersonalCity(p); return (
+                    <div key={i} className="grid md:grid-cols-[1fr_1fr_1.5fr_auto] gap-2 items-end">
+                      <div>
+                        <label className="text-[11px] text-[var(--ecs-muted)]">From</label>
+                        <input type="date" value={p.start} min={start || undefined} max={end || undefined} onChange={(e) => setPeriod(i, { start: e.target.value })} disabled={disabled} className="field" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-[var(--ecs-muted)]">To</label>
+                        <input type="date" value={p.end} min={p.start || start || undefined} max={end || undefined} onChange={(e) => setPeriod(i, { end: e.target.value })} disabled={disabled} className="field" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-[var(--ecs-muted)]">Note (optional)</label>
+                        <input type="text" value={p.note ?? ''} onChange={(e) => setPeriod(i, { note: e.target.value })} disabled={disabled} className="field" placeholder="e.g. personal days before the conference" />
+                      </div>
+                      {!disabled && <button type="button" onClick={() => removePeriod(i)} aria-label="Remove" className="h-[38px] px-3 rounded border border-[var(--ecs-border)] text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] hover:border-[var(--ecs-red)]">✕</button>}
+                      <div className="md:col-span-4 -mt-1">
+                        {p.start && p.end && (city
+                          ? <span className="text-[11px] txt-derived">→ matched to <b>{city}</b> (from the itinerary) — excluded from {city}&apos;s ODA &amp; accommodation</span>
+                          : <span className="text-[11px] text-amber-700">→ these dates don&apos;t fall within any destination stay — check them against your legs above</span>)}
+                      </div>
+                    </div>
+                  ); })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* §4.5/§13.20 Estimated airfare — seeds the Airfare line(s) on the Estimates step. */}
           <div>

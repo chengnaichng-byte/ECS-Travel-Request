@@ -708,7 +708,7 @@ export async function uploadTravellerData(id: string, payloadJson: string): Prom
   if (!req || !req.isGroup) return null;
   const settings = await getSettings();
 
-  type ItinRow = { traveller: string; seq?: number; origin: string; dest: string; depart?: string; arrive?: string; class?: string; personal?: boolean };
+  type ItinRow = { traveller: string; seq?: number; origin: string; dest: string; depart?: string; arrive?: string; class?: string };
   type PersRow = { traveller: string; from: string; to: string; note?: string };
   let payload: { itineraries?: ItinRow[]; personalDays?: PersRow[] };
   try { payload = JSON.parse(payloadJson); } catch { return { travellers: 0, legs: 0, periods: 0, errors: ['Could not read the upload.'] }; }
@@ -759,7 +759,7 @@ export async function uploadTravellerData(id: string, payloadJson: string): Prom
         const dep = l.depart ? new Date(`${l.depart}T00:00:00.000Z`) : null;
         const arr = l.arrive ? new Date(`${l.arrive}T00:00:00.000Z`) : dep;
         const cls = l.class ? (EcsReference.travelClasses().find((c) => c.name.toLowerCase() === String(l.class).toLowerCase() || c.id.toLowerCase() === String(l.class).toLowerCase())?.id ?? null) : null;
-        await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: emp, seq: seq++, originCode: l.origin.toUpperCase(), destCode: l.dest.toUpperCase(), departDate: dep, arriveDate: arr, transportMode: 'AIR', nights: 0, isPersonal: !!l.personal, ...(cls ? { travelClassId: cls, chosenClassId: cls } : {}) } });
+        await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: emp, seq: seq++, originCode: l.origin.toUpperCase(), destCode: l.dest.toUpperCase(), departDate: dep, arriveDate: arr, transportMode: 'AIR', nights: 0, isPersonal: false, ...(cls ? { travelClassId: cls, chosenClassId: cls } : {}) } });
         legCount++;
       }
     }

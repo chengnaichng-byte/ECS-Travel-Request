@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 
 type Airport = { code: string; name: string; city: string };
 type Traveller = { label: string; line: string };
-type ItinRow = { traveller: string; seq: number; origin: string; dest: string; depart: string; arrive: string; class: string; personal: boolean };
+type ItinRow = { traveller: string; seq: number; origin: string; dest: string; depart: string; arrive: string; class: string };
 type PersRow = { traveller: string; from: string; to: string; note: string };
 type Result = { travellers: number; legs: number; periods: number; errors: string[] };
 
@@ -28,7 +28,6 @@ const pick = (r: Record<string, unknown>, aliases: string[]): unknown => {
   for (const a of aliases) { const v = lower[a.replace(/\s+/g, '')]; if (v !== undefined && v !== '') return v; }
   return '';
 };
-const truthy = (v: unknown) => /^(y|yes|true|1|personal)$/i.test(String(v ?? '').trim());
 
 export function ItineraryUpload({ action, travellers, airports, templateHref }: {
   action: (payloadJson: string) => Promise<Result | null>;
@@ -65,7 +64,6 @@ export function ItineraryUpload({ action, travellers, airports, templateHref }: 
         depart: toISO(pick(r, ['depart', 'departure', 'departdate'])),
         arrive: toISO(pick(r, ['arrive', 'arrival', 'arrivedate'])),
         class: String(pick(r, ['class', 'travelclass', 'cabin'])).trim(),
-        personal: truthy(pick(r, ['personal', 'ispersonal', 'personalleg'])),
       })).filter((r) => r.origin || r.dest));
       setPers(rawP.map((r) => ({
         traveller: String(pick(r, ['traveller', 'name', 'lineno', 'line'])).trim(),
@@ -92,7 +90,7 @@ export function ItineraryUpload({ action, travellers, airports, templateHref }: 
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-[var(--ecs-muted)]">Upload an Excel workbook to set <strong>per-traveller itineraries and personal days</strong> in bulk. Two sheets — <code>Itineraries</code> (Traveller, Seq, Origin, Dest, Depart, Arrive, Class, Personal) and <code>Personal days</code> (Traveller, From, To, Note). The Traveller, Origin, Dest and Class cells are <strong>dropdowns</strong> (pick a value); the <code>Airports</code> sheet lists the codes. Each named traveller&apos;s itinerary &amp; personal days are <strong>fully replaced</strong>; travellers not in the sheet are left unchanged.</p>
+      <p className="text-xs text-[var(--ecs-muted)]">Upload an Excel workbook to set <strong>per-traveller itineraries and personal days</strong> in bulk. Two sheets — <code>Itineraries</code> (Traveller, Seq, Origin, Dest, Depart, Arrive, Class) and <code>Personal days</code> (Traveller, From, To, Note). The Traveller, Origin, Dest and Class cells are <strong>dropdowns</strong> (pick a value); the <code>Airports</code> sheet lists the codes. Each named traveller&apos;s itinerary &amp; personal days are <strong>fully replaced</strong>; travellers not in the sheet are left unchanged.</p>
       <div className="flex flex-wrap items-center gap-3">
         <a href={templateHref} className="btn-secondary text-xs">⬇ Download Excel template</a>
         <label className="btn-secondary text-xs cursor-pointer">⬆ Choose Excel file…<input type="file" accept=".xlsx,.xls" className="hidden" onChange={onFile} /></label>
@@ -104,8 +102,8 @@ export function ItineraryUpload({ action, travellers, airports, templateHref }: 
           <p className="text-sm text-amber-900"><strong>Preview.</strong> {itin?.length ?? 0} itinerary leg(s), {pers?.length ?? 0} personal period(s).{blocking ? ' Fix the rows in red (unknown traveller, airport, or missing dates) before applying.' : ' Applying replaces each named traveller’s itinerary & personal days and re-derives the estimates.'}</p>
           {(itin?.length ?? 0) > 0 && (
             <div className="overflow-x-auto max-h-52">
-              <table className="w-full text-xs"><thead><tr><th className="th">Traveller</th><th className="th">Seq</th><th className="th">Origin</th><th className="th">Dest</th><th className="th">Depart</th><th className="th">Arrive</th><th className="th">Class</th><th className="th">Personal</th></tr></thead>
-                <tbody>{itin!.map((r, i) => { const e = itinErr(r); return (<tr key={i}>{cell(e === 'traveller', r.traveller)}<td className="td">{r.seq}</td>{cell(e === 'origin', r.origin)}{cell(e === 'dest', r.dest)}<td className="td">{r.depart || '—'}</td><td className="td">{r.arrive || '—'}</td><td className="td">{r.class || '—'}</td><td className="td">{r.personal ? 'Yes' : '—'}</td></tr>); })}</tbody>
+              <table className="w-full text-xs"><thead><tr><th className="th">Traveller</th><th className="th">Seq</th><th className="th">Origin</th><th className="th">Dest</th><th className="th">Depart</th><th className="th">Arrive</th><th className="th">Class</th></tr></thead>
+                <tbody>{itin!.map((r, i) => { const e = itinErr(r); return (<tr key={i}>{cell(e === 'traveller', r.traveller)}<td className="td">{r.seq}</td>{cell(e === 'origin', r.origin)}{cell(e === 'dest', r.dest)}<td className="td">{r.depart || '—'}</td><td className="td">{r.arrive || '—'}</td><td className="td">{r.class || '—'}</td></tr>); })}</tbody>
               </table>
             </div>
           )}
