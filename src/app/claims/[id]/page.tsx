@@ -222,14 +222,20 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   // Per-line "View Expense" detail — the expense-detail screen for a claim line: header fields + the
   // per-city / per-stay funded breakdown (ODA / accommodation) and the entitlement-vs-M6 split (airfare).
   const expenseView = (l: (typeof claim.lines)[number]): ExpenseView => {
+    const et = EcsReference.expenseType(l.expenseTypeId);
+    const gstRatePct = et?.taxRatePct ?? 0;
+    const gstAmount = gstRatePct > 0 ? Math.round((l.actualSgd * gstRatePct / (100 + gstRatePct)) * 100) / 100 : 0;
     const v: ExpenseView = {
       label: labelOf(l), date: d(l.transactionDate), isRef: isRef(l), approvedSgd: l.approvedSgd, actualSgd: l.actualSgd,
-      reason: l.reason ?? '', receipt: RECEIPT[l.receiptType] ?? l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd,
+      reason: l.reason ?? '', receiptType: l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd,
+      paymentCtc: isRef(l), gstCode: et?.gstCode ?? '—', gstRatePct, gstAmount, baseAmount: Math.round((l.actualSgd - gstAmount) * 100) / 100,
+      exchangeRate: l.foreignAmount && l.foreignAmount > 0 ? Math.round((l.actualSgd / l.foreignAmount) * 100000) / 100000 : 1,
     };
+    const countryName = (code: string) => EcsReference.country(code)?.name ?? code;
     if (l.category === EXPENSE_CATEGORY.ODA && effOda.length) {
-      v.oda = effOda.map((o) => ({ city: EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country ?? '—', arrive: o.arrive || '—', depart: o.depart || '—', stay: odaStayDays(o), personal: odaPersonalDays(o, effPeriods), funded: odaFundedDays(o, effPeriods), rate: o.dailyRate, amount: Math.round(odaFundedDays(o, effPeriods) * o.dailyRate * 100) / 100 }));
+      v.oda = effOda.map((o) => ({ country: countryName(o.country), city: EcsReference.city(o.city ?? '')?.name ?? o.city ?? '—', arrive: o.arrive || '—', depart: o.depart || '—', stay: odaStayDays(o), personal: odaPersonalDays(o, effPeriods), funded: odaFundedDays(o, effPeriods), rate: o.dailyRate, amount: Math.round(odaFundedDays(o, effPeriods) * o.dailyRate * 100) / 100 }));
     } else if (l.category === EXPENSE_CATEGORY.Accommodation && effAccom.length) {
-      v.accom = effAccom.map((a) => ({ city: EcsReference.city(a.city)?.name ?? a.city, checkIn: a.checkIn || '—', checkOut: a.checkOut || '—', nights: accomStayNights(a), personal: accomPersonalNights(a, effPeriods), funded: accomFundedNights(a, effPeriods), rate: a.nightlyRate, amount: Math.round(accomFundedNights(a, effPeriods) * a.nightlyRate * 100) / 100 }));
+      v.accom = effAccom.map((a) => ({ country: countryName(EcsReference.city(a.city)?.countryCode ?? ''), city: EcsReference.city(a.city)?.name ?? a.city, checkIn: a.checkIn || '—', checkOut: a.checkOut || '—', nights: accomStayNights(a), personal: accomPersonalNights(a, effPeriods), funded: accomFundedNights(a, effPeriods), rate: a.nightlyRate, amount: Math.round(accomFundedNights(a, effPeriods) * a.nightlyRate * 100) / 100 }));
     } else if (l.category === EXPENSE_CATEGORY.Airfare && !isRef(l) && m6DeltaSgd > 0) {
       const net = Math.max(l.actualSgd - l.sponsorSgd, 0);
       const diff = Math.min(m6DeltaSgd, net);

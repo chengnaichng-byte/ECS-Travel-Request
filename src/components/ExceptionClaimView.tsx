@@ -61,7 +61,12 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
   const totalExpenses = claim.lines.reduce((s, l) => s + l.actualSgd, 0);
   const totalApproved = claim.lines.reduce((s, l) => s + l.approvedSgd, 0);
   const totalReimbursable = Math.max(totalExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
-  const expenseView = (l: ClaimLine): ExpenseView => ({ label: labelOf(l), date: d(l.transactionDate), isRef: false, approvedSgd: 0, actualSgd: l.actualSgd, reason: l.reason ?? '', receipt: RECEIPT[l.receiptType] ?? l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd });
+  const expenseView = (l: ClaimLine): ExpenseView => {
+    const et = EcsReference.expenseType(l.expenseTypeId);
+    const gstRatePct = et?.taxRatePct ?? 0;
+    const gstAmount = gstRatePct > 0 ? Math.round((l.actualSgd * gstRatePct / (100 + gstRatePct)) * 100) / 100 : 0;
+    return { label: labelOf(l), date: d(l.transactionDate), isRef: false, approvedSgd: 0, actualSgd: l.actualSgd, reason: l.reason ?? '', receiptType: l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd, paymentCtc: false, gstCode: et?.gstCode ?? '—', gstRatePct, gstAmount, baseAmount: Math.round((l.actualSgd - gstAmount) * 100) / 100, exchangeRate: l.foreignAmount && l.foreignAmount > 0 ? Math.round((l.actualSgd / l.foreignAmount) * 100000) / 100000 : 1 };
+  };
   // Same NEW-datapoint chip as the TR claim; the TR-derived columns (Approved est., policy sync) carry
   // no data on an exception claim, so they render greyed "—".
   const newTag = () => <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: '1px solid #a7dcc6' }}>NEW</span>;
