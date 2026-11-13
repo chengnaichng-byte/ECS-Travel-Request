@@ -25,7 +25,7 @@ import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/compon
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { ClaimDecisionBar } from '@/components/ClaimDecisionBar';
 import { LegacyClaimView } from '@/components/LegacyClaimView';
-import { Card, Empty } from '@/components/ui';
+import { Card, CollapsibleCard, Empty } from '@/components/ui';
 
 const ROLE_LABEL: Record<string, string> = { [APPROVER_ROLE.Verifier]: 'Verifier', [APPROVER_ROLE.Exception]: 'Exception Approver', [APPROVER_ROLE.RO]: 'RO', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA' };
 
@@ -62,6 +62,11 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   // §4.5 / contract v1.4 — the declared personal-extension reflection on the claim header (tePersonalDays,
   // Reference). Driven by prepopulateClaim so a contract Exclude hides it; per-traveller for a group member.
   const personalField = prep.header.find((h) => h.label === 'Personal extension (declared)');
+  // New-datapoint highlight — a green "NEW" chip + a soft green field tint, so the datapoints added
+  // in this build stand out from the existing claim fields.
+  const newTag = () => <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: '1px solid #a7dcc6' }}>NEW</span>;
+  const hiField = { borderColor: '#4bbf8f', background: '#f0faf5' } as const;
+  const destLabel = `${EcsReference.country(req.destCountry ?? '')?.name ?? '—'}${req.destCity ? ` · ${EcsReference.city(req.destCity)?.name ?? req.destCity}` : ''}`;
 
   // DD-19 / DD-30 — CTA-settled (Reference) lines are shown for the full cost picture but are NOT
   // reimbursed (the employee never fronted them). Auto-deduct them from the reimbursable total so
@@ -228,11 +233,11 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           </label>
           <div className="grid md:grid-cols-3 gap-4">
             <div><label className="label">Travel Booking Reference</label><input className="field" value={bookingRef} disabled /></div>
-            <div><label className="label">Main Country/Region Of Travel</label><input className="field" value={EcsReference.country(req.destCountry ?? '')?.name ?? '—'} disabled /></div>
+            <div><label className="label">Main Country/Region Of Travel {req.destCity && newTag()}</label><input className="field" style={req.destCity ? hiField : undefined} value={destLabel} disabled title="Now includes the city (new)" /></div>
             <div><label className="label">Travel Class</label><input className="field" value={EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—'} disabled /></div>
             <div><label className="label">Travel Purpose</label><input className="field" value={EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—'} disabled /></div>
             <div><label className="label">Trip Description</label><input className="field" value={req.description ?? '—'} disabled /></div>
-            {personalField && <div><label className="label">Personal Extension (excluded)</label><input className="field" value={personalField.value} disabled title="Declared personal days — excluded from funded ODA / accommodation (contract tePersonalDays)" /></div>}
+            {personalField && <div><label className="label">Personal Extension (excluded) {newTag()}</label><input className="field" style={hiField} value={personalField.value} disabled title="Declared personal days — excluded from funded ODA / accommodation (contract tePersonalDays)" /></div>}
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
               <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
@@ -283,8 +288,66 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
         </Card>
       </form>
 
+      {req.deviations.length > 0 && (
+        <Card title="Booking deviations vs approved (§6.4)">
+          {(() => {
+            const blocking = req.deviations.filter((x) => x.requiresEvidence && !x.evidenceAttachmentId && !x.waivedBy);
+            return blocking.length > 0 ? (
+              <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+                <b>Submission blocked (§8):</b> {blocking.length} deviation(s) need offline-approval evidence or an approved waiver before this claim can be submitted. The traveller uploads evidence against the request (Booking page); the approver may waive with a reason below.
+              </div>
+            ) : null;
+          })()}
+          <ul className="space-y-2 text-sm">
+            {req.deviations.map((x) => (
+              <li key={x.id} className="flex flex-col gap-1 border-b border-[var(--ecs-border)] pb-2 last:border-0">
+                <div className="flex items-start gap-2">
+                  <span className={x.material ? 'pill-exc' : 'pill-info'}>{x.material ? 'Material' : 'Log only'}</span>
+                  <div className="min-w-0"><strong>{x.field}</strong>: approved {x.approvedValue} → booked {x.bookedValue}. <span className="text-[var(--ecs-muted)]">{[x.level, x.scopeRef, x.pnr ? `PNR ${x.pnr}` : null].filter(Boolean).join(' · ')}</span></div>
+                </div>
+                {x.requiresEvidence && (
+                  x.evidenceAttachmentId ? <div className="text-xs text-emerald-700 ml-10">✓ Offline-approval evidence attached.</div>
+                  : x.waivedBy ? <div className="text-xs text-amber-800 ml-10">Evidence waived by {EcsIdentity.employee(x.waivedBy)?.name ?? x.waivedBy}{x.waiverReason ? ` — ${x.waiverReason}` : ''}.</div>
+                  : canWaive ? (
+                    <form action={waiveEvidence.bind(null, x.id, id)} className="ml-10 flex flex-wrap items-center gap-2">
+                      <span className="pill-warn text-xs">Evidence required</span>
+                      <input name="reason" placeholder="Waiver reason (required)" className="field w-72 py-1 text-xs" />
+                      <button className="btn-secondary text-xs">Waive with reason</button>
+                    </form>
+                  ) : <div className="text-xs text-amber-800 ml-10">Evidence required (§8) — awaiting upload against the request before submission.</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* Charging — reused ECS cascade + Accounting Entries */}
+      <ChargingAccountEditor
+        action={saveClaimCharging.bind(null, id)}
+        canEdit={canEdit}
+        total={totalReimbursable}
+        companyCodes={companyCodes.map((c) => ({ code: c.code, name: c.name }))}
+        businessAreas={businessAreas.map((b) => ({ code: b.code, name: b.name, companyCode: b.companyCode }))}
+        accounts={accounts}
+        extraAccounts={m6Accounts}
+        highlightUpgrade
+        expenseTypes={etOpts}
+        lines={costLines}
+        defaultAccount={defaultAccount}
+        initialMode={initialMode}
+        initialMain={claim.chargingMainCode ?? defaultAccount}
+        initialRows={initialRows}
+        initialLineMap={initialLineMap}
+        submitLabel="Save charging"
+      />
+
       {hasFundedBasis && (
-        <Card title="Funded basis — personal days / nights excluded (approved request)">
+        <CollapsibleCard
+          title={<>Funded basis — personal days / nights excluded {newTag()}</>}
+          stub={anyPersonalBasis ? 'Personal time excluded from the funded ODA / accommodation' : 'No personal days declared — funded = full stay'}
+          className="border-l-4 border-l-emerald-400"
+        >
           <p className="text-xs text-[var(--ecs-muted)] mb-3">The ODA and accommodation amounts above are already net of declared personal time (§4.5). This shows the funded count against the actual stay per city.{anyPersonalBasis ? '' : ' No personal days are declared on this trip, so funded = full stay.'}</p>
           {overFundedLines.length > 0 && (
             <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
@@ -337,61 +400,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
               </table>
             </div>
           )}
-        </Card>
+        </CollapsibleCard>
       )}
-
-      {req.deviations.length > 0 && (
-        <Card title="Booking deviations vs approved (§6.4)">
-          {(() => {
-            const blocking = req.deviations.filter((x) => x.requiresEvidence && !x.evidenceAttachmentId && !x.waivedBy);
-            return blocking.length > 0 ? (
-              <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
-                <b>Submission blocked (§8):</b> {blocking.length} deviation(s) need offline-approval evidence or an approved waiver before this claim can be submitted. The traveller uploads evidence against the request (Booking page); the approver may waive with a reason below.
-              </div>
-            ) : null;
-          })()}
-          <ul className="space-y-2 text-sm">
-            {req.deviations.map((x) => (
-              <li key={x.id} className="flex flex-col gap-1 border-b border-[var(--ecs-border)] pb-2 last:border-0">
-                <div className="flex items-start gap-2">
-                  <span className={x.material ? 'pill-exc' : 'pill-info'}>{x.material ? 'Material' : 'Log only'}</span>
-                  <div className="min-w-0"><strong>{x.field}</strong>: approved {x.approvedValue} → booked {x.bookedValue}. <span className="text-[var(--ecs-muted)]">{[x.level, x.scopeRef, x.pnr ? `PNR ${x.pnr}` : null].filter(Boolean).join(' · ')}</span></div>
-                </div>
-                {x.requiresEvidence && (
-                  x.evidenceAttachmentId ? <div className="text-xs text-emerald-700 ml-10">✓ Offline-approval evidence attached.</div>
-                  : x.waivedBy ? <div className="text-xs text-amber-800 ml-10">Evidence waived by {EcsIdentity.employee(x.waivedBy)?.name ?? x.waivedBy}{x.waiverReason ? ` — ${x.waiverReason}` : ''}.</div>
-                  : canWaive ? (
-                    <form action={waiveEvidence.bind(null, x.id, id)} className="ml-10 flex flex-wrap items-center gap-2">
-                      <span className="pill-warn text-xs">Evidence required</span>
-                      <input name="reason" placeholder="Waiver reason (required)" className="field w-72 py-1 text-xs" />
-                      <button className="btn-secondary text-xs">Waive with reason</button>
-                    </form>
-                  ) : <div className="text-xs text-amber-800 ml-10">Evidence required (§8) — awaiting upload against the request before submission.</div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {/* Charging — reused ECS cascade + Accounting Entries */}
-      <ChargingAccountEditor
-        action={saveClaimCharging.bind(null, id)}
-        canEdit={canEdit}
-        total={totalReimbursable}
-        companyCodes={companyCodes.map((c) => ({ code: c.code, name: c.name }))}
-        businessAreas={businessAreas.map((b) => ({ code: b.code, name: b.name, companyCode: b.companyCode }))}
-        accounts={accounts}
-        extraAccounts={m6Accounts}
-        expenseTypes={etOpts}
-        lines={costLines}
-        defaultAccount={defaultAccount}
-        initialMode={initialMode}
-        initialMain={claim.chargingMainCode ?? defaultAccount}
-        initialRows={initialRows}
-        initialLineMap={initialLineMap}
-        submitLabel="Save charging"
-      />
 
       <p className="text-xs text-[var(--ecs-muted)]">Approved estimates remain traceable; edits are recorded as actual values/variances rather than overwriting the approved request (§8.3). One approved request may link to multiple claims; cumulative claimed amounts compare against the approved estimate (AC17).</p>
     </div>
