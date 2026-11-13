@@ -917,7 +917,9 @@ export async function demoClaimEnhancements() {
  *  Emergency short-notice travel: every field is manual, a reason for the missing TR is given, three
  *  expense lines are added, booking reference is present but optional. Left as a Draft so the full
  *  editable exception form is shown; Submit then routes Verifier → Exception → RO → DOA (no auto-grant). */
-export async function demoExceptionClaim() {
+/** Create (idempotently) the demo exception claim and return its id. Shared by the dashboard launcher
+ *  and the base seed (seedDemoScenarios), so the no-TR scenario survives a full DB reset. */
+export async function seedExceptionClaim(): Promise<string> {
   const TAG = '[demo:exception]';
   // Idempotent: remove a prior demo exception claim (and its children) before re-seeding.
   const prior = await prisma.travelExpenseClaim.findMany({ where: { noTrException: true, exDescription: { contains: TAG } }, select: { id: true } });
@@ -944,8 +946,13 @@ export async function demoExceptionClaim() {
     ] },
   } });
   await prisma.auditEvent.create({ data: { requestId: null, actorId: 'E-TRAV', kind: 'TE_LINK', summary: `Demo — exception TE claim ${claim.claimNumber} raised without a Travel Request (Dr Alice Tan)` } });
+  return claim.id;
+}
+
+export async function demoExceptionClaim() {
+  const id = await seedExceptionClaim();
   await switchPersona('E-TRAV', 'REQUESTOR');
-  redirect(`/claims/${claim.id}`);
+  redirect(`/claims/${id}`);
 }
 
 /** TMC transition — seed a few pre-go-live LEGACY PNRs (no Pre-Trip TR) for the transition picker, one
@@ -1097,6 +1104,8 @@ export async function seedDemoScenarios() {
 
   // TMC transition — seed the legacy PNR pool for the transition picker.
   await seedLegacyBookings();
+  // Claim-side exception claim with no Travel Request (so the no-TR scenario survives a full reset).
+  await seedExceptionClaim();
 
   revalidatePath('/dashboard');
 }
