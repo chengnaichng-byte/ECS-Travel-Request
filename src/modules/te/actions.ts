@@ -13,7 +13,7 @@ import { resolveChargingRows } from '@/modules/pretrip/chargingRollup';
 import { EcsReference, EcsIdentity, EcsDelegation } from '@/shared/ecs/services';
 import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { resolveClaimTraveller } from './claimRemit';
-import { buildClaimRoute, type ClaimLike } from './workflow';
+import { buildClaimRoute, buildExceptionClaimRoute, type ClaimLike } from './workflow';
 import { consumeLegacyBooking, releaseLegacyBookingsForClaim, legacyBookingByPnr } from './pnrLedger';
 import { CLAIM_STATUS, claimStatusForRole } from '@/shared/enums';
 
@@ -125,24 +125,39 @@ export async function updateClaimActuals(claimId: string, fd: FormData) {
  *  [RO] → DOA), auto-granting the DOA from the approved Travel Request when in tolerance. */
 export async function submitClaim(claimId: string) {
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { lines: true } });
-  if (!claim || !claim.requestId || (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack)) return;
-  const req = await loadRequest(claim.requestId);
-  if (!req) return;
-  // §8 Offline-approval evidence gate (te.evidence): block submission until every booking deviation that
-  // requires evidence has a linked evidence attachment OR an approved waiver. Self-booked trips have no
-  // TMC booking, hence no deviations, so this passes vacuously.
-  // §GRP-7 a deviation gates only the claim of the traveller it belongs to (travellerId), plus any
-  // request-wide (group-aggregate / non-group) deviation with no traveller attribution.
-  const forClaimant = (d: { travellerId: string | null }) => d.travellerId == null || d.travellerId === claim.claimantId;
-  const evidenceComplete = req.deviations.filter((d) => d.requiresEvidence && forClaimant(d)).every((d) => !!d.evidenceAttachmentId || !!d.waivedBy);
-  const subGate = evaluateFlow({ status: req.status, bookingStatus: req.bookingStatus, bookingMethod: req.bookingMethod, authorisationNo: req.authorisationNo, evidenceComplete }, 'TE_SUBMIT', await getGuardSettings());
-  if (!subGate.ok) {
-    const pending = req.deviations.filter((d) => d.requiresEvidence && forClaimant(d) && !d.evidenceAttachmentId && !d.waivedBy);
-    await prisma.auditEvent.create({ data: { requestId: req.id, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — ${pending.length} booking deviation(s) need offline-approval evidence or an approved waiver (§8): ${pending.map((d) => d.scopeRef ?? d.field).join(', ')}` } });
-    revalidatePath(`/claims/${claimId}`);
-    return;
+  if (!claim || (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack)) return;
+
+  let steps;
+  if (claim.noTrException) {
+    // Exception claim (no Pre-Trip TR) — a reason for the missing TR is MANDATORY; then route for full
+    // approval with no auto-grant (there is no approved request to inherit a DOA from).
+    if (!claim.noTrReason || !claim.noTrReason.trim()) {
+      await prisma.auditEvent.create({ data: { requestId: null, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — a reason for the missing Travel Request is required (exception claim)` } });
+      revalidatePath(`/claims/${claimId}`);
+      return;
+    }
+    if (claim.lines.length === 0) { revalidatePath(`/claims/${claimId}`); return; }
+    steps = buildExceptionClaimRoute(asClaimLike(claim));
+  } else {
+    if (!claim.requestId) return;
+    const req = await loadRequest(claim.requestId);
+    if (!req) return;
+    // §8 Offline-approval evidence gate (te.evidence): block submission until every booking deviation that
+    // requires evidence has a linked evidence attachment OR an approved waiver. Self-booked trips have no
+    // TMC booking, hence no deviations, so this passes vacuously.
+    // §GRP-7 a deviation gates only the claim of the traveller it belongs to (travellerId), plus any
+    // request-wide (group-aggregate / non-group) deviation with no traveller attribution.
+    const forClaimant = (d: { travellerId: string | null }) => d.travellerId == null || d.travellerId === claim.claimantId;
+    const evidenceComplete = req.deviations.filter((d) => d.requiresEvidence && forClaimant(d)).every((d) => !!d.evidenceAttachmentId || !!d.waivedBy);
+    const subGate = evaluateFlow({ status: req.status, bookingStatus: req.bookingStatus, bookingMethod: req.bookingMethod, authorisationNo: req.authorisationNo, evidenceComplete }, 'TE_SUBMIT', await getGuardSettings());
+    if (!subGate.ok) {
+      const pending = req.deviations.filter((d) => d.requiresEvidence && forClaimant(d) && !d.evidenceAttachmentId && !d.waivedBy);
+      await prisma.auditEvent.create({ data: { requestId: req.id, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — ${pending.length} booking deviation(s) need offline-approval evidence or an approved waiver (§8): ${pending.map((d) => d.scopeRef ?? d.field).join(', ')}` } });
+      revalidatePath(`/claims/${claimId}`);
+      return;
+    }
+    steps = buildClaimRoute(asClaimLike(claim), req, claimWfOpts(await getSettings()));
   }
-  const steps = buildClaimRoute(asClaimLike(claim), req, claimWfOpts(await getSettings()));
 
   await prisma.claimApprovalStep.deleteMany({ where: { claimId } });
   for (const s of steps) {
@@ -154,7 +169,7 @@ export async function submitClaim(claimId: string) {
   const status = firstPending ? claimStatusForRole(firstPending.roleType) : CLAIM_STATUS.Approved;
   await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: { status } });
   const autoDoa = steps.find((s) => s.autoGranted);
-  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submitted — routed ${steps.map((s) => s.roleType).join(' → ')}${autoDoa ? ` (DOA auto-granted from ${req.authorisationNo})` : ''}` } });
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submitted — routed ${steps.map((s) => s.roleType).join(' → ')}${autoDoa ? ' (DOA auto-granted from the approved Travel Request)' : ''}${claim.noTrException ? ' · exception claim (no pre-trip approval)' : ''}` } });
   revalidatePath(`/claims/${claimId}`);
 }
 
@@ -216,6 +231,15 @@ const num = (fd: FormData, k: string) => { const v = parseFloat(str(fd, k)); ret
 export async function updateClaimHeader(claimId: string, fd: FormData) {
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { lines: true } });
   if (!claim || claim.status !== 'Draft') return;
+  // Exception (no-TR) claims carry their own manual header fields (there is no TR to copy from).
+  const exUpd = claim.noTrException ? {
+    noTrReason: str(fd, 'noTrReason') || null,
+    exPurpose: str(fd, 'exPurpose') || null,
+    exDestination: str(fd, 'exDestination') || null,
+    exTravelClass: str(fd, 'exTravelClass') || null,
+    exDescription: str(fd, 'exDescription') || null,
+    exBookingRef: str(fd, 'exBookingRef') || null,
+  } : {};
   await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: {
     trsNotBooked: fd.get('trsNotBooked') === 'on',
     travelStart: str(fd, 'travelStart') ? new Date(str(fd, 'travelStart')) : null,
@@ -223,6 +247,7 @@ export async function updateClaimHeader(claimId: string, fd: FormData) {
     additionalApprover2: str(fd, 'additionalApprover2') || null,
     lessCorpCard: num(fd, 'lessCorpCard'),
     lessPersonal: num(fd, 'lessPersonal'),
+    ...exUpd,
   } });
   for (const l of claim.lines) {
     if (fd.get(`actual_${l.id}`) === null) continue;
@@ -232,6 +257,9 @@ export async function updateClaimHeader(claimId: string, fd: FormData) {
       reason: str(fd, `reason_${l.id}`) || l.reason,
       receiptType: str(fd, `receipt_${l.id}`) || l.receiptType,
       receiptOk: fd.get(`receiptok_${l.id}`) === 'on',
+      // §13.8 claim-time policy-violation justification (pre-approved TR exceptions are synced
+      // Reference-only on the page and never post a form field, so this only captures new ones).
+      policyJustification: fd.get(`polJust_${l.id}`) !== null ? (str(fd, `polJust_${l.id}`) || null) : l.policyJustification,
     } });
   }
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Claim ${claim.claimNumber} details updated` } });
@@ -247,7 +275,7 @@ export async function addClaimExpense(claimId: string, fd: FormData) {
   if (!type) return;
   const amount = num(fd, 'amount');
   await prisma.tEExpenseLine.create({ data: {
-    claimId, category: type.category, expenseTypeId: typeId, treatment: 'EDITABLE',
+    claimId, category: type.category, expenseTypeId: typeId, treatment: 'EDITABLE', manualEntry: true,
     approvedSgd: 0, bookedSgd: null, actualSgd: amount, varianceSgd: amount,
     transactionDate: str(fd, 'transactionDate') ? new Date(str(fd, 'transactionDate')) : null,
     currency: str(fd, 'currency') || 'SGD', foreignAmount: amount,
@@ -258,9 +286,46 @@ export async function addClaimExpense(claimId: string, fd: FormData) {
   revalidatePath(`/claims/${claimId}`);
 }
 
+/** Edit an existing claim expense line (ECS per-line Edit dialog). A TR budget line keeps its type and
+ *  approved estimate — the claimant edits the actual, currency, receipt, reason and sponsorship. A
+ *  manually-added line may additionally change its expense type. */
+export async function updateClaimExpenseLine(claimId: string, lineId: string, fd: FormData) {
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId } });
+  if (!claim || claim.status !== 'Draft') return;
+  const line = await prisma.tEExpenseLine.findUnique({ where: { id: lineId } });
+  if (!line || line.claimId !== claimId) return;
+  // A CTA / Reference line is centrally billed (shown for comparison) — the claimant does not edit it.
+  if (line.treatment === 'REFERENCE') return;
+  const amount = num(fd, `amount`);
+  // Only a manually-added line may change its expense type (a TR budget line's type is fixed).
+  const typeUpd = line.manualEntry
+    ? (() => { const t = EcsReference.expenseType(str(fd, 'expenseTypeId')); return t ? { expenseTypeId: str(fd, 'expenseTypeId'), category: t.category } : {}; })()
+    : {};
+  await prisma.tEExpenseLine.update({ where: { id: lineId }, data: {
+    actualSgd: amount, varianceSgd: Math.round((amount - line.approvedSgd) * 100) / 100,
+    currency: str(fd, 'currency') || line.currency, foreignAmount: amount,
+    sponsorSgd: num(fd, 'sponsorship'),
+    receiptType: str(fd, 'receiptType') || line.receiptType,
+    reason: str(fd, 'reason') || null,
+    transactionDate: str(fd, 'transactionDate') ? new Date(str(fd, 'transactionDate')) : line.transactionDate,
+    ...typeUpd,
+  } });
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Expense line edited on claim ${claim.claimNumber}` } });
+  revalidatePath(`/claims/${claimId}`);
+}
+
 export async function removeClaimExpense(claimId: string, lineId: string) {
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId } });
   if (!claim || claim.status !== 'Draft') return;
+  const line = await prisma.tEExpenseLine.findUnique({ where: { id: lineId } });
+  if (!line || line.claimId !== claimId) return;
+  // A budget line pre-populated from the approved TR cannot be deleted — only edited (set its actual to 0
+  // if nothing was spent; the posting then excludes it). Only a manually-added claim line is deletable.
+  if (!line.manualEntry) {
+    await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Delete blocked — ${EcsReference.expenseType(line.expenseTypeId)?.name ?? line.category} is a budget line from the approved TR (set actual to 0 instead) on claim ${claim.claimNumber}` } });
+    revalidatePath(`/claims/${claimId}`);
+    return;
+  }
   await prisma.tEExpenseLine.delete({ where: { id: lineId } });
   revalidatePath(`/claims/${claimId}`);
 }
@@ -311,6 +376,22 @@ export async function createClaimFromLegacyPnr(pnr: string) {
   redirect(`/claims/${claim.id}`);
 }
 
+/** Create a Draft TE claim directly on the claim side with NO Pre-Trip Travel Request (exception). This
+ *  can ONLY be triggered from the claim side. Everything is entered manually; the claim bypasses pre-trip
+ *  approval, so it routes for full approval (no auto-grant) and must carry a reason for the missing TR. */
+export async function createExceptionClaim() {
+  const persona = await currentPersonaId();
+  const emp = EcsIdentity.employee(persona);
+  const claim = await prisma.travelExpenseClaim.create({ data: {
+    claimNumber: await nextClaimNumber(claimYear()),
+    requestId: null, noTrException: true, claimantId: persona,
+    trsNotBooked: true, // a manual exception claim has no NTU-TRS booking by default
+    chargingMode: 'MAIN', chargingMainCode: emp?.defaultChargingCode ?? null,
+  } });
+  await prisma.auditEvent.create({ data: { requestId: null, actorId: persona, kind: 'TE_LINK', summary: `Exception TE claim ${claim.claimNumber} created without a Travel Request by ${emp?.name ?? persona}` } });
+  redirect(`/claims/${claim.id}`);
+}
+
 /** Delete a DRAFT claim and RELEASE any legacy PNR it consumed back into the picker (TMC transition). */
 export async function deleteClaim(claimId: string) {
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId } });
@@ -321,5 +402,5 @@ export async function deleteClaim(claimId: string) {
   await prisma.travelExpenseLink.deleteMany({ where: { claimId } });
   await prisma.travelExpenseClaim.delete({ where: { id: claimId } });
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} deleted${claim.legacyPnr ? ` — legacy PNR ${claim.legacyPnr} released to the picker` : ''}` } });
-  redirect('/claims/transition');
+  redirect(claim.legacyPnr ? '/claims/transition' : '/claims');
 }

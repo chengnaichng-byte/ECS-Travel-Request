@@ -681,6 +681,16 @@ model TravelExpenseClaim {
   claimantId    String
   status        String  @default("Draft")   // Draft | Submitted
   reportType    String  @default("Travel expense")
+  // Exception claim — created directly on the claim side with NO Pre-Trip TR (requestId null). Everything
+  // is entered manually; it bypasses pre-trip approval, so it routes for full approval (no auto-grant)
+  // and must carry a justification. Distinct from a legacyPnr claim (TMC transition).
+  noTrException Boolean @default(false)
+  noTrReason    String?                      // mandatory: why there is no Travel Request
+  exPurpose     String?                      // manual header fields (no TR to copy from)
+  exDestination String?
+  exTravelClass String?
+  exDescription String?
+  exBookingRef  String?                      // optional — NOT required for an exception claim
   // §13.8 editable claim header (pre-populated from the TR)
   trsNotBooked  Boolean @default(false)      // "Booking not made on NTU's TRS"
   travelStart   DateTime?
@@ -752,6 +762,10 @@ model TEExpenseLine {
   sponsorSgd    Float   @default(0)
   chargingCode  String?                      // §17 per-item claim allocation (ITEM mode)
   allocJson     String?                      // §17 per-item MULTI-account split — JSON [{code,pct,io}] (overrides chargingCode)
+  policyJustification String?                // §13.8 claim-time policy-violation justification (editable). A violation already
+                                             // approved at the TR syncs its justification Reference-only and is not stored here.
+  manualEntry   Boolean @default(false)      // true = added by the claimant on the claim (deletable at Draft); false = pre-populated
+                                             // from the approved TR (a budget line — cannot be deleted, only edited to 0).
 }
 
 /// §7.1 TravelExpenseLink — links Travel Request to one or more TE claims

@@ -144,3 +144,23 @@ export function buildClaimRoute(claim: ClaimLike, req: FullRequest, opts: ClaimW
 
   return steps;
 }
+
+/** Approval route for an EXCEPTION claim (no Pre-Trip TR): Verifier → Exception → (RO) → DOA, ALL
+ *  pending — nothing is auto-granted, because there is no approved Travel Request to inherit from. The
+ *  DOA is resolved from the claimant's department and the claim's amount band. */
+export function buildExceptionClaimRoute(claim: ClaimLike): ClaimStep[] {
+  const steps: ClaimStep[] = [];
+  let seq = 1;
+  const verifier = EcsRoles.employeesWithRole(ROLE.TravelAdmin)[0];
+  steps.push({ seq: seq++, roleType: APPROVER_ROLE.Verifier, approverId: verifier?.id ?? null, note: 'Claim verification (exception — no Travel Request)' });
+  const exc = EcsRoles.employeesWithRole(ROLE.ExceptionApprover)[0];
+  steps.push({ seq: seq++, roleType: APPROVER_ROLE.Exception, approverId: exc?.id ?? null, note: 'No pre-trip Travel Request — exception approval' });
+  const ro = EcsIdentity.reportingOfficer(claim.claimantId);
+  if (ro && ro.id !== claim.claimantId) steps.push({ seq: seq++, roleType: APPROVER_ROLE.RO, approverId: ro.id, note: 'Reporting Officer' });
+  const dept = EcsIdentity.department(EcsIdentity.employee(claim.claimantId)?.departmentId ?? '');
+  const band = EcsWorkflow.bandForAmount(claimTotal(claim));
+  const line = dept?.doaLine ?? [];
+  const doaId = line[Math.min(band.doaTierIndex, line.length - 1)] ?? null;
+  steps.push({ seq: seq++, roleType: APPROVER_ROLE.DOA, approverId: doaId, note: `No pre-trip approval — full DOA · ${band.label}` });
+  return steps;
+}

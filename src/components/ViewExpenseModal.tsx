@@ -23,7 +23,11 @@ function Field({ label, value, wide = false }: { label: string; value: string; w
 
 export function ViewExpenseModal({ e }: { e: ExpenseView }) {
   const [open, setOpen] = useState(false);
-  const trigger = <button type="button" className="btn-ghost text-xs" onClick={() => setOpen(true)}>View</button>;
+  const trigger = (
+    <button type="button" className="inline-grid place-items-center w-7 h-7 rounded hover:bg-[var(--ecs-panel-2)] text-[var(--ecs-navy-2)]" title="View this expense" onClick={() => setOpen(true)}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+    </button>
+  );
   if (!open || typeof document === 'undefined') return trigger;
   return (
     <>

@@ -9,12 +9,13 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
-import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging, waiveEvidence } from '@/modules/te/actions';
+import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, updateClaimExpenseLine, saveClaimCharging, waiveEvidence } from '@/modules/te/actions';
 import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
 import { getCtaAccount } from '@/modules/pretrip/ctaMaster';
 import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import { listUpgradeAccounts, effectiveDeltaCode } from '@/modules/pretrip/upgradeConfig';
+import { exceptionViews } from '@/modules/pretrip/exceptions';
 import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
@@ -25,7 +26,9 @@ import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/compon
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { ClaimDecisionBar } from '@/components/ClaimDecisionBar';
 import { LegacyClaimView } from '@/components/LegacyClaimView';
+import { ExceptionClaimView } from '@/components/ExceptionClaimView';
 import { ViewExpenseModal, type ExpenseView } from '@/components/ViewExpenseModal';
+import { EditExpenseModal } from '@/components/EditExpenseModal';
 import { CtaDetailModal } from '@/components/CtaDetailModal';
 import { Card, CollapsibleCard, Empty } from '@/components/ui';
 
@@ -43,7 +46,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const persona = await currentPersonaId();
   // TMC transition — a LEGACY claim (pre-go-live PNR, no Pre-Trip TR) has no approved request, so it
   // renders a focused view; none of the TA-anchored machinery below applies.
-  if (!claim.requestId) return <LegacyClaimView claim={claim} persona={persona} />;
+  if (!claim.requestId) return claim.noTrException
+    ? <ExceptionClaimView claim={claim} persona={persona} />
+    : <LegacyClaimView claim={claim} persona={persona} />;
   const req = await loadRequest(claim.requestId);
   if (!req) notFound();
   const settings = await getSettings();
@@ -77,6 +82,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   // CTA account comes from the claimant's booking (feed-reported).
   const isRef = (l: { treatment: string }) => l.treatment === TE_TREATMENT.Reference;
   const totalExpenses = claim.lines.reduce((s, l) => s + l.actualSgd, 0);
+  const totalApproved = claim.lines.reduce((s, l) => s + l.approvedSgd, 0);
   const ctaPaidTotal = claim.lines.filter(isRef).reduce((s, l) => s + l.actualSgd, 0);
   const reimbursableExpenses = claim.lines.filter((l) => !isRef(l)).reduce((s, l) => s + l.actualSgd, 0);
   const totalReimbursable = Math.max(reimbursableExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
@@ -126,6 +132,21 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   }
   m6DeltaSgd = Math.round(m6DeltaSgd * 100) / 100;
 
+  // §13.8 Policy-violation sync — a policy exception already APPROVED at the TR (travel class above
+  // entitlement → Airfare; hotel over cap → Accommodation) flows onto the claim line Reference-only:
+  // its justification, limit and overage are copied from the approved request and shown read-only with
+  // a "Pre-approved · TR" marker, NOT re-routed to the verifier. A violation that only surfaces at
+  // claim time has no approval to inherit, so its justification stays editable (polJust_<id>, persisted).
+  const EX_CAT: Record<string, string> = { CLASS: EXPENSE_CATEGORY.Airfare, HOTEL_CAP: EXPENSE_CATEGORY.Accommodation };
+  const exViews = exceptionViews(req);
+  const exForLine = (l: { category: string }) =>
+    exViews.find((x) => EX_CAT[x.code] === l.category && (x.travellerId == null || x.travellerId === claim.claimantId)) ?? null;
+  const preApprovedTag = (
+    <span className="ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle whitespace-nowrap"
+      style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}
+      title={`Approved at the Travel Request (${req.authorisationNo ?? req.requestNumber}) — carried over, not re-justified`}>✓ Pre-approved · TR</span>
+  );
+
   // Per-line "View Expense" detail — the expense-detail screen for a claim line: header fields + the
   // per-city / per-stay funded breakdown (ODA / accommodation) and the entitlement-vs-M6 split (airfare).
   const expenseView = (l: (typeof claim.lines)[number]): ExpenseView => {
@@ -170,16 +191,21 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
     if (l.allocJson) { try { const a = JSON.parse(l.allocJson); if (Array.isArray(a) && a.length) return a.map((x: { code: string; pct: number; io?: string }) => ({ code: x.code, pct: Number(x.pct), io: x.io || '' })); } catch { /* ignore */ } }
     return l.chargingCode ? [{ code: l.chargingCode, pct: 100, io: '' }] : undefined;
   };
-  const costLines: CostLineX[] = claim.lines.map((l) => {
-    const net = Math.max(l.actualSgd - l.sponsorSgd, 0);
-    // M6 split only on a REIMBURSABLE airfare line (CTA/Reference airfare was split at booking).
-    const m6OnLine = l.category === EXPENSE_CATEGORY.Airfare && !isRef(l) && m6DeltaSgd > 0;
-    return {
-      id: l.id, typeId: l.expenseTypeId, typeName: labelOf(l), net,
-      category: l.category ?? l.expenseTypeId, isShared: false, deptAllocs: [], initialAllocs: claimInitialAllocs(l),
-      ...(m6OnLine ? { upgradeDeltaSgd: Math.min(m6DeltaSgd, net), upgradeDeltaCode: m6DeltaCode ?? undefined } : {}),
-    };
-  });
+  // A budgeted line the claimant did not spend against (actual 0) is NOT posted — exclude it from the
+  // charging allocation and the Accounting Entries so the posting only covers actual claimed amounts
+  // (and a zero line no longer demands a 100% allocation, which previously blocked save/submit).
+  const costLines: CostLineX[] = claim.lines
+    .filter((l) => Math.max(l.actualSgd - l.sponsorSgd, 0) > 0.005)
+    .map((l) => {
+      const net = Math.max(l.actualSgd - l.sponsorSgd, 0);
+      // M6 split only on a REIMBURSABLE airfare line (CTA/Reference airfare was split at booking).
+      const m6OnLine = l.category === EXPENSE_CATEGORY.Airfare && !isRef(l) && m6DeltaSgd > 0;
+      return {
+        id: l.id, typeId: l.expenseTypeId, typeName: labelOf(l), net,
+        category: l.category ?? l.expenseTypeId, isShared: false, deptAllocs: [], initialAllocs: claimInitialAllocs(l),
+        ...(m6OnLine ? { upgradeDeltaSgd: Math.min(m6DeltaSgd, net), upgradeDeltaCode: m6DeltaCode ?? undefined } : {}),
+      };
+    });
   const initialRows = cj.rows.map((r) => ({ ba: chargingCodes.find((c) => c.code === r.code)?.businessArea ?? '', code: r.code, io: r.io ?? '', pct: r.percent }));
   const initialLineMap: Record<string, string> = {};
   for (const l of claim.lines) if (l.chargingCode) initialLineMap[l.id] = l.chargingCode;
@@ -282,31 +308,73 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
         <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} /> : undefined}>
           {claim.lines.length === 0 ? <Empty>No expense items — add one, or create the claim from an approved request.</Empty> : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              {/* Fixed layout: the 12 key columns (Actions → Justification) fill the card width so
+                  Justification sits at the card edge; the 6 secondary columns overflow to the right,
+                  reached by horizontal scroll — keeping only the key information at eye level. */}
+              {/* Table is (card width + 860px) wide. Under fixed layout the 6 secondary columns take their
+                  860px; the 12 key columns are `auto`, so they split the remaining — exactly the card width —
+                  evenly, putting Justification at the card's right edge and the secondary columns off to the
+                  right (scroll to see). Adapts to any card width. */}
+              <table className="text-sm" style={{ tableLayout: 'fixed', width: 'calc(100% + 860px)' }}>
+                <colgroup>
+                  {/* 1 Actions · 2 Select · 3 Txn date · 4 Expense type · 5 Reason (wide) · 6 Expense amount ·
+                      7 Approved est · 8 Policy violation (narrow Yes/No) · 9-12 limit/exceeded/%/justification */}
+                  <col /><col style={{ width: 40 }} /><col /><col /><col style={{ width: 190 }} /><col /><col /><col style={{ width: 68 }} /><col /><col /><col /><col />
+                  <col style={{ width: 130 }} /><col style={{ width: 160 }} /><col style={{ width: 160 }} /><col style={{ width: 150 }} /><col style={{ width: 110 }} /><col style={{ width: 150 }} />
+                </colgroup>
                 <thead><tr>
+                  <th className="th">Actions</th>
                   <th className="th"><input type="checkbox" disabled className="w-4 h-4 align-middle" title="Select for allocation" /></th>
-                  <th className="th whitespace-nowrap">Transaction date</th><th className="th">Expense type</th>
-                  <th className="th text-right whitespace-nowrap">Expense amount (SGD)</th>
-                  <th className="th text-right whitespace-nowrap" style={{ background: '#f0faf5' }}>Approved est. {newTag()}</th>
+                  <th className="th">Transaction date</th><th className="th">Expense type</th>
                   <th className="th">Reason for expense</th>
-                  <th className="th">Policy violation</th><th className="th text-right whitespace-nowrap">Policy limit per unit</th><th className="th text-right whitespace-nowrap">Total amount exceeded limit</th><th className="th text-right whitespace-nowrap">% Exceeded</th><th className="th whitespace-nowrap">Justification for policy violation</th>
-                  <th className="th whitespace-nowrap">Verifier verify status</th><th className="th whitespace-nowrap">Verifier rejection reason</th><th className="th">Verifier comment</th>
-                  <th className="th">Attachment</th><th className="th whitespace-nowrap">Is duplicated?</th><th className="th whitespace-nowrap">Send back history</th><th className="th"></th>
+                  <th className="th text-right">Expense amount (SGD)</th>
+                  <th className="th text-right" style={{ background: '#f0faf5' }}>Approved est. {newTag()}</th>
+                  <th className="th text-center">Policy violation</th><th className="th text-right">Policy limit per unit</th><th className="th text-right">Total amount exceeded limit</th><th className="th text-right">% Exceeded</th><th className="th">Justification for policy violation</th>
+                  <th className="th">Verifier verify status</th><th className="th">Verifier rejection reason</th><th className="th">Verifier comment</th>
+                  <th className="th">Attachment</th><th className="th">Is duplicated?</th><th className="th">Send back history</th>
                 </tr></thead>
                 <tbody>
                   {claim.lines.map((l) => (
                     <tr key={l.id} className="hover:bg-[var(--ecs-panel-2)]">
+                      <td className="td">
+                        <div className="flex items-center gap-0.5">
+                          <ViewExpenseModal e={expenseView(l)} />
+                          {canEdit && !isRef(l) && <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, transactionDate: d(l.transactionDate), currency: l.currency, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '' }} />}
+                          {canEdit && (l.manualEntry
+                            ? <button formAction={removeClaimExpense.bind(null, id, l.id)} title="Remove line" className="inline-grid place-items-center w-7 h-7 rounded hover:bg-red-50 text-[var(--ecs-red)]"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></button>
+                            : <span title="Budget line from the approved TR — cannot be deleted; set actual to 0 if not claimed" className="inline-grid place-items-center w-7 h-7 text-[var(--ecs-muted)] opacity-50"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg></span>)}
+                        </div>
+                      </td>
                       <td className="td"><input type="checkbox" disabled className="w-4 h-4" /></td>
                       <td className="td whitespace-nowrap">{d(l.transactionDate) || '—'}</td>
-                      <td className="td font-medium whitespace-nowrap">{labelOf(l)}{isRef(l) && (() => { const p = postingFor(l.category); const tip = `Paid by CTA${booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed${p ? ` · posted to SAP ${p.sapDocNo} (${p.status})` : ''}`; return <span className="ml-1.5 inline-grid place-items-center w-5 h-5 rounded-full bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] text-[9px] font-semibold align-middle cursor-help" title={tip}>CTA</span>; })()}</td>
-                      <td className={`td text-right whitespace-nowrap ${isRef(l) ? 'text-[var(--ecs-muted)]' : ''}`}>{canEdit && !isRef(l) ? <input name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right w-28 ml-auto" /> : fmtSgd(l.actualSgd)}</td>
+                      <td className="td font-medium">{labelOf(l)}{isRef(l) && (() => { const p = postingFor(l.category); const tip = `Paid by CTA${booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed${p ? ` · posted to SAP ${p.sapDocNo} (${p.status})` : ''}`; return <span className="ml-1.5 inline-grid place-items-center w-5 h-5 rounded-full bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] text-[9px] font-semibold align-middle cursor-help" title={tip}>CTA</span>; })()}</td>
+                      <td className="td">{canEdit && !isRef(l) ? <input key={`reason_${l.id}`} name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
+                      <td className={`td text-right whitespace-nowrap ${isRef(l) ? 'text-[var(--ecs-muted)]' : ''}`}>{canEdit && !isRef(l) ? <input key={`actual_${l.id}`} name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right" /> : fmtSgd(l.actualSgd)}</td>
                       <td className="td text-right whitespace-nowrap text-[var(--ecs-muted)]" style={{ background: '#f0faf5' }}>{l.approvedSgd > 0 ? fmtSgd(l.approvedSgd) : '—'}</td>
-                      <td className="td">{canEdit && !isRef(l) ? <input name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
-                      <td className="td text-center text-[var(--ecs-muted)]">—</td>
-                      <td className="td text-right text-[var(--ecs-muted)]">—</td>
-                      <td className="td text-right text-[var(--ecs-muted)]">—</td>
-                      <td className="td text-right text-[var(--ecs-muted)]">—</td>
-                      <td className="td text-[var(--ecs-muted)]">—</td>
+                      {(() => {
+                        const ex = exForLine(l);
+                        const over = !ex && overFundedLines.includes(l);
+                        const pct = (num: number, base: number) => (base > 0 ? `${((num / base) * 100).toFixed(1)}%` : '—');
+                        if (ex) {
+                          // Pre-approved at the TR — synced Reference-only (read-only), not re-routed to the verifier.
+                          return <>
+                            <td className="td text-center"><span className="font-semibold text-[#0f6e56]" title={`${ex.label} — pre-approved at the Travel Request`}>Yes</span></td>
+                            <td className="td text-right">{ex.breakdown?.leftValue ?? '—'}</td>
+                            <td className="td text-right whitespace-nowrap">{ex.impactSgd > 0 ? fmtSgd(ex.impactSgd) : '—'}</td>
+                            <td className="td text-right whitespace-nowrap">{ex.impactSgd > 0 ? pct(ex.impactSgd, l.approvedSgd) : '—'}</td>
+                            <td className="td align-top" style={{ background: '#eef2ff' }}><div className="leading-tight">{preApprovedTag}</div><div className="text-[13px] mt-1">{ex.justification ?? <span className="text-[var(--ecs-muted)] italic">Approved at TR — no justification recorded</span>}</div></td>
+                          </>;
+                        }
+                        // Claim-time: a line whose actual exceeds the approved ceiling is flagged for review;
+                        // the justification stays editable (persisted) for the claimant / verifier.
+                        return <>
+                          <td className="td text-center">{over ? <span className="text-amber-700 font-semibold" title="Actual exceeds the approved budget — review at claim">Yes</span> : <span className="text-[var(--ecs-muted)]">No</span>}</td>
+                          <td className="td text-right text-[var(--ecs-muted)]">{over ? fmtSgd(l.approvedSgd) : '—'}</td>
+                          <td className="td text-right whitespace-nowrap">{over ? fmtSgd(l.actualSgd - l.approvedSgd) : <span className="text-[var(--ecs-muted)]">—</span>}</td>
+                          <td className="td text-right whitespace-nowrap">{over ? pct(l.actualSgd - l.approvedSgd, l.approvedSgd) : <span className="text-[var(--ecs-muted)]">—</span>}</td>
+                          <td className="td">{isRef(l) ? <span className="text-[var(--ecs-muted)]">—</span> : canEdit ? <input name={`polJust_${l.id}`} defaultValue={l.policyJustification ?? ''} className="field" placeholder={over ? 'Justify the overage…' : '—'} /> : (l.policyJustification ?? '—')}</td>
+                        </>;
+                      })()}
                       <td className="td text-[var(--ecs-muted)]">—</td>
                       <td className="td text-[var(--ecs-muted)]">—</td>
                       <td className="td text-[var(--ecs-muted)]">—</td>
@@ -317,35 +385,35 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                       ) : RECEIPT[l.receiptType] ?? l.receiptType}</td>
                       <td className="td text-center text-[var(--ecs-muted)]">—</td>
                       <td className="td text-[var(--ecs-muted)] whitespace-nowrap">—</td>
-                      <td className="td text-right whitespace-nowrap"><ViewExpenseModal e={expenseView(l)} />{canEdit && <button formAction={removeClaimExpense.bind(null, id, l.id)} className="btn-ghost text-xs ml-1 text-[var(--ecs-red)]">Remove</button>}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Total expenses (all lines)</td>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Total expenses (all lines)</td>
                     <td className="td text-right font-medium whitespace-nowrap">{fmtSgd(totalExpenses)}</td>
-                    <td colSpan={14}></td>
+                    <td className="td text-right font-medium whitespace-nowrap text-[var(--ecs-muted)]" style={{ background: '#f0faf5' }}>{fmtSgd(totalApproved)}</td>
+                    <td colSpan={11}></td>
                   </tr>
                   <tr>
-                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]"><span className="inline-flex items-center justify-end">Less: charges paid by CTA{ctaAccount ? ` (${ctaAccount.ctaAccountId})` : ''} — reference only<CtaDetailModal total={ctaPaidTotal} account={ctaAccount?.label ?? null} lines={ctaLines} /></span></td>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]"><span className="inline-flex items-center justify-end">Less: charges paid by CTA{ctaAccount ? ` (${ctaAccount.ctaAccountId})` : ''} — reference only<CtaDetailModal total={ctaPaidTotal} account={ctaAccount?.label ?? null} lines={ctaLines} /></span></td>
                     <td className="td text-right text-[var(--ecs-muted)] whitespace-nowrap">− {fmtSgd(ctaPaidTotal)}</td>
-                    <td colSpan={14}></td>
+                    <td colSpan={12}></td>
                   </tr>
                   <tr>
-                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</td>
-                    <td className="td text-right">{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28 ml-auto" /> : fmtSgd(claim.lessCorpCard)}</td>
-                    <td colSpan={14}></td>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</td>
+                    <td className="td text-right">{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right" /> : fmtSgd(claim.lessCorpCard)}</td>
+                    <td colSpan={12}></td>
                   </tr>
                   <tr>
-                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Less Personal / Sponsorship</td>
-                    <td className="td text-right">{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right w-28 ml-auto" /> : fmtSgd(claim.lessPersonal)}</td>
-                    <td colSpan={14}></td>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less Personal / Sponsorship</td>
+                    <td className="td text-right">{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right" /> : fmtSgd(claim.lessPersonal)}</td>
+                    <td colSpan={12}></td>
                   </tr>
                   <tr>
-                    <td colSpan={3} className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)]">Total Reimbursable Amount</td>
+                    <td colSpan={5} className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)]">Total Reimbursable Amount</td>
                     <td className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)] whitespace-nowrap">{fmtSgd(totalReimbursable)}</td>
-                    <td colSpan={14}></td>
+                    <td colSpan={12}></td>
                   </tr>
                 </tfoot>
               </table>

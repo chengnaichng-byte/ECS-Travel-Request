@@ -170,7 +170,10 @@ export function prepopulateClaim(
       treatment,
       approvedSgd,
       bookedSgd,
-      actualSgd: approvedSgd, // claimant edits actuals; default to approved
+      // Actual defaults to 0 for a claimant-editable (reimbursable) line — the claimant enters what was
+      // actually spent against the approved budget (Approved est. column). A CTA / Reference line keeps
+      // its central-billed amount (shown for comparison, not entered by the claimant).
+      actualSgd: treatment === TE_TREATMENT.Reference ? approvedSgd : 0,
     };
   }).filter((l) => l.treatment !== TE_TREATMENT.Excluded);  // excluded lines are not pre-populated
 
@@ -185,7 +188,7 @@ export function prepopulateClaim(
     const applied = Math.min(remaining, l.approvedSgd);
     cut[l.category] = remaining - applied;
     const approvedSgd = Math.round((l.approvedSgd - applied) * 100) / 100;
-    return { ...l, approvedSgd, actualSgd: approvedSgd };
+    return { ...l, approvedSgd, actualSgd: l.treatment === TE_TREATMENT.Reference ? approvedSgd : 0 };
   }).filter((l) => l.approvedSgd > 0.005);
 
   const note = hasPrior

@@ -6,6 +6,7 @@ import { prisma } from '@/shared/db';
 import { currentPersonaId } from '@/shared/session';
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { fmtSgd } from '@/modules/te/prepopulate';
+import { createExceptionClaim } from '@/modules/te/actions';
 import { Card, Empty } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -25,9 +26,12 @@ export default async function ClaimsIndexPage() {
     <div className="w-full space-y-5">
       <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ecs-border)] pb-3">
         <h1 className="text-xl font-bold text-[var(--ecs-navy)]">My Travel Expense Claims {isAdmin && <span className="font-normal text-[var(--ecs-muted)]">· all (administrator)</span>}</h1>
-        <Link href="/claims/transition" className="btn-ghost ml-auto">TMC transition claim →</Link>
+        <div className="ml-auto flex items-center gap-2">
+          <form action={createExceptionClaim}><button className="btn-secondary" title="Raise a claim directly, with no pre-trip Travel Request (exception situation)">+ Claim without a TR (exception)</button></form>
+          <Link href="/claims/transition" className="btn-ghost">TMC transition claim →</Link>
+        </div>
       </div>
-      <p className="text-xs text-[var(--ecs-muted)] -mt-2">The expense claims this Pre-Trip prototype holds. A claim is created from a booked, approved trip (open the trip from the dashboard), or from a pre-go-live PNR via the TMC transition picker.</p>
+      <p className="text-xs text-[var(--ecs-muted)] -mt-2">The expense claims this Pre-Trip prototype holds. A claim is created from a booked, approved trip (open the trip from the dashboard), directly as an <strong>exception</strong> claim with no Travel Request, or from a pre-go-live PNR via the TMC transition picker.</p>
 
       <Card title={`Claims (${claims.length})`}>
         {claims.length === 0 ? (
