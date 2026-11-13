@@ -25,6 +25,7 @@ import { REQUEST_STATUS, BOOKING_STATUS, TMC_INFLIGHT_STATUSES, RECALLABLE_BOOKI
 import { isTmcArrangement, providerFromArrangement, recallEligible } from './booking';
 import { GUEST_TRAVELLER_ID, travellerName, isGuestRequest, isGuestMember, isNonEmployeeMember, hasNonEmployeeTraveller, memberName } from './traveller';
 import { parsePersonalPeriods, serializePersonalPeriods, personalSpan, personalNightsInStay, validatePersonalPeriods } from './personal';
+import { airports } from '@/data/locations';
 import { hasEmergencyApproval, qualifiesForEmergency } from './emergency';
 import { ruleActive } from '@/config/policyRules';
 import { upgradeCheckCtx, applyDefaultDeltaCodes, listUpliftRates, m6EconomyBaseSgd, listUpgradeAccounts, accountsForBA } from './upgradeConfig';
@@ -694,6 +695,98 @@ export async function saveTravellerPersonal(id: string, employeeId: string, fd: 
     ? `Personal days set for ${who} (${periods.length} period${periods.length > 1 ? 's' : ''})`
     : `Personal days cleared for ${who}`);
   redirect(`/requests/${id}/trip`);
+}
+
+/** §13.20/§4.5 Bulk Excel upload of per-traveller itineraries AND personal days for a GROUP request.
+ *  Full-replace per traveller: each traveller named in the sheet has their itinerary legs and personal
+ *  days replaced from the upload (travellers not named are left untouched); then the estimates are
+ *  re-derived once (syncAutoEstimates) exactly as the manual per-traveller editors do. Returns a summary
+ *  with any row-level problems, so the client can surface them. */
+export async function uploadTravellerData(id: string, payloadJson: string): Promise<{ travellers: number; legs: number; periods: number; errors: string[] } | null> {
+  if (!(await requireEdit(id))) return null;
+  const req = await loadRequest(id);
+  if (!req || !req.isGroup) return null;
+  const settings = await getSettings();
+
+  type ItinRow = { traveller: string; seq?: number; origin: string; dest: string; depart?: string; arrive?: string; class?: string; personal?: boolean };
+  type PersRow = { traveller: string; from: string; to: string; note?: string };
+  let payload: { itineraries?: ItinRow[]; personalDays?: PersRow[] };
+  try { payload = JSON.parse(payloadJson); } catch { return { travellers: 0, legs: 0, periods: 0, errors: ['Could not read the upload.'] }; }
+  const itineraries = Array.isArray(payload.itineraries) ? payload.itineraries : [];
+  const personalDays = Array.isArray(payload.personalDays) ? payload.personalDays : [];
+
+  const errors: string[] = [];
+  const airportCodes = new Set(airports.map((a) => a.code));
+  // Resolve a sheet "traveller" token (line no 01, name, or employee id) to an employeeId on this request.
+  const resolve = (token: string): string | null => {
+    const t = (token ?? '').trim().toLowerCase();
+    if (!t) return null;
+    for (const m of req.travellers) {
+      const name = (EcsIdentity.employee(m.employeeId)?.name ?? memberName(m) ?? '').toLowerCase();
+      const line = m.lineNo != null ? String(m.lineNo) : '';
+      if (t === m.employeeId.toLowerCase() || t === name || (line && (t === line || t === line.padStart(2, '0')))) return m.employeeId;
+    }
+    return null;
+  };
+
+  const byItin = new Map<string, ItinRow[]>();
+  for (const r of itineraries) {
+    if (!r.origin && !r.dest) continue;
+    const emp = resolve(r.traveller);
+    if (!emp) { errors.push(`Itinerary: unknown traveller "${r.traveller}".`); continue; }
+    if (!airportCodes.has((r.origin || '').toUpperCase())) { errors.push(`Itinerary (${r.traveller}): unknown origin "${r.origin}".`); continue; }
+    if (!airportCodes.has((r.dest || '').toUpperCase())) { errors.push(`Itinerary (${r.traveller}): unknown destination "${r.dest}".`); continue; }
+    if (!byItin.has(emp)) byItin.set(emp, []);
+    byItin.get(emp)!.push(r);
+  }
+  const byPers = new Map<string, PersRow[]>();
+  for (const r of personalDays) {
+    if (!r.from && !r.to) continue;
+    const emp = resolve(r.traveller);
+    if (!emp) { errors.push(`Personal days: unknown traveller "${r.traveller}".`); continue; }
+    if (!byPers.has(emp)) byPers.set(emp, []);
+    byPers.get(emp)!.push(r);
+  }
+
+  let legCount = 0, periodCount = 0;
+  const touched = new Set<string>();
+  if (settings.groupSubItineraries) {
+    for (const [emp, rows] of byItin) {
+      touched.add(emp);
+      await prisma.itineraryLeg.deleteMany({ where: { requestId: id, travellerId: emp } });
+      let seq = 1;
+      for (const l of [...rows].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))) {
+        const dep = l.depart ? new Date(`${l.depart}T00:00:00.000Z`) : null;
+        const arr = l.arrive ? new Date(`${l.arrive}T00:00:00.000Z`) : dep;
+        const cls = l.class ? (EcsReference.travelClasses().find((c) => c.name.toLowerCase() === String(l.class).toLowerCase() || c.id.toLowerCase() === String(l.class).toLowerCase())?.id ?? null) : null;
+        await prisma.itineraryLeg.create({ data: { requestId: id, travellerId: emp, seq: seq++, originCode: l.origin.toUpperCase(), destCode: l.dest.toUpperCase(), departDate: dep, arriveDate: arr, transportMode: 'AIR', nights: 0, isPersonal: !!l.personal, ...(cls ? { travelClassId: cls, chosenClassId: cls } : {}) } });
+        legCount++;
+      }
+    }
+  } else if (byItin.size) {
+    errors.push('Per-traveller itineraries are turned off in settings — itinerary rows were ignored (personal days still applied).');
+  }
+  for (const [emp, rows] of byPers) {
+    const member = req.travellers.find((t) => t.employeeId === emp);
+    if (!member || isGuestMember(member)) { errors.push(`Personal days: "${EcsIdentity.employee(emp)?.name ?? emp}" is a guest and cannot declare personal days.`); continue; }
+    touched.add(emp);
+    const periods = parsePersonalPeriods(JSON.stringify(rows.map((r) => ({ start: r.from, end: r.to, note: r.note }))));
+    const errs = validatePersonalPeriods(periods, member.ownStartDate ?? req.startDate, member.ownEndDate ?? req.endDate);
+    if (errs.length) { errors.push(`Personal days (${EcsIdentity.employee(emp)?.name ?? emp}): ${errs.join(' ')}`); continue; }
+    await prisma.travelRequestTraveller.updateMany({ where: { requestId: id, employeeId: emp }, data: { personalPeriodsJson: serializePersonalPeriods(periods) } });
+    periodCount += periods.length;
+  }
+
+  await syncAutoEstimates(id, true);
+  await syncItineraryAirfare(id);
+  if (legCount > 0) {
+    const reqRow = await prisma.travelRequest.findUnique({ where: { id }, select: { bookingMethod: true } });
+    if (reqRow?.bookingMethod === BOOKING_METHOD.TMCOnline) await prisma.travelRequest.update({ where: { id }, data: { bookingMethod: BOOKING_METHOD.AgentAssisted } });
+  }
+  await audit(id, 'AMEND', `Excel upload — itineraries / personal days for ${touched.size} traveller(s): ${legCount} leg(s), ${periodCount} personal period(s)`);
+  revalidatePath(`/requests/${id}/trip`);
+  revalidatePath(`/requests/${id}/estimates`);
+  return { travellers: touched.size, legs: legCount, periods: periodCount, errors };
 }
 
 /* ------------------------------------------------- estimates (TR-05..08) */

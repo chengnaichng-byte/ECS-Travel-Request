@@ -4,7 +4,9 @@ import { notFound } from 'next/navigation';
 import { loadRequest } from '@/modules/pretrip/queries';
 import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
-import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary, saveTravellerPersonal } from '@/modules/pretrip/actions';
+import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary, saveTravellerPersonal, uploadTravellerData } from '@/modules/pretrip/actions';
+import { ItineraryUpload } from '@/components/ItineraryUpload';
+import { travelClasses } from '@/data/travelClass';
 import { getSettings } from '@/modules/pretrip/settings';
 import { memberName, isGuestMember, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
 import { GroupPersonalDays } from '@/components/GroupPersonalDays';
@@ -157,6 +159,20 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   const personalDeclaredCount = personalMembers.filter((t) => (parsePersonalPeriods(t.personalPeriodsJson)).length > 0).length;
   const perTravellerCard = req.isGroup ? (
     <div className="mt-5 space-y-3">
+      {canEdit && req.travellers.length > 0 && (
+        <CollapsibleCard
+          title="Bulk upload — itineraries & personal days (Excel)"
+          defaultOpen={false}
+          stub="Download a template, fill per traveller, upload"
+        >
+          <ItineraryUpload
+            action={uploadTravellerData.bind(null, id)}
+            travellers={req.travellers.map((t) => ({ label: memberName(t), line: String(t.lineNo ?? '') }))}
+            airports={airports.map((a) => ({ code: a.code, name: a.name, city: cities.find((c) => c.code === a.cityCode)?.name ?? a.cityCode }))}
+            classes={travelClasses.map((c) => c.name)}
+          />
+        </CollapsibleCard>
+      )}
       {perTravellerOn && anyDeviation && methodOnline && (
         <div className="card p-3 text-sm text-amber-900 bg-amber-50 border-amber-200">
           <b>Booking method will change to TMC agent-assisted.</b> {deviationCount} traveller{deviationCount > 1 ? 's have' : ' has'} a different itinerary. The TMS cannot book a group <b>online</b> when travellers fly different routes or dates, so on save the booking method changes from <b>TMC online</b> to <b>TMC agent-assisted</b> (§13.20).
