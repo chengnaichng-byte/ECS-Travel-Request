@@ -47,7 +47,7 @@ function groupByCategory(lines: CostLineX[]): { category: string; typeName: stri
 export function ChargingAccountEditor({
   action, canEdit, total, companyCodes, businessAreas, accounts, extraAccounts, expenseTypes, lines,
   defaultAccount, initialMode, initialMain, initialRows, initialLineMap, submitLabel = 'Save & run policy review →',
-  entriesTitle = 'Accounting Entries', backHref, backLabel, showProvenance = false, nonTermDeclared = false, highlightUpgrade = false,
+  entriesTitle = 'Accounting Entries', backHref, backLabel, showProvenance = false, nonTermDeclared = false, highlightUpgrade = false, postedAtBookingTypes,
 }: {
   action: (fd: FormData) => void;
   canEdit: boolean;
@@ -73,6 +73,7 @@ export function ChargingAccountEditor({
   showProvenance?: boolean;    // field-provenance markers (pilot, TR charging step only)
   nonTermDeclared?: boolean;   // true → warn live when the chosen charging turns the trip non-research
   highlightUpgrade?: boolean;  // claim-only: tint the M6 differential entry row + a NEW chip (new datapoint)
+  postedAtBookingTypes?: string[];  // claim-only: expense-type ids whose entries post at BOOKING (CTA) — enables the "Posted at" column
 }) {
   const acc = (c: string) => accounts.find((a) => a.code === c) ?? extraAccounts?.find((a) => a.code === c);
   const et = (id: string) => expenseTypes.find((e) => e.id === id);
@@ -335,10 +336,11 @@ export function ChargingAccountEditor({
               <thead><tr>
                 <th className="th">Company</th><th className="th">Business area</th><th className="th">CC/WBS charging account</th>
                 <th className="th">Internal Order</th><th className="th">GL account</th><th className="th">Expense type</th>
+                {postedAtBookingTypes && <th className="th whitespace-nowrap">Posted at <span className="ml-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: '1px solid #a7dcc6' }}>NEW</span></th>}
                 <th className="th text-right">Amount</th><th className="th text-right">% of allocation</th><th className="th">Main acct</th><th className="th">GST</th>
               </tr></thead>
               <tbody>
-                {entries.length === 0 ? <tr><td className="td italic text-[var(--ecs-muted)]" colSpan={10}>Nothing allocated yet.</td></tr> : entries.map((e, i) => {
+                {entries.length === 0 ? <tr><td className="td italic text-[var(--ecs-muted)]" colSpan={postedAtBookingTypes ? 11 : 10}>Nothing allocated yet.</td></tr> : entries.map((e, i) => {
                   const a = acc(e.code); const t = et(e.typeId);
                   return (
                     <tr key={i} className="hover:bg-[var(--ecs-panel-2)]" style={highlightUpgrade && e.percent == null ? { background: '#f0faf5' } : undefined}>
@@ -348,6 +350,7 @@ export function ChargingAccountEditor({
                       <td className="td">{e.io || '—'}</td>
                       <td className="td">{t?.gl ?? '—'}</td>
                       <td className="td">{e.label ?? t?.name ?? e.typeId}{e.percent == null && <span className="pill-info ml-1">M6 → {e.code}</span>}{highlightUpgrade && e.percent == null && <span className="ml-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: '1px solid #a7dcc6' }}>NEW</span>}</td>
+                      {postedAtBookingTypes && <td className="td">{postedAtBookingTypes.includes(e.typeId) && e.percent != null ? <span className="pill-info text-xs whitespace-nowrap">Booking · CTA</span> : <span className="text-xs text-[var(--ecs-muted)] whitespace-nowrap">Claim approval</span>}</td>}
                       <td className="td text-right whitespace-nowrap font-medium">{fmt(e.amount)}</td>
                       <td className="td text-right">{e.percent == null ? '—' : `${e.percent}%`}</td>
                       <td className="td">{e.isMain ? 'Yes' : 'No'}</td>

@@ -25,6 +25,8 @@ import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/compon
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { ClaimDecisionBar } from '@/components/ClaimDecisionBar';
 import { LegacyClaimView } from '@/components/LegacyClaimView';
+import { ViewExpenseModal, type ExpenseView } from '@/components/ViewExpenseModal';
+import { CtaDetailModal } from '@/components/CtaDetailModal';
 import { Card, CollapsibleCard, Empty } from '@/components/ui';
 
 const ROLE_LABEL: Record<string, string> = { [APPROVER_ROLE.Verifier]: 'Verifier', [APPROVER_ROLE.Exception]: 'Exception Approver', [APPROVER_ROLE.RO]: 'RO', [APPROVER_ROLE.DOA]: 'DOA', [APPROVER_ROLE.ResearchDOA]: 'Research DOA' };
@@ -67,6 +69,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const newTag = () => <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: '1px solid #a7dcc6' }}>NEW</span>;
   const hiField = { borderColor: '#4bbf8f', background: '#f0faf5' } as const;
   const destLabel = `${EcsReference.country(req.destCountry ?? '')?.name ?? '—'}${req.destCity ? ` · ${EcsReference.city(req.destCity)?.name ?? req.destCity}` : ''}`;
+  const personalDaysNum = personalField ? Number((personalField.value.match(/(\d+)\s+personal day/) || [])[1] || 0) : 0;
 
   // DD-19 / DD-30 — CTA-settled (Reference) lines are shown for the full cost picture but are NOT
   // reimbursed (the employee never fronted them). Auto-deduct them from the reimbursable total so
@@ -83,6 +86,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const ctaPostings = booking ? await prisma.ctaPostingDocument.findMany({ where: { bookingId: booking.id } }) : [];
   const postingByType = new Map(ctaPostings.map((d) => [d.chargeType, d] as const));
   const postingFor = (cat: string) => postingByType.get(cat === 'AIRFARE' ? 'Airfare' : cat === 'ACCOMMODATION' ? 'Accommodation' : '');
+  // The central (CTA) charge lines behind the "Less: charges paid by CTA" total (for the detail icon).
+  const ctaLines = claim.lines.filter(isRef).map((l) => ({ label: labelOf(l), amount: l.actualSgd, posting: (() => { const p = postingFor(l.category); return p ? `${p.sapDocNo} (${p.status})` : ''; })() }));
 
   // §4.5 / contract tePersonalDays (Phase 2) — the funded day/night BASIS behind the ODA and
   // accommodation amounts, from the approved request's per-city estimates, scoped to this claimant
@@ -120,6 +125,25 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
     }
   }
   m6DeltaSgd = Math.round(m6DeltaSgd * 100) / 100;
+
+  // Per-line "View Expense" detail — the expense-detail screen for a claim line: header fields + the
+  // per-city / per-stay funded breakdown (ODA / accommodation) and the entitlement-vs-M6 split (airfare).
+  const expenseView = (l: (typeof claim.lines)[number]): ExpenseView => {
+    const v: ExpenseView = {
+      label: labelOf(l), date: d(l.transactionDate), isRef: isRef(l), approvedSgd: l.approvedSgd, actualSgd: l.actualSgd,
+      reason: l.reason ?? '', receipt: RECEIPT[l.receiptType] ?? l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd,
+    };
+    if (l.category === EXPENSE_CATEGORY.ODA && odaBasis.length) {
+      v.oda = odaBasis.map((o) => ({ city: EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country ?? '—', arrive: d(o.arrive), depart: d(o.depart), stay: o.eligibleDays + o.personalDays, personal: o.personalDays, funded: o.eligibleDays, rate: o.dailyRate, amount: Math.round(o.eligibleDays * o.dailyRate * 100) / 100 }));
+    } else if (l.category === EXPENSE_CATEGORY.Accommodation && accomBasis.length) {
+      v.accom = accomBasis.map((a) => ({ city: EcsReference.city(a.city)?.name ?? a.city, checkIn: d(a.checkIn), checkOut: d(a.checkOut), nights: a.nights, personal: a.personalNights, funded: a.nights - a.personalNights, rate: a.budgetedNightly, amount: Math.round((a.nights - a.personalNights) * a.budgetedNightly * 100) / 100 }));
+    } else if (l.category === EXPENSE_CATEGORY.Airfare && !isRef(l) && m6DeltaSgd > 0) {
+      const net = Math.max(l.actualSgd - l.sponsorSgd, 0);
+      const diff = Math.min(m6DeltaSgd, net);
+      v.m6 = { fare: net, entitlement: Math.round((net - diff) * 100) / 100, differential: diff, account: m6DeltaCode ?? 'M6' };
+    }
+    return v;
+  };
 
   // DD-08 / E11 — if the claimant moved the charging off the approved request's DOA, the claim
   // will route to the NEW account's DOA on submit (no auto-grant). Surface that before submit.
@@ -237,11 +261,21 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
             <div><label className="label">Travel Class</label><input className="field" value={EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—'} disabled /></div>
             <div><label className="label">Travel Purpose</label><input className="field" value={EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—'} disabled /></div>
             <div><label className="label">Trip Description</label><input className="field" value={req.description ?? '—'} disabled /></div>
-            {personalField && <div><label className="label">Personal Extension (excluded) {newTag()}</label><input className="field" style={hiField} value={personalField.value} disabled title="Declared personal days — excluded from funded ODA / accommodation (contract tePersonalDays)" /></div>}
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
-              <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
+            <div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
+                <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
+              </div>
+              {personalDaysNum > 0 && <p className="text-xs mt-1.5" style={{ color: '#0f6e56' }}>Includes <b>{personalDaysNum} personal day{personalDaysNum === 1 ? '' : 's'}</b> — excluded from funded ODA / accommodation {newTag()}</p>}
             </div>
+          </div>
+        </Card>
+
+        <Card title="Claim details">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div><label className="label">Claim ID</label><input className="field" value={claim.claimNumber} disabled /></div>
+            <div><label className="label">Report Date</label><input className="field" value={d(claim.createdAt) || '—'} disabled /></div>
+            <div><label className="label">Report Type</label><input className="field" value={claim.reportType || 'Travel expense'} disabled /></div>
           </div>
         </Card>
 
@@ -250,40 +284,74 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr>
-                  <th className="th">Transaction date</th><th className="th">Expense type</th><th className="th">Reason</th>
-                  <th className="th text-right">Approved est.</th><th className="th text-right">Expense amount (SGD)</th>
-                  <th className="th">Receipt</th><th className="th"></th>
+                  <th className="th"><input type="checkbox" disabled className="w-4 h-4 align-middle" title="Select for allocation" /></th>
+                  <th className="th whitespace-nowrap">Transaction date</th><th className="th">Expense type</th>
+                  <th className="th text-right whitespace-nowrap">Expense amount (SGD)</th>
+                  <th className="th text-right whitespace-nowrap" style={{ background: '#f0faf5' }}>Approved est. {newTag()}</th>
+                  <th className="th">Reason for expense</th>
+                  <th className="th">Policy violation</th><th className="th text-right whitespace-nowrap">Policy limit per unit</th><th className="th text-right whitespace-nowrap">Total amount exceeded limit</th><th className="th text-right whitespace-nowrap">% Exceeded</th><th className="th whitespace-nowrap">Justification for policy violation</th>
+                  <th className="th whitespace-nowrap">Verifier verify status</th><th className="th whitespace-nowrap">Verifier rejection reason</th><th className="th">Verifier comment</th>
+                  <th className="th">Attachment</th><th className="th whitespace-nowrap">Is duplicated?</th><th className="th whitespace-nowrap">Send back history</th><th className="th"></th>
                 </tr></thead>
                 <tbody>
                   {claim.lines.map((l) => (
                     <tr key={l.id} className="hover:bg-[var(--ecs-panel-2)]">
+                      <td className="td"><input type="checkbox" disabled className="w-4 h-4" /></td>
                       <td className="td whitespace-nowrap">{d(l.transactionDate) || '—'}</td>
-                      <td className="td font-medium">{labelOf(l)}{isRef(l) && <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-xs font-normal bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] whitespace-nowrap" title={ctaAccount ? `${ctaAccount.label} → clearing ${ctaAccount.clearingGlAccount}` : undefined}>Paid by CTA{booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed{(() => { const d = postingFor(l.category); return d ? ` · posted to SAP ${d.sapDocNo} (${d.status})` : ''; })()}</span>}</td>
+                      <td className="td font-medium whitespace-nowrap">{labelOf(l)}{isRef(l) && (() => { const p = postingFor(l.category); const tip = `Paid by CTA${booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed${p ? ` · posted to SAP ${p.sapDocNo} (${p.status})` : ''}`; return <span className="ml-1.5 inline-grid place-items-center w-5 h-5 rounded-full bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] text-[9px] font-semibold align-middle cursor-help" title={tip}>CTA</span>; })()}</td>
+                      <td className={`td text-right whitespace-nowrap ${isRef(l) ? 'text-[var(--ecs-muted)]' : ''}`}>{canEdit && !isRef(l) ? <input name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right w-28 ml-auto" /> : fmtSgd(l.actualSgd)}</td>
+                      <td className="td text-right whitespace-nowrap text-[var(--ecs-muted)]" style={{ background: '#f0faf5' }}>{l.approvedSgd > 0 ? fmtSgd(l.approvedSgd) : '—'}</td>
                       <td className="td">{canEdit && !isRef(l) ? <input name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
-                      <td className="td text-right whitespace-nowrap text-[var(--ecs-muted)]">{l.approvedSgd > 0 ? fmtSgd(l.approvedSgd) : '—'}</td>
-                      <td className={`td text-right ${isRef(l) ? 'text-[var(--ecs-muted)]' : ''}`}>{canEdit && !isRef(l) ? <input name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right w-28 ml-auto" /> : fmtSgd(l.actualSgd)}</td>
+                      <td className="td text-center text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-right text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-right text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-right text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-[var(--ecs-muted)]">—</td>
                       <td className="td">{isRef(l) ? <span className="text-[var(--ecs-muted)]">—</span> : canEdit ? (
                         <select name={`receipt_${l.id}`} defaultValue={l.receiptType} className="field">
                           {Object.entries(RECEIPT).map(([v, lab]) => <option key={v} value={v}>{lab}</option>)}
                         </select>
                       ) : RECEIPT[l.receiptType] ?? l.receiptType}</td>
-                      <td className="td text-right">{canEdit && <button formAction={removeClaimExpense.bind(null, id, l.id)} className="btn-ghost text-xs">Remove</button>}</td>
+                      <td className="td text-center text-[var(--ecs-muted)]">—</td>
+                      <td className="td text-[var(--ecs-muted)] whitespace-nowrap">—</td>
+                      <td className="td text-right whitespace-nowrap"><ViewExpenseModal e={expenseView(l)} />{canEdit && <button formAction={removeClaimExpense.bind(null, id, l.id)} className="btn-ghost text-xs ml-1 text-[var(--ecs-red)]">Remove</button>}</td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Total expenses (all lines)</td>
+                    <td className="td text-right font-medium whitespace-nowrap">{fmtSgd(totalExpenses)}</td>
+                    <td colSpan={14}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]"><span className="inline-flex items-center justify-end">Less: charges paid by CTA{ctaAccount ? ` (${ctaAccount.ctaAccountId})` : ''} — reference only<CtaDetailModal total={ctaPaidTotal} account={ctaAccount?.label ?? null} lines={ctaLines} /></span></td>
+                    <td className="td text-right text-[var(--ecs-muted)] whitespace-nowrap">− {fmtSgd(ctaPaidTotal)}</td>
+                    <td colSpan={14}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</td>
+                    <td className="td text-right">{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28 ml-auto" /> : fmtSgd(claim.lessCorpCard)}</td>
+                    <td colSpan={14}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Less Personal / Sponsorship</td>
+                    <td className="td text-right">{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right w-28 ml-auto" /> : fmtSgd(claim.lessPersonal)}</td>
+                    <td colSpan={14}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)]">Total Reimbursable Amount</td>
+                    <td className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)] whitespace-nowrap">{fmtSgd(totalReimbursable)}</td>
+                    <td colSpan={14}></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
-          <div className="mt-4 ml-auto max-w-md space-y-1.5 text-sm">
-            <div className="flex justify-between"><span className="text-[var(--ecs-muted)]">Total expenses (all lines)</span><span className="font-medium">{fmtSgd(totalExpenses)}</span></div>
-            {ctaPaidTotal > 0 && (
-              <div className="flex justify-between"><span className="text-[var(--ecs-muted)]">Less: charges paid by CTA{ctaAccount ? ` (${ctaAccount.ctaAccountId})` : ''} — reference only</span><span className="text-[var(--ecs-muted)]">− {fmtSgd(ctaPaidTotal)}</span></div>
-            )}
-            <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</span>{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessCorpCard)}</span>}</div>
-            <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less Personal / Sponsorship</span>{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessPersonal)}</span>}</div>
-            <div className="flex justify-between border-t border-[var(--ecs-border)] pt-1.5 font-bold text-[var(--ecs-navy)]"><span>Total Reimbursable Amount</span><span>{fmtSgd(totalReimbursable)}</span></div>
-            {ctaPaidTotal > 0 && <p className="text-xs text-[var(--ecs-muted)] pt-1">CTA-settled airfare / hotel are deducted automatically (paid centrally, not reimbursed). &ldquo;Less NTU Corporate Card (other)&rdquo; is for any other corporate-card spend not already shown as a reference line.</p>}
-          </div>
+          {ctaPaidTotal > 0 && <p className="text-xs text-[var(--ecs-muted)] mt-2">CTA-settled airfare / hotel are deducted automatically (paid centrally, not reimbursed). &ldquo;Less NTU Corporate Card (other)&rdquo; is for any other corporate-card spend not already shown as a reference line.</p>}
           {canEdit && <div className="flex justify-end mt-4"><button type="submit" className="btn-secondary">Save draft</button></div>}
         </Card>
       </form>
@@ -332,6 +400,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
         accounts={accounts}
         extraAccounts={m6Accounts}
         highlightUpgrade
+        postedAtBookingTypes={[...new Set(claim.lines.filter(isRef).map((l) => l.expenseTypeId))]}
         expenseTypes={etOpts}
         lines={costLines}
         defaultAccount={defaultAccount}
@@ -402,6 +471,20 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           )}
         </CollapsibleCard>
       )}
+
+      <Card title="Comments">
+        <p className="text-sm text-[var(--ecs-muted)]">Submission and review history — no comments on this claim yet.</p>
+      </Card>
+
+      <Card title="Attachment">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr><th className="th">Document type</th><th className="th">File name</th><th className="th">File size</th><th className="th">Uploaded by</th><th className="th">Uploaded date</th></tr></thead>
+            <tbody><tr><td className="td text-[var(--ecs-muted)]" colSpan={5}>No supporting documents attached.</td></tr></tbody>
+          </table>
+        </div>
+        <p className="text-xs text-[var(--ecs-muted)] mt-2">Maximum of 7 files allowed, total size limit: 7 MB. Supported formats: PNG, JPEG, PDF.</p>
+      </Card>
 
       <p className="text-xs text-[var(--ecs-muted)]">Approved estimates remain traceable; edits are recorded as actual values/variances rather than overwriting the approved request (§8.3). One approved request may link to multiple claims; cumulative claimed amounts compare against the approved estimate (AC17).</p>
     </div>
