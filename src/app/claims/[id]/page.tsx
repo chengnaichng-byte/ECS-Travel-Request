@@ -9,13 +9,15 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
-import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, updateClaimExpenseLine, saveClaimCharging, waiveEvidence } from '@/modules/te/actions';
+import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, updateClaimExpenseLine, saveClaimCharging, waiveEvidence, saveClaimBasis } from '@/modules/te/actions';
 import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
-import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
+import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { getCtaAccount } from '@/modules/pretrip/ctaMaster';
 import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import { listUpgradeAccounts, effectiveDeltaCode } from '@/modules/pretrip/upgradeConfig';
 import { exceptionViews } from '@/modules/pretrip/exceptions';
+import { effectiveOdaBasis, effectiveAccomBasis, effectivePeriods, odaStayDays, accomStayNights, odaPersonalDays, accomPersonalNights, odaFundedDays, accomFundedNights, personalDaysTotal } from '@/modules/te/basis';
+import { PersonalPeriodsEditor } from '@/components/PersonalPeriodsEditor';
 import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
@@ -41,7 +43,7 @@ const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
 
 export default async function ClaimPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id }, include: { lines: true, approvalSteps: { orderBy: { seq: 'asc' } } } });
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id }, include: { lines: true, approvalSteps: { orderBy: { seq: 'asc' } }, attachments: { orderBy: { createdAt: 'desc' } } } });
   if (!claim) notFound();
   const persona = await currentPersonaId();
   // TMC transition — a LEGACY claim (pre-go-live PNR, no Pre-Trip TR) has no approved request, so it
@@ -64,7 +66,43 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const emp = EcsIdentity.employee(claim.claimantId);
   const ro = EcsIdentity.employee(emp?.reportingOfficerId ?? '');
   const booking = req.bookings.find((b) => b.travellerId === claim.claimantId) ?? req.bookings[0];
-  const bookingRef = `${req.authorisationNo ?? '—'}${booking?.pnr ? ` · ${booking.pnr}` : ''}`;
+  // §7.3 Travel Booking Reference — the TA/authorisation number plus the PNR(s) the TMC booked under.
+  // One TR can split across several PNRs (multi-city, group), so show the reference then its PNRs;
+  // beyond two PNRs the rest collapse to "…and more". PNRs come from the traveller's booking(s) and
+  // their segments (TMC feed); none yet when booked off-TRS → just the reference.
+  const myBookings = req.bookings.filter((b) => b.travellerId === claim.claimantId);
+  const refBookings = myBookings.length ? myBookings : req.bookings;
+  const pnrSet = new Set<string>();
+  for (const b of refBookings) { if (b.pnr) pnrSet.add(b.pnr); for (const s of b.segments ?? []) if (s.pnr) pnrSet.add(s.pnr); }
+  const pnrs = [...pnrSet];
+  const pnrParts = pnrs.length <= 2 ? pnrs : [pnrs[0], pnrs[1], '…and more'];
+  const bookingRefParts = [req.authorisationNo ?? '—', ...pnrParts];
+  // §13.19 Travel-class provenance on the claim header — three distinct datapoints from two sources:
+  //  • Travel entitlement + Class planned come from the PRE-TRIP TR (the entitled cabin derived from the
+  //    traveller's policy group, and the cabin approved on the request).
+  //  • Highest class booked comes from the TMC FEED (BookingSegment.bookedClassId, reported inbound) —
+  //    the highest-ranked cabin actually booked; '—' until a booking is received (e.g. booked off-TRS).
+  const classOnDate = claim.travelStart ?? req.startDate ?? new Date();
+  const entitledClassId = req.entitledClassId
+    ?? EcsTravelClassRegister.entitledForItinerary(
+         claim.claimantId,
+         (req.legs ?? []).map((l) => ({ durationHours: l.durationHours, isPersonal: l.isPersonal, destCode: l.destCode ?? undefined })),
+         classOnDate,
+       ).classId;
+  // The TMC feed reports the booked cabin as a display name ("Economy") on some rows and as a class id
+  // ("TC-PEY") on others, so resolve by either before ranking/labelling.
+  const resolveClass = (x: string | null | undefined) =>
+    !x ? undefined : (EcsReference.travelClass(x) ?? EcsReference.travelClasses().find((c) => c.name.toLowerCase() === x.toLowerCase()));
+  const rankOfClass = (x: string | null | undefined) => resolveClass(x)?.rank ?? 0;
+  const entitledClassName = resolveClass(entitledClassId)?.name ?? '—';
+  const plannedClassName = resolveClass(req.travelClassId)?.name ?? '—';
+  const airBookedClasses = (booking?.segments ?? []).filter((s) => s.type === 'AIR' && s.bookedClassId).map((s) => s.bookedClassId as string);
+  const highestBookedRaw = airBookedClasses.length
+    ? airBookedClasses.reduce((best, cid) => (rankOfClass(cid) > rankOfClass(best) ? cid : best))
+    : null;
+  const bookedClassName = highestBookedRaw ? (resolveClass(highestBookedRaw)?.name ?? null) : null;
+  // Was the booked cabin above the entitlement? (amber flag — an upgrade actually travelled)
+  const bookedAboveEntitlement = !!highestBookedRaw && rankOfClass(highestBookedRaw) > rankOfClass(entitledClassId);
   const labelOf = (l: { category: string; expenseTypeId: string }) => EcsReference.expenseType(l.expenseTypeId)?.name ?? prep.lines.find((p) => p.category === l.category)?.label ?? l.category;
   // §4.5 / contract v1.4 — the declared personal-extension reflection on the claim header (tePersonalDays,
   // Reference). Driven by prepopulateClaim so a contract Exclude hides it; per-traveller for a group member.
@@ -106,7 +144,18 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const odaBasis = claimantEstimates.map((e) => e.oda).filter((o): o is NonNullable<typeof o> => !!o);
   const accomBasis = claimantEstimates.map((e) => e.accommodation).filter((a): a is NonNullable<typeof a> => !!a);
   const hasFundedBasis = odaBasis.length > 0 || accomBasis.length > 0;
-  const anyPersonalBasis = odaBasis.some((o) => o.personalDays > 0) || accomBasis.some((a) => a.personalNights > 0);
+  // §4.5 claim-side editable basis: the claim's own rows if edited, else seeded from the TR. This drives
+  // the editable funded-basis tables, the header personal-day count, and the ODA/accommodation expense
+  // amounts — the TR values stay the approved reference (over-funded guard).
+  const effOda = effectiveOdaBasis(claim.odaBasisJson, odaBasis);
+  const effAccom = effectiveAccomBasis(claim.accomBasisJson, accomBasis, req.startDate, req.endDate);
+  const effPeriods = effectivePeriods(claim.claimPersonalPeriodsJson, req.personalPeriodsJson);
+  const basisEdited = !!claim.odaBasisJson || !!claim.accomBasisJson || !!claim.claimPersonalPeriodsJson;
+  const basisPersonalDays = personalDaysTotal(effOda, effPeriods);
+  const anyPersonalBasis = effPeriods.length > 0;
+  // Cities on the trip — the Location options for a personal extension (so the right city's rate is excluded).
+  const basisCities = [...new Set([...effOda.map((o) => o.city), ...effAccom.map((a) => a.city)].filter((c): c is string => !!c))]
+    .map((code) => ({ code, name: EcsReference.city(code)?.name ?? EcsReference.country(code)?.name ?? code }));
   // Phase 4 — soft guard: the approved ODA / accommodation line IS the funded (personal-excluded)
   // amount. A claimed actual ABOVE it means more days/nights than funded are being claimed (personal
   // days creeping in). Not a hard block (the amounts are advisory, reviewed at claim), just a flag.
@@ -154,10 +203,10 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
       label: labelOf(l), date: d(l.transactionDate), isRef: isRef(l), approvedSgd: l.approvedSgd, actualSgd: l.actualSgd,
       reason: l.reason ?? '', receipt: RECEIPT[l.receiptType] ?? l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd,
     };
-    if (l.category === EXPENSE_CATEGORY.ODA && odaBasis.length) {
-      v.oda = odaBasis.map((o) => ({ city: EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country ?? '—', arrive: d(o.arrive), depart: d(o.depart), stay: o.eligibleDays + o.personalDays, personal: o.personalDays, funded: o.eligibleDays, rate: o.dailyRate, amount: Math.round(o.eligibleDays * o.dailyRate * 100) / 100 }));
-    } else if (l.category === EXPENSE_CATEGORY.Accommodation && accomBasis.length) {
-      v.accom = accomBasis.map((a) => ({ city: EcsReference.city(a.city)?.name ?? a.city, checkIn: d(a.checkIn), checkOut: d(a.checkOut), nights: a.nights, personal: a.personalNights, funded: a.nights - a.personalNights, rate: a.budgetedNightly, amount: Math.round((a.nights - a.personalNights) * a.budgetedNightly * 100) / 100 }));
+    if (l.category === EXPENSE_CATEGORY.ODA && effOda.length) {
+      v.oda = effOda.map((o) => ({ city: EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country ?? '—', arrive: o.arrive || '—', depart: o.depart || '—', stay: odaStayDays(o), personal: odaPersonalDays(o, effPeriods), funded: odaFundedDays(o, effPeriods), rate: o.dailyRate, amount: Math.round(odaFundedDays(o, effPeriods) * o.dailyRate * 100) / 100 }));
+    } else if (l.category === EXPENSE_CATEGORY.Accommodation && effAccom.length) {
+      v.accom = effAccom.map((a) => ({ city: EcsReference.city(a.city)?.name ?? a.city, checkIn: a.checkIn || '—', checkOut: a.checkOut || '—', nights: accomStayNights(a), personal: accomPersonalNights(a, effPeriods), funded: accomFundedNights(a, effPeriods), rate: a.nightlyRate, amount: Math.round(accomFundedNights(a, effPeriods) * a.nightlyRate * 100) / 100 }));
     } else if (l.category === EXPENSE_CATEGORY.Airfare && !isRef(l) && m6DeltaSgd > 0) {
       const net = Math.max(l.actualSgd - l.sponsorSgd, 0);
       const diff = Math.min(m6DeltaSgd, net);
@@ -282,9 +331,31 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
             Booking not made on NTU&apos;s Travel Reservation System (TRS)
           </label>
           <div className="grid md:grid-cols-3 gap-4">
-            <div><label className="label">Travel Booking Reference</label><input className="field" value={bookingRef} disabled /></div>
+            <div>
+              <label className="label">Travel Booking Reference {pnrs.length > 1 && newTag()}</label>
+              <div className="field" style={{ background: 'var(--ecs-readonly)', minHeight: '2.375rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: '0.5rem', rowGap: '0.125rem' }}
+                title={pnrs.length ? `Authorisation number  |  ${pnrs.length} PNR${pnrs.length === 1 ? '' : 's'} booked by the TMC` : 'Authorisation number — no PNR yet (booked off-TRS)'}>
+                {bookingRefParts.map((p, i) => (
+                  <span key={i} className="contents">
+                    {i > 0 && <span className="text-[var(--ecs-border)]">|</span>}
+                    <span className={p === '…and more' ? 'text-[var(--ecs-muted)] italic' : i === 0 ? '' : 'font-mono text-xs'}>{p}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
             <div><label className="label">Main Country/Region Of Travel {req.destCity && newTag()}</label><input className="field" style={req.destCity ? hiField : undefined} value={destLabel} disabled title="Now includes the city (new)" /></div>
-            <div><label className="label">Travel Class</label><input className="field" value={EcsReference.travelClass(req.travelClassId ?? '')?.name ?? '—'} disabled /></div>
+            <div>
+              <label className="label">Travel Entitlement | Class Planned | Highest Class Booked {newTag()}</label>
+              <div className="field" style={{ background: 'var(--ecs-readonly)', minHeight: '2.375rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: '0.5rem', rowGap: '0.125rem', ...(bookedAboveEntitlement ? { borderColor: '#d9a300', background: '#fdf6e3' } : {}) }}
+                title="Entitled cabin (pre-trip · policy group)  |  cabin approved on the TR (pre-trip)  |  highest cabin actually booked (TMC feed)">
+                <span>{entitledClassName}</span><span className="text-[var(--ecs-border)]">|</span>
+                <span>{plannedClassName}</span><span className="text-[var(--ecs-border)]">|</span>
+                <span>{bookedClassName ?? '—'}</span>
+              </div>
+              <div className="text-[10px] mt-1" style={{ color: bookedAboveEntitlement ? '#9a7500' : 'var(--ecs-muted)' }}>
+                Pre-trip · Pre-trip · TMC feed{bookedAboveEntitlement ? ' — booked above entitlement' : (!bookedClassName ? ' (awaiting booking feed)' : '')}
+              </div>
+            </div>
             <div><label className="label">Travel Purpose</label><input className="field" value={EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—'} disabled /></div>
             <div><label className="label">Trip Description</label><input className="field" value={req.description ?? '—'} disabled /></div>
             <div>
@@ -292,7 +363,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                 <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
                 <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
               </div>
-              {personalDaysNum > 0 && <p className="text-xs mt-1.5" style={{ color: '#0f6e56' }}>Includes <b>{personalDaysNum} personal day{personalDaysNum === 1 ? '' : 's'}</b> — excluded from funded ODA / accommodation {newTag()}</p>}
+              {(() => { const pd = hasFundedBasis ? basisPersonalDays : personalDaysNum; return pd > 0 && <p className="text-xs mt-1.5" style={{ color: '#0f6e56' }}>Includes <b>{pd} personal day{pd === 1 ? '' : 's'}</b> — excluded from funded ODA / accommodation{basisEdited ? ' · edited at claim' : ''} {newTag()}</p>; })()}
             </div>
           </div>
         </Card>
@@ -485,58 +556,76 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           stub={anyPersonalBasis ? 'Personal time excluded from the funded ODA / accommodation' : 'No personal days declared — funded = full stay'}
           className="border-l-4 border-l-emerald-400"
         >
-          <p className="text-xs text-[var(--ecs-muted)] mb-3">The ODA and accommodation amounts above are already net of declared personal time (§4.5). This shows the funded count against the actual stay per city.{anyPersonalBasis ? '' : ' No personal days are declared on this trip, so funded = full stay.'}</p>
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">The funded (personal-excluded) ODA and accommodation basis, synced from the approved TR (§4.5).{canEdit ? ' Edit the stay / personal / dates / rate if the actual trip differed — saving recomputes the ODA & accommodation claim amounts and the header personal-day count. The approved TR amounts remain the reference (over-funded check below).' : ''}{anyPersonalBasis ? '' : ' No personal days are declared on this trip, so funded = full stay.'}</p>
           {overFundedLines.length > 0 && (
             <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-              <b>Check personal-day claiming:</b> {overFundedLines.map((l) => labelOf(l)).join(', ')} claimed above the funded (personal-excluded) approved amount. The funded day / night counts above exclude declared personal time; the claimed ODA / accommodation should not exceed them.
+              <b>Check personal-day claiming:</b> {overFundedLines.map((l) => labelOf(l)).join(', ')} claimed above the funded (personal-excluded) approved amount. The funded day / night counts exclude personal time; the claimed ODA / accommodation should not exceed them.
             </div>
           )}
-          {odaBasis.length > 0 && (
-            <div className="overflow-x-auto mb-4">
-              <table className="w-full text-sm">
-                <thead><tr>
-                  <th className="th">Overseas Daily Allowance — city</th><th className="th">Arrive</th><th className="th">Depart</th>
-                  <th className="th text-right">Stay days</th><th className="th text-right">Personal</th><th className="th text-right">Funded days</th><th className="th text-right">Rate/day</th>
-                </tr></thead>
-                <tbody>
-                  {odaBasis.map((o, i) => (
-                    <tr key={i}>
-                      <td className="td">{EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country}</td>
-                      <td className="td whitespace-nowrap">{d(o.arrive) || '—'}</td>
-                      <td className="td whitespace-nowrap">{d(o.depart) || '—'}</td>
-                      <td className="td text-right">{o.eligibleDays + o.personalDays}</td>
-                      <td className={`td text-right ${o.personalDays > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`}>{o.personalDays}</td>
-                      <td className="td text-right font-medium">{o.eligibleDays}</td>
-                      <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(o.dailyRate)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <form action={saveClaimBasis.bind(null, id)}>
+            <input type="hidden" name="odaCount" value={effOda.length} />
+            <input type="hidden" name="accomCount" value={effAccom.length} />
+            <div className="mb-4 rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
+              <PersonalPeriodsEditor initial={effPeriods} cities={basisCities} canEdit={canEdit} />
+              <p className="text-[10px] text-[var(--ecs-muted)] mt-2">Personal <b>days</b> (ODA) and <b>nights</b> (accommodation) are counted from these dates for the chosen city — they differ by a night because a stay&apos;s last day has no onward night. Saving recomputes the funded amounts, <b>updates the ODA / accommodation claim lines</b>, and the header personal-day count.</p>
             </div>
-          )}
-          {accomBasis.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr>
-                  <th className="th">Accommodation — city</th><th className="th">Check-in</th><th className="th">Check-out</th>
-                  <th className="th text-right">Stay nights</th><th className="th text-right">Personal</th><th className="th text-right">Funded nights</th><th className="th text-right">Avg/night</th>
-                </tr></thead>
-                <tbody>
-                  {accomBasis.map((a, i) => (
-                    <tr key={i}>
-                      <td className="td">{EcsReference.city(a.city)?.name ?? a.city}</td>
-                      <td className="td whitespace-nowrap">{d(a.checkIn) || '—'}</td>
-                      <td className="td whitespace-nowrap">{d(a.checkOut) || '—'}</td>
-                      <td className="td text-right">{a.nights}</td>
-                      <td className={`td text-right ${a.personalNights > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`}>{a.personalNights}</td>
-                      <td className="td text-right font-medium">{a.nights - a.personalNights}</td>
-                      <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(a.budgetedNightly)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+            <p className="text-[11px] text-[var(--ecs-muted)] mb-2">The table below is the approved funded <b>reference</b> (from the TR, personal-excluded) — not an input. The actual amounts are claimed in the Expense items above.</p>
+            {effOda.length > 0 && (
+              <div className="overflow-x-auto mb-4">
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+                  <colgroup><col style={{ width: '22%' }} /><col style={{ width: '15%' }} /><col style={{ width: '15%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /></colgroup>
+                  <thead><tr>
+                    <th className="th">Overseas Daily Allowance — city</th><th className="th">Arrive</th><th className="th">Depart</th>
+                    <th className="th text-right">Stay days</th><th className="th text-right">Personal</th><th className="th text-right">Funded days</th><th className="th text-right">Rate/day</th>
+                  </tr></thead>
+                  <tbody>
+                    {effOda.map((o, i) => { const pd = odaPersonalDays(o, effPeriods); return (
+                      <tr key={i}>
+                        <td className="td">{EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country}
+                          <input type="hidden" name={`oda_${i}_city`} value={o.city ?? ''} /><input type="hidden" name={`oda_${i}_country`} value={o.country} />
+                          <input type="hidden" name={`oda_${i}_arrive`} value={o.arrive} /><input type="hidden" name={`oda_${i}_depart`} value={o.depart} /><input type="hidden" name={`oda_${i}_dailyRate`} value={o.dailyRate} />
+                        </td>
+                        <td className="td whitespace-nowrap">{o.arrive || '—'}</td>
+                        <td className="td whitespace-nowrap">{o.depart || '—'}</td>
+                        <td className="td text-right">{odaStayDays(o)}</td>
+                        <td className={`td text-right ${pd > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`} title="Derived from the personal extension dates">{pd}</td>
+                        <td className="td text-right font-medium">{odaFundedDays(o, effPeriods)}</td>
+                        <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(o.dailyRate)}</td>
+                      </tr>
+                    ); })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {effAccom.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+                  <colgroup><col style={{ width: '22%' }} /><col style={{ width: '15%' }} /><col style={{ width: '15%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /></colgroup>
+                  <thead><tr>
+                    <th className="th">Accommodation — city</th><th className="th">Check-in</th><th className="th">Check-out</th>
+                    <th className="th text-right">Stay nights</th><th className="th text-right">Personal</th><th className="th text-right">Funded nights</th><th className="th text-right">Avg/night</th>
+                  </tr></thead>
+                  <tbody>
+                    {effAccom.map((a, i) => { const pn = accomPersonalNights(a, effPeriods); return (
+                      <tr key={i}>
+                        <td className="td">{EcsReference.city(a.city)?.name ?? a.city}
+                          <input type="hidden" name={`accom_${i}_city`} value={a.city} />
+                          <input type="hidden" name={`accom_${i}_checkIn`} value={a.checkIn} /><input type="hidden" name={`accom_${i}_checkOut`} value={a.checkOut} /><input type="hidden" name={`accom_${i}_nightlyRate`} value={a.nightlyRate} />
+                        </td>
+                        <td className="td whitespace-nowrap">{a.checkIn || '—'}</td>
+                        <td className="td whitespace-nowrap">{a.checkOut || '—'}</td>
+                        <td className="td text-right">{accomStayNights(a)}</td>
+                        <td className={`td text-right ${pn > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`} title="Derived from the personal extension dates (nights, not days)">{pn}</td>
+                        <td className="td text-right font-medium">{accomFundedNights(a, effPeriods)}</td>
+                        <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(a.nightlyRate)}</td>
+                      </tr>
+                    ); })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {canEdit && <div className="flex justify-end mt-3"><button className="btn-secondary">Save &amp; recompute claim amounts</button></div>}
+          </form>
         </CollapsibleCard>
       )}
 

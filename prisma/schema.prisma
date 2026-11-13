@@ -699,6 +699,16 @@ model TravelExpenseClaim {
   additionalApprover2 String?
   lessCorpCard  Float   @default(0)          // Less NTU Corporate Card transaction amount
   lessPersonal  Float   @default(0)          // Less personal expenses / sponsorship received
+  // §4.5 claim-side editable funded basis (per-city ODA days / accommodation nights). Seeded from the
+  // approved TR at claim creation; the claimant edits it if the ACTUAL stay/personal time differed. The
+  // edited basis OVERRIDES the TR for the claim header personal-day count and the ODA/accommodation
+  // expense-line amounts (the TR values remain the approved reference). Null → not yet edited (use TR).
+  odaBasisJson     String?   // [{ city, country, arrive, depart, dailyRate }] — stay/personal derive from dates+periods
+  accomBasisJson   String?   // [{ city, checkIn, checkOut, nightlyRate }] — stay/personal derive from dates+periods
+  // §4.5 the claim's ACTUAL personal period(s) (overrides the TR's declared periods for the funded basis).
+  // Personal days (ODA) and personal nights (accommodation) are DERIVED from these per city, so the two
+  // can never disagree. [{ start, end }]; supports several extensions within one trip.
+  claimPersonalPeriodsJson String?
   // §17 claim charging snapshot (effective rows + per-line map as JSON, ECS cascade)
   chargingMode     String  @default("MAIN")  // MAIN | CLAIM | ITEM
   chargingMainCode String?
@@ -707,6 +717,7 @@ model TravelExpenseClaim {
   lines         TEExpenseLine[]
   approvalSteps ClaimApprovalStep[]
   link          TravelExpenseLink?
+  attachments   Attachment[]                // exception-claim supporting files (e.g. OFFLINE_APPROVAL_EVIDENCE email)
 }
 
 /// TMC transition — a pre-go-live legacy TMC booking with NO Pre-Trip TR. Travel booked under the
@@ -808,8 +819,10 @@ model AuditEvent {
 /// §13.21 Attachment panel (mock — metadata only; no real file storage).
 model Attachment {
   id            String  @id @default(cuid())
-  requestId     String
-  request       TravelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestId     String?                     // owner is a TravelRequest …
+  request       TravelRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  claimId       String?                     // … OR a claim (exception claim offline-approval email — no TR to hang it off)
+  claim         TravelExpenseClaim? @relation(fields: [claimId], references: [id], onDelete: Cascade)
   docType       String                      // Quotation | Conference Invitation | Approval Evidence | OFFLINE_APPROVAL_EVIDENCE | Other
   deviationId   String?                     // §8 set when docType = OFFLINE_APPROVAL_EVIDENCE: the BookingDeviation this evidence supports
   fileName      String

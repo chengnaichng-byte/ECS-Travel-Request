@@ -15,7 +15,8 @@ import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { resolveClaimTraveller } from './claimRemit';
 import { buildClaimRoute, buildExceptionClaimRoute, type ClaimLike } from './workflow';
 import { consumeLegacyBooking, releaseLegacyBookingsForClaim, legacyBookingByPnr } from './pnrLedger';
-import { CLAIM_STATUS, claimStatusForRole } from '@/shared/enums';
+import { readOdaBasisForm, readAccomBasisForm, readPeriodsForm, fundedOdaTotal, fundedAccomTotal } from './basis';
+import { CLAIM_STATUS, claimStatusForRole, EXPENSE_CATEGORY } from '@/shared/enums';
 
 const claimYear = () => new Date().getFullYear();
 
@@ -133,6 +134,14 @@ export async function submitClaim(claimId: string) {
     // approval with no auto-grant (there is no approved request to inherit a DOA from).
     if (!claim.noTrReason || !claim.noTrReason.trim()) {
       await prisma.auditEvent.create({ data: { requestId: null, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — a reason for the missing Travel Request is required (exception claim)` } });
+      revalidatePath(`/claims/${claimId}`);
+      return;
+    }
+    // The offline approval email is MANDATORY on an exception claim — it is the only evidence the trip was
+    // approved at all (there was no pre-trip Travel Request). Block submission until one is attached.
+    const evidenceCount = await prisma.attachment.count({ where: { claimId, docType: 'OFFLINE_APPROVAL_EVIDENCE' } });
+    if (evidenceCount === 0) {
+      await prisma.auditEvent.create({ data: { requestId: null, actorId: claim.claimantId, kind: 'STATUS', summary: `Claim ${claim.claimNumber} submission blocked — the offline approval email must be attached (exception claim)` } });
       revalidatePath(`/claims/${claimId}`);
       return;
     }
@@ -262,7 +271,54 @@ export async function updateClaimHeader(claimId: string, fd: FormData) {
       policyJustification: fd.get(`polJust_${l.id}`) !== null ? (str(fd, `polJust_${l.id}`) || null) : l.policyJustification,
     } });
   }
+  // Exception claim — the offline-approval email (mandatory). Real bytes stored in-row as an
+  // OFFLINE_APPROVAL_EVIDENCE attachment owned by the CLAIM (no TR to hang it off). Saved alongside the
+  // header; the submit guard requires at least one before the claim can be submitted.
+  if (claim.noTrException) {
+    const file = fd.get('offlineApprovalFile');
+    if (file && typeof file === 'object' && 'arrayBuffer' in file && (file as File).size > 0) {
+      const f = file as File;
+      const bytes = Buffer.from(await f.arrayBuffer());
+      await prisma.attachment.create({ data: { claimId, docType: 'OFFLINE_APPROVAL_EVIDENCE', fileName: f.name, sizeKb: Math.max(1, Math.round(f.size / 1024)), contentType: f.type, content: bytes, uploadedById: claim.claimantId } });
+    }
+  }
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Claim ${claim.claimNumber} details updated` } });
+  revalidatePath(`/claims/${claimId}`);
+}
+
+/** §4.5 Save the claimant's edited ODA / accommodation funded basis. The edited per-city rows are stored
+ *  on the claim and OVERRIDE the TR: the ODA and accommodation expense-line actuals are recomputed from
+ *  the funded (personal-excluded) totals, and the header personal-day count derives from this basis. The
+ *  TR values stay the approved reference. Draft / sent-back only. */
+export async function saveClaimBasis(claimId: string, fd: FormData) {
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { lines: true } });
+  if (!claim || (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack)) return;
+  const oda = readOdaBasisForm(fd);
+  const accom = readAccomBasisForm(fd);
+  const periods = readPeriodsForm(fd);
+  const odaFunded = fundedOdaTotal(oda, periods);
+  const accomFunded = fundedAccomTotal(accom, periods);
+  await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: {
+    odaBasisJson: oda.length ? JSON.stringify(oda) : null,
+    accomBasisJson: accom.length ? JSON.stringify(accom) : null,
+    claimPersonalPeriodsJson: periods.length ? JSON.stringify(periods.map((p) => ({ start: p.start, end: p.end, ...(p.location ? { location: p.location } : {}) }))) : null,
+  } });
+  // Reflect the recomputed funded totals on the ODA / accommodation expense lines (the claim actual).
+  const setLine = async (category: string, amount: number) => {
+    const line = claim.lines.find((l) => l.category === category);
+    if (line) await prisma.tEExpenseLine.update({ where: { id: line.id }, data: { actualSgd: amount, varianceSgd: Math.round((amount - line.approvedSgd) * 100) / 100 } });
+  };
+  if (oda.length) await setLine(EXPENSE_CATEGORY.ODA, odaFunded);
+  if (accom.length) await setLine(EXPENSE_CATEGORY.Accommodation, accomFunded);
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Claim ${claim.claimNumber} funded basis edited — ODA ${odaFunded}, accommodation ${accomFunded} (personal-excluded)` } });
+  revalidatePath(`/claims/${claimId}`);
+}
+
+/** Remove a claim-owned attachment (e.g. replace the offline-approval email). Draft/sent-back only. */
+export async function removeClaimAttachment(claimId: string, attId: string) {
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId } });
+  if (!claim || (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack)) return;
+  await prisma.attachment.deleteMany({ where: { id: attId, claimId } });
   revalidatePath(`/claims/${claimId}`);
 }
 

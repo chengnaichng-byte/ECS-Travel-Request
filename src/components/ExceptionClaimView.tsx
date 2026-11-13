@@ -5,12 +5,13 @@
 // the missing TR IS required. It bypasses pre-trip approval, so on submit it routes for full approval
 // (Verifier → Exception → RO → DOA, no auto-grant) — see buildExceptionClaimRoute.
 import Link from 'next/link';
-import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, updateClaimExpenseLine, saveClaimCharging, deleteClaim } from '@/modules/te/actions';
-import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
+import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, updateClaimExpenseLine, saveClaimCharging, deleteClaim, removeClaimAttachment } from '@/modules/te/actions';
+import { EcsIdentity, EcsReference, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { fmtSgd } from '@/modules/te/prepopulate';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
 import { currencies } from '@/data/fxRates';
+import { employees } from '@/data/employees';
 import { travelClasses } from '@/data/travelClass';
 import { CLAIM_STATUS, APPROVER_ROLE } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
@@ -31,12 +32,27 @@ type ExceptionClaim = {
   id: string; claimNumber: string; status: string; claimantId: string;
   noTrReason: string | null; exPurpose: string | null; exDestination: string | null; exTravelClass: string | null; exDescription: string | null; exBookingRef: string | null;
   trsNotBooked: boolean; travelStart: Date | null; travelEnd: Date | null; lessCorpCard: number; lessPersonal: number;
+  additionalApprover1: string | null; additionalApprover2: string | null;
   chargingMode: string; chargingMainCode: string | null; chargingJson: string | null; lines: ClaimLine[]; approvalSteps: ApprovalStep[];
+  attachments: { id: string; docType: string; fileName: string; sizeKb: number }[];
 };
 
 export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionClaim; persona: string }) {
   const emp = EcsIdentity.employee(claim.claimantId);
+  const ro = EcsIdentity.employee(emp?.reportingOfficerId ?? '');
   const canEdit = claim.status === CLAIM_STATUS.Draft || claim.status === CLAIM_STATUS.SentBack;
+  // Offline-approval email attachments (mandatory before submit — there was no pre-trip TR approval).
+  const evidence = claim.attachments.filter((a) => a.docType === 'OFFLINE_APPROVAL_EVIDENCE');
+  // Travel Booking Reference — an exception claim has no TR/TA, so the TMC feed has nothing to pull; the
+  // claimant enters the reference(s)/PNR(s) manually (optional), comma-separated for several. Rendered in
+  // the same pipe style as the TR claim, collapsing to "…and more" beyond two.
+  const exRefs = (claim.exBookingRef ?? '').split(/[,;|]/).map((s) => s.trim()).filter(Boolean);
+  const exRefParts = exRefs.length <= 2 ? exRefs : [exRefs[0], exRefs[1], '…and more'];
+  // §13.19 Travel class on an exception claim — there is no pre-trip TR, so nothing was PLANNED (greyed).
+  // The two live datapoints are the ENTITLEMENT (derived from the traveller's policy group) and the
+  // HIGHEST CLASS BOOKED, which the claimant selects (there is no TMC feed to report it).
+  const entitledClassId = EcsTravelClassRegister.entitledForItinerary(claim.claimantId, [], claim.travelStart ?? new Date()).classId;
+  const entitledClassName = EcsReference.travelClass(entitledClassId)?.name ?? 'Economy';
   const canSubmit = canEdit && (persona === claim.claimantId || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN'));
   const pendingStep = claim.approvalSteps.find((s) => s.status === 'Pending');
   const canAct = !!pendingStep && (pendingStep.approverId === persona || EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN'));
@@ -102,8 +118,22 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
       )}
 
       <form action={updateClaimHeader.bind(null, claim.id)} className="space-y-5">
-        <Card title="Travel booking details">
-          <div className="flex flex-wrap gap-x-8 gap-y-2 mb-3">
+        <Card title="Employee details">
+          <div className="grid md:grid-cols-4 gap-4">
+            <div><label className="label">Employee Name</label><input className="field" value={emp?.name ?? claim.claimantId} disabled /></div>
+            <div><label className="label">Reporting Officer</label><input className="field" value={ro ? `${ro.name} (${ro.email})` : '—'} disabled /></div>
+            <div><label className="label">Additional approver 1</label><input className="field" value={EcsIdentity.employee(claim.additionalApprover1 ?? '')?.name ?? '—'} disabled /></div>
+            <div><label className="label">Additional approver 2</label>
+              <select name="additionalApprover2" defaultValue={claim.additionalApprover2 ?? ''} disabled={!canEdit} className="field">
+                <option value="">— none —</option>
+                {employees.filter((e) => e.id !== claim.claimantId).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Travel Booking Details">
+          <div className="flex flex-wrap gap-x-8 gap-y-2 mb-4">
             <label className="flex items-center gap-2 text-sm text-[var(--ecs-navy)]" title="This claim was raised directly on the claim side with no Pre-Trip Travel Request. It can only be created from the claim side.">
               <input type="checkbox" checked readOnly disabled className="w-4 h-4" />
               <span className="font-medium">No pre-trip Travel Request (exception)</span>
@@ -113,23 +143,73 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
               Booking not made on NTU&apos;s Travel Reservation System (TRS)
             </label>
           </div>
-          <div className="mb-4 max-w-3xl">
-            <label className="label text-amber-800">Reason for no Travel Request <span className="text-[var(--ecs-red)]">* required</span></label>
-            <textarea name="noTrReason" defaultValue={claim.noTrReason ?? ''} disabled={!canEdit} rows={2} className="field" placeholder="Why was this trip not raised as a pre-trip Travel Request? (e.g. emergency / short-notice travel)" />
+          {/* Reason for the missing TR (left) beside the mandatory offline-approval email (right). */}
+          <div className="grid md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="label text-amber-800">Reason for no Travel Request <span className="text-[var(--ecs-red)]">* required</span></label>
+              <textarea name="noTrReason" defaultValue={claim.noTrReason ?? ''} disabled={!canEdit} rows={4} className="field" placeholder="Why was this trip not raised as a pre-trip Travel Request? (e.g. emergency / short-notice travel)" />
+            </div>
+            <div>
+              <label className="label text-amber-800">Offline approval email <span className="text-[var(--ecs-red)]">* required</span></label>
+              {evidence.length > 0 ? (
+                <ul className="space-y-1 mb-2">
+                  {evidence.map((a) => (
+                    <li key={a.id} className="flex items-center gap-2 text-sm rounded border border-[var(--ecs-border)] bg-white px-2 py-1">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--ecs-muted)] shrink-0"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></svg>
+                      <a href={`/claims/${claim.id}/attachments/${a.id}`} target="_blank" rel="noreferrer" className="text-[var(--ecs-navy)] hover:underline truncate">{a.fileName}</a>
+                      <span className="text-xs text-[var(--ecs-muted)] shrink-0">{a.sizeKb} KB</span>
+                      {canEdit && <button formAction={removeClaimAttachment.bind(null, claim.id, a.id)} title="Remove attachment" className="ml-auto text-[var(--ecs-red)] hover:bg-red-50 rounded px-1 shrink-0">✕</button>}
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs text-[var(--ecs-red)] mb-2">No file attached yet — required before the claim can be submitted.</p>}
+              {canEdit && <input type="file" name="offlineApprovalFile" className="block w-full text-sm text-[var(--ecs-muted)] file:mr-3 file:rounded file:border-0 file:bg-[var(--ecs-navy)] file:text-white file:px-3 file:py-1.5 file:text-sm hover:file:opacity-90" />}
+              <p className="text-[10px] text-[var(--ecs-muted)] mt-1">The email/letter approving this trip offline (there was no pre-trip Travel Request). Added when you click <b>Save draft</b>.</p>
+            </div>
           </div>
           <div className="grid md:grid-cols-3 gap-4">
-            <div><label className="label">Employee Name</label><input className="field bg-[var(--ecs-readonly,#f1f1f6)]" value={emp?.name ?? claim.claimantId} disabled /></div>
-            <div><label className="label">Travel Booking Reference <span className="text-[var(--ecs-muted)] font-normal">(optional)</span></label><input name="exBookingRef" defaultValue={claim.exBookingRef ?? ''} disabled={!canEdit} className="field" placeholder="PNR / ticket — if any" /></div>
-            <div><label className="label">Travel Class</label>
-              <select name="exTravelClass" defaultValue={claim.exTravelClass ?? ''} disabled={!canEdit} className="field">
-                <option value="">Select…</option>{travelClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+            <div>
+              <label className="label">Travel Booking Reference <span className="text-[var(--ecs-muted)] font-normal">(optional)</span></label>
+              {canEdit ? (
+                <>
+                  <input name="exBookingRef" defaultValue={claim.exBookingRef ?? ''} className="field" placeholder="PNR / e-ticket — separate multiple PNRs with a comma" />
+                  {exRefs.length > 1 && (
+                    <div className="mt-1 text-[10px] text-[var(--ecs-muted)] flex items-center flex-wrap gap-x-1.5 gap-y-0.5">
+                      <span className="font-medium">Shows as:</span>
+                      {exRefParts.map((p, i) => (<span key={i} className="contents">{i > 0 && <span className="text-[var(--ecs-border)]">|</span>}<span className={p === '…and more' ? 'italic' : 'font-mono'}>{p}</span></span>))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="field" style={{ background: 'var(--ecs-readonly)', minHeight: '2.375rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: '0.5rem', rowGap: '0.125rem' }}>
+                  {exRefs.length === 0 ? <span className="text-[var(--ecs-muted)]">—</span> : exRefParts.map((p, i) => (<span key={i} className="contents">{i > 0 && <span className="text-[var(--ecs-border)]">|</span>}<span className={p === '…and more' ? 'text-[var(--ecs-muted)] italic' : 'font-mono text-xs'}>{p}</span></span>))}
+                </div>
+              )}
+            </div>
+            <div><label className="label">Main Country / Region of Travel</label><input name="exDestination" defaultValue={claim.exDestination ?? ''} disabled={!canEdit} className="field" placeholder="e.g. United Kingdom · London" /></div>
+            <div>
+              <label className="label">Travel Entitlement | Class Planned | Highest Class Booked {newTag()}</label>
+              <div className="field" style={{ background: 'var(--ecs-readonly)', minHeight: '2.375rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: '0.5rem', rowGap: '0.25rem' }}
+                title="Entitled cabin (policy group)  |  nothing planned — no pre-trip TR  |  highest cabin booked (you select)">
+                <span>{entitledClassName}</span>
+                <span className="text-[var(--ecs-border)]">|</span>
+                <span className="text-[var(--ecs-muted)]">—</span>
+                <span className="text-[var(--ecs-border)]">|</span>
+                <select name="exTravelClass" defaultValue={claim.exTravelClass ?? ''} disabled={!canEdit}
+                  className="border border-[var(--ecs-border)] rounded bg-white text-sm px-2 py-1 outline-none focus:border-[var(--ecs-navy)] focus:ring-1 focus:ring-[var(--ecs-navy)] disabled:opacity-70">
+                  <option value="">Select…</option>{travelClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="text-[10px] text-[var(--ecs-muted)] mt-1">Policy group · n/a (no pre-trip TR) · you select the highest cabin booked</div>
             </div>
             <div><label className="label">Travel Purpose</label><input name="exPurpose" defaultValue={claim.exPurpose ?? ''} disabled={!canEdit} className="field" placeholder="e.g. Conference / fieldwork" /></div>
-            <div><label className="label">Main Country / Region of Travel</label><input name="exDestination" defaultValue={claim.exDestination ?? ''} disabled={!canEdit} className="field" placeholder="e.g. United Kingdom · London" /></div>
-            <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
-            <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
-            <div className="md:col-span-3"><label className="label">Trip Description</label><input name="exDescription" defaultValue={claim.exDescription ?? ''} disabled={!canEdit} className="field" /></div>
+            <div><label className="label">Trip Description</label><input name="exDescription" defaultValue={claim.exDescription ?? ''} disabled={!canEdit} className="field" /></div>
+            <div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
+                <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
+              </div>
+            </div>
           </div>
         </Card>
 
