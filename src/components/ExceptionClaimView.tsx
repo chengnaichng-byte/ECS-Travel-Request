@@ -17,6 +17,7 @@ import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/compon
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { EditExpenseModal } from '@/components/EditExpenseModal';
 import { ViewExpenseModal, type ExpenseView } from '@/components/ViewExpenseModal';
+import { CtaDetailModal } from '@/components/CtaDetailModal';
 import { ClaimDecisionBar } from '@/components/ClaimDecisionBar';
 import { Card, Empty } from '@/components/ui';
 
@@ -24,7 +25,7 @@ const ROLE_LABEL: Record<string, string> = { [APPROVER_ROLE.Verifier]: 'Verifier
 const RECEIPT: Record<string, string> = { LOCAL_GST: 'Local (With GST)', FOREIGN_NO_GST: 'Foreign / No GST', NO_RECEIPT: 'No receipt' };
 const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
 
-type ClaimLine = { id: string; category: string | null; expenseTypeId: string; actualSgd: number; approvedSgd: number; sponsorSgd: number; reason: string | null; receiptType: string; currency: string; foreignAmount: number | null; transactionDate: Date | null; manualEntry: boolean; chargingCode: string | null; allocJson: string | null };
+type ClaimLine = { id: string; category: string | null; expenseTypeId: string; actualSgd: number; approvedSgd: number; sponsorSgd: number; reason: string | null; receiptType: string; currency: string; foreignAmount: number | null; transactionDate: Date | null; manualEntry: boolean; policyJustification: string | null; chargingCode: string | null; allocJson: string | null };
 type ApprovalStep = { seq: number; roleType: string; approverId: string | null; status: string; comments: string | null };
 type ExceptionClaim = {
   id: string; claimNumber: string; status: string; claimantId: string;
@@ -42,8 +43,13 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
 
   const labelOf = (l: ClaimLine) => EcsReference.expenseType(l.expenseTypeId)?.name ?? l.category ?? l.expenseTypeId;
   const totalExpenses = claim.lines.reduce((s, l) => s + l.actualSgd, 0);
+  const totalApproved = claim.lines.reduce((s, l) => s + l.approvedSgd, 0);
   const totalReimbursable = Math.max(totalExpenses - claim.lessCorpCard - claim.lessPersonal, 0);
   const expenseView = (l: ClaimLine): ExpenseView => ({ label: labelOf(l), date: d(l.transactionDate), isRef: false, approvedSgd: 0, actualSgd: l.actualSgd, reason: l.reason ?? '', receipt: RECEIPT[l.receiptType] ?? l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd });
+  // Same NEW-datapoint chip as the TR claim; the TR-derived columns (Approved est., policy sync) carry
+  // no data on an exception claim, so they render greyed "—".
+  const newTag = () => <span className="ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: '1px solid #a7dcc6' }}>NEW</span>;
+  const dash = <span className="text-[var(--ecs-muted)]">—</span>;
 
   const accounts: AccountOpt[] = chargingCodes.map((c) => ({ code: c.code, name: c.name, type: c.type, companyCode: c.companyCode, businessArea: c.businessArea, research: c.isResearch, crossCharge: !!c.crossCharge, closed: c.active === false }));
   const etOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gl: e.glAccount, gst: e.gstCode }));
@@ -130,10 +136,23 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
         <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, claim.id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} /> : undefined}>
           {claim.lines.length === 0 ? <Empty>No expense items — add every cost incurred on this trip.</Empty> : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              {/* Same ECS column set as a TR-based claim. The TR-derived columns (Approved est. and the
+                  policy-exception sync) have no data on an exception claim, so they render greyed "—". */}
+              <table className="text-sm" style={{ tableLayout: 'fixed', width: 'calc(100% + 860px)' }}>
+                <colgroup>
+                  <col /><col style={{ width: 40 }} /><col /><col /><col style={{ width: 190 }} /><col /><col /><col style={{ width: 68 }} /><col /><col /><col /><col />
+                  <col style={{ width: 130 }} /><col style={{ width: 160 }} /><col style={{ width: 160 }} /><col style={{ width: 150 }} /><col style={{ width: 110 }} /><col style={{ width: 150 }} />
+                </colgroup>
                 <thead><tr>
-                  <th className="th">Actions</th><th className="th whitespace-nowrap">Transaction date</th><th className="th">Expense type</th><th className="th">Reason for expense</th>
-                  <th className="th text-right whitespace-nowrap">Expense amount (SGD)</th><th className="th">Receipt</th>
+                  <th className="th">Actions</th>
+                  <th className="th"><input type="checkbox" disabled className="w-4 h-4 align-middle" title="Select for allocation" /></th>
+                  <th className="th">Transaction date</th><th className="th">Expense type</th>
+                  <th className="th">Reason for expense</th>
+                  <th className="th text-right">Expense amount (SGD)</th>
+                  <th className="th text-right" style={{ background: '#f0faf5' }}>Approved est. {newTag()}</th>
+                  <th className="th text-center">Policy violation</th><th className="th text-right">Policy limit per unit</th><th className="th text-right">Total amount exceeded limit</th><th className="th text-right">% Exceeded</th><th className="th">Justification for policy violation</th>
+                  <th className="th">Verifier verify status</th><th className="th">Verifier rejection reason</th><th className="th">Verifier comment</th>
+                  <th className="th">Attachment</th><th className="th">Is duplicated?</th><th className="th">Send back history</th>
                 </tr></thead>
                 <tbody>
                   {claim.lines.map((l) => (
@@ -145,23 +164,57 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
                           {canEdit && <button formAction={removeClaimExpense.bind(null, claim.id, l.id)} title="Remove line" className={`${iconBtn} hover:bg-red-50 text-[var(--ecs-red)]`}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></button>}
                         </div>
                       </td>
+                      <td className="td"><input type="checkbox" disabled className="w-4 h-4" /></td>
                       <td className="td whitespace-nowrap">{d(l.transactionDate) || '—'}</td>
                       <td className="td font-medium">{labelOf(l)}</td>
                       <td className="td">{canEdit ? <input key={`reason_${l.id}`} name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
-                      <td className="td text-right whitespace-nowrap">{canEdit ? <input key={`actual_${l.id}`} name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right w-28 ml-auto" /> : fmtSgd(l.actualSgd)}</td>
+                      <td className="td text-right whitespace-nowrap">{canEdit ? <input key={`actual_${l.id}`} name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right" /> : fmtSgd(l.actualSgd)}</td>
+                      <td className="td text-right whitespace-nowrap text-[var(--ecs-muted)]" style={{ background: '#f0faf5' }}>—</td>
+                      <td className="td text-center">{dash}</td>
+                      <td className="td text-right">{dash}</td>
+                      <td className="td text-right">{dash}</td>
+                      <td className="td text-right">{dash}</td>
+                      <td className="td">{canEdit ? <input name={`polJust_${l.id}`} defaultValue={l.policyJustification ?? ''} className="field" placeholder="—" /> : (l.policyJustification ?? '—')}</td>
+                      <td className="td">{dash}</td>
+                      <td className="td">{dash}</td>
+                      <td className="td">{dash}</td>
                       <td className="td">{canEdit ? (
                         <select name={`receipt_${l.id}`} defaultValue={l.receiptType} className="field">
                           {Object.entries(RECEIPT).map(([v, lab]) => <option key={v} value={v}>{lab}</option>)}
                         </select>
                       ) : RECEIPT[l.receiptType] ?? l.receiptType}</td>
+                      <td className="td text-center">{dash}</td>
+                      <td className="td whitespace-nowrap">{dash}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr><td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Total expenses</td><td className="td"></td><td className="td text-right font-medium whitespace-nowrap">{fmtSgd(totalExpenses)}</td><td className="td"></td></tr>
-                  <tr><td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</td><td className="td"></td><td className="td text-right">{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28 ml-auto" /> : fmtSgd(claim.lessCorpCard)}</td><td className="td"></td></tr>
-                  <tr><td colSpan={3} className="td text-right text-[var(--ecs-muted)]">Less Personal / Sponsorship</td><td className="td"></td><td className="td text-right">{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right w-28 ml-auto" /> : fmtSgd(claim.lessPersonal)}</td><td className="td"></td></tr>
-                  <tr><td colSpan={3} className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)]">Total Reimbursable Amount</td><td className="td border-t-2 border-[var(--ecs-border)]"></td><td className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)] whitespace-nowrap">{fmtSgd(totalReimbursable)}</td><td className="td border-t-2 border-[var(--ecs-border)]"></td></tr>
+                  <tr>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Total expenses (all lines)</td>
+                    <td className="td text-right font-medium whitespace-nowrap">{fmtSgd(totalExpenses)}</td>
+                    <td className="td text-right font-medium whitespace-nowrap text-[var(--ecs-muted)]" style={{ background: '#f0faf5' }}>{totalApproved > 0 ? fmtSgd(totalApproved) : '—'}</td>
+                    <td colSpan={11}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]"><span className="inline-flex items-center justify-end">Less: charges paid by CTA — reference only<CtaDetailModal total={0} account={null} lines={[]} /></span></td>
+                    <td className="td text-right text-[var(--ecs-muted)] whitespace-nowrap">− {fmtSgd(0)}</td>
+                    <td colSpan={12}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</td>
+                    <td className="td text-right">{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right" /> : fmtSgd(claim.lessCorpCard)}</td>
+                    <td colSpan={12}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less Personal / Sponsorship</td>
+                    <td className="td text-right">{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right" /> : fmtSgd(claim.lessPersonal)}</td>
+                    <td colSpan={12}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={5} className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)]">Total Reimbursable Amount</td>
+                    <td className="td text-right font-bold text-[var(--ecs-navy)] border-t-2 border-[var(--ecs-border)] whitespace-nowrap">{fmtSgd(totalReimbursable)}</td>
+                    <td colSpan={12}></td>
+                  </tr>
                 </tfoot>
               </table>
             </div>

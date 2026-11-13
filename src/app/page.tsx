@@ -150,10 +150,10 @@ export default async function Home() {
           {announcements.map((a, i) => {
             const t = TONES[a.tone] ?? TONES.info;
             return (
-              <div key={i} className="flex items-start gap-3 rounded-xl border p-3.5" style={{ background: t.bg, borderColor: t.border, color: t.ink }}>
-                <span className="shrink-0 mt-0.5">{I(ICON.megaphone)}</span>
-                <div className="min-w-0 flex-1 text-[13px] leading-snug">{a.message}</div>
-                {a.href && a.linkLabel && <Link href={a.href} className="shrink-0 text-[13px] font-semibold underline whitespace-nowrap self-center" style={{ color: t.ink }}>{a.linkLabel} →</Link>}
+              <div key={i} className="flex items-start gap-3 rounded-xl border border-[var(--ecs-border)] border-l-4 bg-white p-3.5" style={{ borderLeftColor: t.ink }}>
+                <span className="shrink-0 mt-0.5" style={{ color: t.ink }}>{I(ICON.megaphone)}</span>
+                <div className="min-w-0 flex-1 text-[13px] leading-snug text-[var(--ecs-navy)]">{a.message}</div>
+                {a.href && a.linkLabel && <Link href={a.href} className="shrink-0 text-[13px] font-semibold whitespace-nowrap self-center hover:underline" style={{ color: t.ink }}>{a.linkLabel} →</Link>}
               </div>
             );
           })}
