@@ -77,7 +77,7 @@ export async function LegacyClaimView({ claim, persona }: { claim: LegacyClaim; 
           </div>
         </Card>
 
-        <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, claim.id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} /> : undefined}>
+        <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, claim.id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name, gstCode: e.gstCode, taxRatePct: e.taxRatePct }))} currencies={currencies} /> : undefined}>
           {claim.lines.length === 0 ? <Empty>No expense items — add the costs incurred on this trip.</Empty> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

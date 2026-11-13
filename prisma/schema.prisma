@@ -777,6 +777,7 @@ model TEExpenseLine {
                                              // approved at the TR syncs its justification Reference-only and is not stored here.
   manualEntry   Boolean @default(false)      // true = added by the claimant on the claim (deletable at Draft); false = pre-populated
                                              // from the approved TR (a budget line — cannot be deleted, only edited to 0).
+  attachments   Attachment[]                 // §2 per-line RECEIPT upload(s) (real bytes) — the future AI-OCR source
 }
 
 /// §7.1 TravelExpenseLink — links Travel Request to one or more TE claims
@@ -823,7 +824,9 @@ model Attachment {
   request       TravelRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
   claimId       String?                     // … OR a claim (exception claim offline-approval email — no TR to hang it off)
   claim         TravelExpenseClaim? @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  docType       String                      // Quotation | Conference Invitation | Approval Evidence | OFFLINE_APPROVAL_EVIDENCE | Other
+  lineId        String?                     // … a per-expense-line RECEIPT (also carries claimId for the claim-scoped download route)
+  line          TEExpenseLine? @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  docType       String                      // Quotation | Conference Invitation | Approval Evidence | OFFLINE_APPROVAL_EVIDENCE | RECEIPT | Other
   deviationId   String?                     // §8 set when docType = OFFLINE_APPROVAL_EVIDENCE: the BookingDeviation this evidence supports
   fileName      String
   sizeKb        Int     @default(0)

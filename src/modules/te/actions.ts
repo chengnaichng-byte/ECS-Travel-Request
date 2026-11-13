@@ -338,6 +338,17 @@ export async function removeClaimAttachment(claimId: string, attId: string) {
   revalidatePath(`/claims/${claimId}`);
 }
 
+/** §2 Persist (replace) a per-line RECEIPT upload — real bytes stored in-row, the future AI-OCR source.
+ *  Carries claimId too so the claim-scoped download route (/claims/[id]/attachments/[attId]) serves it. */
+async function storeLineReceipt(claimId: string, lineId: string, uploadedBy: string, fd: FormData) {
+  const file = fd.get('receiptFile');
+  if (!(file && typeof file === 'object' && 'arrayBuffer' in file && (file as File).size > 0)) return;
+  const f = file as File;
+  const bytes = Buffer.from(await f.arrayBuffer());
+  await prisma.attachment.deleteMany({ where: { lineId, docType: 'RECEIPT' } }); // one receipt per line
+  await prisma.attachment.create({ data: { claimId, lineId, docType: 'RECEIPT', fileName: f.name, sizeKb: Math.max(1, Math.round(f.size / 1024)), contentType: f.type, content: bytes, uploadedById: uploadedBy } });
+}
+
 /** Add an expense line (ECS "Add Expense" modal). */
 export async function addClaimExpense(claimId: string, fd: FormData) {
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId } });
@@ -346,14 +357,15 @@ export async function addClaimExpense(claimId: string, fd: FormData) {
   const type = EcsReference.expenseType(typeId);
   if (!type) return;
   const amount = num(fd, 'amount');
-  await prisma.tEExpenseLine.create({ data: {
+  const newLine = await prisma.tEExpenseLine.create({ data: {
     claimId, category: type.category, expenseTypeId: typeId, treatment: 'EDITABLE', manualEntry: true,
     approvedSgd: 0, bookedSgd: null, actualSgd: amount, varianceSgd: amount,
     transactionDate: str(fd, 'transactionDate') ? new Date(str(fd, 'transactionDate')) : null,
-    currency: str(fd, 'currency') || 'SGD', foreignAmount: amount,
+    currency: str(fd, 'currency') || 'SGD', foreignAmount: num(fd, 'foreignAmount') || amount,
     sponsorSgd: num(fd, 'sponsorship'), reason: str(fd, 'reason') || null,
     receiptType: str(fd, 'receiptType') || 'LOCAL_GST',
   } });
+  await storeLineReceipt(claimId, newLine.id, claim.claimantId, fd);
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Expense line added to claim ${claim.claimNumber}` } });
   revalidatePath(`/claims/${claimId}`);
 }
@@ -375,13 +387,14 @@ export async function updateClaimExpenseLine(claimId: string, lineId: string, fd
     : {};
   await prisma.tEExpenseLine.update({ where: { id: lineId }, data: {
     actualSgd: amount, varianceSgd: Math.round((amount - line.approvedSgd) * 100) / 100,
-    currency: str(fd, 'currency') || line.currency, foreignAmount: amount,
+    currency: str(fd, 'currency') || line.currency, foreignAmount: num(fd, 'foreignAmount') || amount,
     sponsorSgd: num(fd, 'sponsorship'),
     receiptType: str(fd, 'receiptType') || line.receiptType,
     reason: str(fd, 'reason') || null,
     transactionDate: str(fd, 'transactionDate') ? new Date(str(fd, 'transactionDate')) : line.transactionDate,
     ...typeUpd,
   } });
+  await storeLineReceipt(claimId, lineId, claim.claimantId, fd);
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Expense line edited on claim ${claim.claimNumber}` } });
   revalidatePath(`/claims/${claimId}`);
 }

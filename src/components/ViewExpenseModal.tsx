@@ -12,10 +12,11 @@ export interface OdaRow { country: string; city: string; arrive: string; depart:
 export interface AccomRow { country: string; city: string; checkIn: string; checkOut: string; nights: number; personal: number; funded: number; rate: number; amount: number }
 export interface M6Split { fare: number; entitlement: number; differential: number; account: string }
 export interface ExpenseView {
-  label: string; date: string; isRef: boolean; approvedSgd: number; actualSgd: number;
+  label: string; date: string; isRef: boolean; manualEntry: boolean; receiptRequired: boolean; approvedSgd: number; actualSgd: number;
   reason: string; receiptType: string; currency: string; foreignAmount: number | null; sponsorSgd: number;
   paymentCtc: boolean; gstCode: string; gstRatePct: number; gstAmount: number; baseAmount: number; exchangeRate: number;
   oda?: OdaRow[]; accom?: AccomRow[]; m6?: M6Split | null;
+  receipt?: { fileName: string; href: string; contentType?: string | null } | null;   // the per-line receipt attachment (NEW — receipt-first capture)
 }
 
 const fmt = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -71,7 +72,49 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
               <button type="button" onClick={() => setOpen(false)} className="text-white/90 text-xl leading-none">✕</button>
             </div>
             <div className="p-5 space-y-4">
-              {/* ── Top: two columns, mirroring the ECS Expense Detail dialog ── */}
+              {/* ── RECEIPT FIRST — leads the form, matching the Add / Edit receipt-first flow. A pre-filled
+                  allowance (ODA / per-diem) or centrally-billed (CTC) line shows its source; an out-of-pocket
+                  line (hotel, reimbursable airfare, claimant-added) shows the receipt type + the attachment. */}
+              <div className="space-y-3 pb-4 border-b border-[var(--ecs-border)]">
+                {!e.receiptRequired ? (
+                  <div>
+                    <label className="label">Receipt</label>
+                    <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: '#9cc3e6', background: '#eef5fc' }}>
+                      <span className="font-medium text-[var(--ecs-navy)]">Pre-filled from the approved TR &amp; TMC feed</span>
+                      <span className="text-[var(--ecs-navy-2)]"> — {e.isRef ? 'centrally billed (CTC)' : 'entitlement / per-diem'}; no receipt required.</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid md:grid-cols-2 gap-x-6 gap-y-3">
+                    <Radios label="Receipt" options={RECEIPTS.map((r) => [r, RLABEL[r]]) as [string, string][]} selected={e.receiptType} />
+                    <F label="Justification For No Receipt" value={e.receiptType === 'NO_RECEIPT' ? (e.reason || '—') : '—'} />
+                  </div>
+                )}
+                {e.receipt ? (
+                  <div>
+                    <label className="label">Receipt attachment<NewTag /></label>
+                    <a href={e.receipt.href} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-shadow hover:shadow-sm" style={{ background: HI, borderColor: HIBORDER }}>
+                      {e.receipt.contentType?.startsWith('image/') ? (
+                        // image receipt → show a real thumbnail of the uploaded file
+                        <img src={e.receipt.href} alt={e.receipt.fileName} className="h-16 w-16 shrink-0 rounded border border-[var(--ecs-border)] bg-white object-cover" />
+                      ) : (
+                        // PDF / other → a document placeholder
+                        <span className="grid h-16 w-16 shrink-0 place-items-center rounded border border-[var(--ecs-border)] bg-white text-[#0f6e56]">
+                          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-[#0f6e56] underline">{e.receipt.fileName}</span>
+                        <span className="block text-[11px] text-[var(--ecs-muted)]">captured on this expense · click to open</span>
+                      </span>
+                    </a>
+                  </div>
+                ) : e.receiptRequired ? (
+                  <p className="text-[11px] text-[var(--ecs-muted)]">Supporting receipts / documents are attached and listed on the claim&apos;s Attachment panel.</p>
+                ) : null}
+              </div>
+
+              {/* ── ECS Expense Detail — two columns ── */}
               <div className="grid md:grid-cols-2 gap-x-6 gap-y-4">
                 {/* LEFT */}
                 <div className="space-y-4">
@@ -183,12 +226,6 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
                 </div>
               )}
 
-              {/* Receipt type + justification — ECS. */}
-              <div className="grid md:grid-cols-2 gap-x-6 gap-y-3 pt-1 border-t border-[var(--ecs-border)]">
-                <Radios label="Receipt" options={RECEIPTS.map((r) => [r, RLABEL[r]]) as [string, string][]} selected={e.receiptType} />
-                <F label="Justification For No Receipt" value={e.receiptType === 'NO_RECEIPT' ? (e.reason || '—') : '—'} />
-              </div>
-              <p className="text-[11px] text-[var(--ecs-muted)]">Supporting receipts / documents are attached and listed on the claim&apos;s Attachment panel.</p>
             </div>
             <div className="px-5 py-3 border-t border-[var(--ecs-border)] flex justify-end"><button type="button" onClick={() => setOpen(false)} className="btn-secondary">Close</button></div>
           </div>

@@ -13,7 +13,7 @@ import { expenseTypes } from '@/data/expenseTypes';
 import { currencies } from '@/data/fxRates';
 import { employees } from '@/data/employees';
 import { travelClasses } from '@/data/travelClass';
-import { CLAIM_STATUS, APPROVER_ROLE } from '@/shared/enums';
+import { CLAIM_STATUS, APPROVER_ROLE, EXPENSE_CATEGORY } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { EditExpenseModal } from '@/components/EditExpenseModal';
@@ -26,7 +26,7 @@ const ROLE_LABEL: Record<string, string> = { [APPROVER_ROLE.Verifier]: 'Verifier
 const RECEIPT: Record<string, string> = { LOCAL_GST: 'Local (With GST)', FOREIGN_NO_GST: 'Foreign / No GST', NO_RECEIPT: 'No receipt' };
 const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
 
-type ClaimLine = { id: string; category: string | null; expenseTypeId: string; actualSgd: number; approvedSgd: number; sponsorSgd: number; reason: string | null; receiptType: string; currency: string; foreignAmount: number | null; transactionDate: Date | null; manualEntry: boolean; policyJustification: string | null; chargingCode: string | null; allocJson: string | null };
+type ClaimLine = { id: string; category: string | null; expenseTypeId: string; actualSgd: number; approvedSgd: number; sponsorSgd: number; reason: string | null; receiptType: string; currency: string; foreignAmount: number | null; transactionDate: Date | null; manualEntry: boolean; policyJustification: string | null; chargingCode: string | null; allocJson: string | null; attachments?: { id: string; docType: string; fileName: string; contentType: string | null }[] };
 type ApprovalStep = { seq: number; roleType: string; approverId: string | null; status: string; comments: string | null };
 type ExceptionClaim = {
   id: string; claimNumber: string; status: string; claimantId: string;
@@ -65,7 +65,8 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
     const et = EcsReference.expenseType(l.expenseTypeId);
     const gstRatePct = et?.taxRatePct ?? 0;
     const gstAmount = gstRatePct > 0 ? Math.round((l.actualSgd * gstRatePct / (100 + gstRatePct)) * 100) / 100 : 0;
-    return { label: labelOf(l), date: d(l.transactionDate), isRef: false, approvedSgd: 0, actualSgd: l.actualSgd, reason: l.reason ?? '', receiptType: l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd, paymentCtc: false, gstCode: et?.gstCode ?? '—', gstRatePct, gstAmount, baseAmount: Math.round((l.actualSgd - gstAmount) * 100) / 100, exchangeRate: l.foreignAmount && l.foreignAmount > 0 ? Math.round((l.actualSgd / l.foreignAmount) * 100000) / 100000 : 1 };
+    const rec = l.attachments?.find((a) => a.docType === 'RECEIPT');
+    return { label: labelOf(l), date: d(l.transactionDate), isRef: false, manualEntry: true, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA, approvedSgd: 0, actualSgd: l.actualSgd, reason: l.reason ?? '', receiptType: l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd, paymentCtc: false, gstCode: et?.gstCode ?? '—', gstRatePct, gstAmount, baseAmount: Math.round((l.actualSgd - gstAmount) * 100) / 100, exchangeRate: l.foreignAmount && l.foreignAmount > 0 ? Math.round((l.actualSgd / l.foreignAmount) * 100000) / 100000 : 1, receipt: rec ? { fileName: rec.fileName, href: `/claims/${claim.id}/attachments/${rec.id}`, contentType: rec.contentType } : null };
   };
   // Same NEW-datapoint chip as the TR claim; the TR-derived columns (Approved est., policy sync) carry
   // no data on an exception claim, so they render greyed "—".
@@ -74,6 +75,8 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
 
   const accounts: AccountOpt[] = chargingCodes.map((c) => ({ code: c.code, name: c.name, type: c.type, companyCode: c.companyCode, businessArea: c.businessArea, research: c.isResearch, crossCharge: !!c.crossCharge, closed: c.active === false }));
   const etOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gl: e.glAccount, gst: e.gstCode }));
+  // Full ECS datapoint options for the Add / Edit expense modals (GST code + rate drive the derived GST block).
+  const etModalOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gstCode: e.gstCode, taxRatePct: e.taxRatePct }));
   const cj: { rows: { code: string; percent: number; io: string; isMain: boolean }[] } = claim.chargingJson ? JSON.parse(claim.chargingJson) : { rows: [] };
   const defaultAccount = emp?.defaultChargingCode ?? chargingCodes[0]?.code ?? '';
   const claimInitialAllocs = (l: ClaimLine) => {
@@ -218,7 +221,7 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
           </div>
         </Card>
 
-        <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, claim.id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} /> : undefined}>
+        <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, claim.id)} expenseTypes={etModalOpts} currencies={currencies} /> : undefined}>
           {claim.lines.length === 0 ? <Empty>No expense items — add every cost incurred on this trip.</Empty> : (
             <div className="overflow-x-auto">
               {/* Same ECS column set as a TR-based claim. The TR-derived columns (Approved est. and the
@@ -245,7 +248,10 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
                       <td className="td">
                         <div className="flex items-center gap-0.5">
                           <ViewExpenseModal e={expenseView(l)} />
-                          {canEdit && <EditExpenseModal action={updateClaimExpenseLine.bind(null, claim.id, l.id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, transactionDate: d(l.transactionDate), currency: l.currency, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '' }} />}
+                          {canEdit && (() => {
+                            const rec = l.attachments?.find((a) => a.docType === 'RECEIPT');
+                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, claim.id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, claim.id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA, transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${claim.id}/attachments/${rec.id}` } : null }} />;
+                          })()}
                           {canEdit && <button formAction={removeClaimExpense.bind(null, claim.id, l.id)} title="Remove line" className={`${iconBtn} hover:bg-red-50 text-[var(--ecs-red)]`}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></button>}
                         </div>
                       </td>

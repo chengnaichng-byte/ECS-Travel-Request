@@ -9,7 +9,7 @@ import { loadRequest } from '@/modules/pretrip/queries';
 import { getSettings } from '@/modules/pretrip/settings';
 import { prepopulateClaim, fmtSgd } from '@/modules/te/prepopulate';
 import { getContractSettings, prepopContract } from '@/modules/pretrip/integration';
-import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, updateClaimExpenseLine, saveClaimCharging, waiveEvidence, saveClaimBasis } from '@/modules/te/actions';
+import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, updateClaimExpenseLine, saveClaimCharging, waiveEvidence, saveClaimBasis, removeClaimAttachment } from '@/modules/te/actions';
 import { claimChargingContext, doaAutoGrant, type ClaimLike } from '@/modules/te/workflow';
 import { EcsReference, EcsIdentity, EcsTravelClassRegister } from '@/shared/ecs/services';
 import { getCtaAccount } from '@/modules/pretrip/ctaMaster';
@@ -43,7 +43,7 @@ const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
 
 export default async function ClaimPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id }, include: { lines: true, approvalSteps: { orderBy: { seq: 'asc' } }, attachments: { orderBy: { createdAt: 'desc' } } } });
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id }, include: { lines: { include: { attachments: true } }, approvalSteps: { orderBy: { seq: 'asc' } }, attachments: { orderBy: { createdAt: 'desc' } } } });
   if (!claim) notFound();
   const persona = await currentPersonaId();
   // TMC transition — a LEGACY claim (pre-go-live PNR, no Pre-Trip TR) has no approved request, so it
@@ -226,10 +226,11 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
     const gstRatePct = et?.taxRatePct ?? 0;
     const gstAmount = gstRatePct > 0 ? Math.round((l.actualSgd * gstRatePct / (100 + gstRatePct)) * 100) / 100 : 0;
     const v: ExpenseView = {
-      label: labelOf(l), date: d(l.transactionDate), isRef: isRef(l), approvedSgd: l.approvedSgd, actualSgd: l.actualSgd,
+      label: labelOf(l), date: d(l.transactionDate), isRef: isRef(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), approvedSgd: l.approvedSgd, actualSgd: l.actualSgd,
       reason: l.reason ?? '', receiptType: l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd,
       paymentCtc: isRef(l), gstCode: et?.gstCode ?? '—', gstRatePct, gstAmount, baseAmount: Math.round((l.actualSgd - gstAmount) * 100) / 100,
       exchangeRate: l.foreignAmount && l.foreignAmount > 0 ? Math.round((l.actualSgd / l.foreignAmount) * 100000) / 100000 : 1,
+      receipt: (() => { const rec = l.attachments.find((a) => a.docType === 'RECEIPT'); return rec ? { fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}`, contentType: rec.contentType } : null; })(),
     };
     const countryName = (code: string) => EcsReference.country(code)?.name ?? code;
     if (l.category === EXPENSE_CATEGORY.ODA && effOda.length) {
@@ -265,6 +266,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const defaultAccount = emp?.defaultChargingCode ?? chargingCodes[0]?.code ?? '';
   const accounts: AccountOpt[] = chargingCodes.map((c) => ({ code: c.code, name: c.name, type: c.type, companyCode: c.companyCode, businessArea: c.businessArea, research: c.isResearch, crossCharge: !!c.crossCharge, closed: c.active === false }));
   const etOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gl: e.glAccount, gst: e.gstCode }));
+  // Full ECS datapoint options for the Add / Edit expense modals (GST code + rate drive the derived GST block).
+  const etModalOpts = expenseTypes.map((e) => ({ id: e.id, name: e.name, gstCode: e.gstCode, taxRatePct: e.taxRatePct }));
   const claimInitialAllocs = (l: { allocJson: string | null; chargingCode: string | null }): { code: string; pct: number; io: string }[] | undefined => {
     if (l.allocJson) { try { const a = JSON.parse(l.allocJson); if (Array.isArray(a) && a.length) return a.map((x: { code: string; pct: number; io?: string }) => ({ code: x.code, pct: Number(x.pct), io: x.io || '' })); } catch { /* ignore */ } }
     return l.chargingCode ? [{ code: l.chargingCode, pct: 100, io: '' }] : undefined;
@@ -405,7 +408,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           </div>
         </Card>
 
-        <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} /> : undefined}>
+        <Card title={`Expense items (${claim.lines.length})`} actions={canEdit ? <AddExpenseModal action={addClaimExpense.bind(null, id)} expenseTypes={etModalOpts} currencies={currencies} /> : undefined}>
           {claim.lines.length === 0 ? <Empty>No expense items — add one, or create the claim from an approved request.</Empty> : (
             <div className="overflow-x-auto">
               {/* Fixed layout: the 12 key columns (Actions → Justification) fill the card width so
@@ -439,7 +442,10 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                       <td className="td">
                         <div className="flex items-center gap-0.5">
                           <ViewExpenseModal e={expenseView(l)} />
-                          {canEdit && !isRef(l) && <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} expenseTypes={expenseTypes.map((e) => ({ id: e.id, name: e.name }))} currencies={currencies} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, transactionDate: d(l.transactionDate), currency: l.currency, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '' }} />}
+                          {canEdit && !isRef(l) && (() => {
+                            const rec = l.attachments.find((a) => a.docType === 'RECEIPT');
+                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}` } : null }} />;
+                          })()}
                           {canEdit && (l.manualEntry
                             ? <button formAction={removeClaimExpense.bind(null, id, l.id)} title="Remove line" className="inline-grid place-items-center w-7 h-7 rounded hover:bg-red-50 text-[var(--ecs-red)]"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></button>
                             : <span title="Budget line from the approved TR — cannot be deleted; set actual to 0 if not claimed" className="inline-grid place-items-center w-7 h-7 text-[var(--ecs-muted)] opacity-50"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg></span>)}
