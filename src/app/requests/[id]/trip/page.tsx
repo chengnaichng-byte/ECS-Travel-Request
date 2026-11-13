@@ -6,7 +6,6 @@ import { currentPersonaId } from '@/shared/session';
 import { canEditRequest } from '@/modules/pretrip/guards';
 import { saveTrip, attachNamedFile, removeNamedAttachment, saveTravellerItinerary, saveTravellerPersonal, uploadTravellerData } from '@/modules/pretrip/actions';
 import { ItineraryUpload } from '@/components/ItineraryUpload';
-import { travelClasses } from '@/data/travelClass';
 import { getSettings } from '@/modules/pretrip/settings';
 import { memberName, isGuestMember, hasNonEmployeeTraveller } from '@/modules/pretrip/traveller';
 import { GroupPersonalDays } from '@/components/GroupPersonalDays';
@@ -167,9 +166,9 @@ export default async function TripStep({ params, searchParams }: { params: Promi
         >
           <ItineraryUpload
             action={uploadTravellerData.bind(null, id)}
+            templateHref={`/requests/${id}/itinerary-template`}
             travellers={req.travellers.map((t) => ({ label: memberName(t), line: String(t.lineNo ?? '') }))}
             airports={airports.map((a) => ({ code: a.code, name: a.name, city: cities.find((c) => c.code === a.cityCode)?.name ?? a.cityCode }))}
-            classes={travelClasses.map((c) => c.name)}
           />
         </CollapsibleCard>
       )}

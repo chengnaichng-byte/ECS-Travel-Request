@@ -30,11 +30,11 @@ const pick = (r: Record<string, unknown>, aliases: string[]): unknown => {
 };
 const truthy = (v: unknown) => /^(y|yes|true|1|personal)$/i.test(String(v ?? '').trim());
 
-export function ItineraryUpload({ action, travellers, airports, classes }: {
+export function ItineraryUpload({ action, travellers, airports, templateHref }: {
   action: (payloadJson: string) => Promise<Result | null>;
   travellers: Traveller[];
   airports: Airport[];
-  classes: string[];
+  templateHref: string;
 }) {
   const [itin, setItin] = useState<ItinRow[] | null>(null);
   const [pers, setPers] = useState<PersRow[] | null>(null);
@@ -46,23 +46,6 @@ export function ItineraryUpload({ action, travellers, airports, classes }: {
   const codes = new Set(airports.map((a) => a.code));
   const travLabels = new Set(travellers.flatMap((t) => [t.label.toLowerCase(), t.line, t.line.padStart(2, '0')]));
   const travOk = (t: string) => travLabels.has((t ?? '').trim().toLowerCase()) || travLabels.has((t ?? '').trim());
-
-  const downloadTemplate = () => {
-    const wb = XLSX.utils.book_new();
-    const ex = travellers[0]?.label ?? 'Traveller name';
-    const itinSeed = [
-      { Traveller: ex, Seq: 1, Origin: 'SIN', Dest: 'HND', Depart: '2026-12-31', Arrive: '2026-12-31', Class: classes[0] ?? 'Economy', Personal: '' },
-      { Traveller: ex, Seq: 2, Origin: 'HND', Dest: 'SIN', Depart: '2027-01-07', Arrive: '2027-01-07', Class: classes[0] ?? 'Economy', Personal: '' },
-    ];
-    const persSeed = [{ Traveller: ex, From: '2027-01-05', To: '2027-01-07', Note: 'Personal extension' }];
-    const wsI = XLSX.utils.json_to_sheet(itinSeed, { header: ['Traveller', 'Seq', 'Origin', 'Dest', 'Depart', 'Arrive', 'Class', 'Personal'] });
-    const wsP = XLSX.utils.json_to_sheet(persSeed, { header: ['Traveller', 'From', 'To', 'Note'] });
-    const wsA = XLSX.utils.json_to_sheet(airports.map((a) => ({ Code: a.code, Airport: a.name, City: a.city })), { header: ['Code', 'Airport', 'City'] });
-    XLSX.utils.book_append_sheet(wb, wsI, 'Itineraries');
-    XLSX.utils.book_append_sheet(wb, wsP, 'Personal days');
-    XLSX.utils.book_append_sheet(wb, wsA, 'Airports');
-    XLSX.writeFile(wb, 'traveller-itineraries.xlsx');
-  };
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -109,9 +92,9 @@ export function ItineraryUpload({ action, travellers, airports, classes }: {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-[var(--ecs-muted)]">Upload an Excel workbook to set <strong>per-traveller itineraries and personal days</strong> in bulk. Two sheets — <code>Itineraries</code> (Traveller, Seq, Origin, Dest, Depart, Arrive, Class, Personal) and <code>Personal days</code> (Traveller, From, To, Note). The <code>Airports</code> sheet lists valid codes. Each named traveller&apos;s itinerary &amp; personal days are <strong>fully replaced</strong>; travellers not in the sheet are left unchanged.</p>
+      <p className="text-xs text-[var(--ecs-muted)]">Upload an Excel workbook to set <strong>per-traveller itineraries and personal days</strong> in bulk. Two sheets — <code>Itineraries</code> (Traveller, Seq, Origin, Dest, Depart, Arrive, Class, Personal) and <code>Personal days</code> (Traveller, From, To, Note). The Traveller, Origin, Dest and Class cells are <strong>dropdowns</strong> (pick a value); the <code>Airports</code> sheet lists the codes. Each named traveller&apos;s itinerary &amp; personal days are <strong>fully replaced</strong>; travellers not in the sheet are left unchanged.</p>
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" className="btn-secondary text-xs" onClick={downloadTemplate}>⬇ Download Excel template</button>
+        <a href={templateHref} className="btn-secondary text-xs">⬇ Download Excel template</a>
         <label className="btn-secondary text-xs cursor-pointer">⬆ Choose Excel file…<input type="file" accept=".xlsx,.xls" className="hidden" onChange={onFile} /></label>
         {fileName && <span className="text-xs text-[var(--ecs-muted)]">{fileName}</span>}
       </div>
