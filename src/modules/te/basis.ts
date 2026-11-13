@@ -12,10 +12,10 @@ import { personalDaysInStay, personalNightsInStay, type PersonalPeriod } from '@
 
 export type OdaBasisRow = { city: string | null; country: string; arrive: string; depart: string; dailyRate: number };
 export type AccomBasisRow = { city: string; checkIn: string; checkOut: string; nightlyRate: number };
-// A personal extension carries an optional LOCATION (city code) — ODA / accommodation rates differ by
-// place, so the exclusion is attributed to that city's line. No location → applies wherever the dates
-// overlap (single-city trips, or an unspecified extension).
-export type PeriodRow = { start: string; end: string; location?: string };
+// A personal extension is a date range only — its city is AUTO-MATCHED from the ODA / accommodation stay
+// whose window the dates fall in (personalDaysInStay / personalNightsInStay attribute per stop by date
+// overlap), so the two counts never disagree and the traveller never picks a location.
+export type PeriodRow = { start: string; end: string };
 
 const iso = (x: Date | string | null | undefined) => (x instanceof Date ? x.toISOString().slice(0, 10) : (x ?? '') || '');
 const num = (x: unknown) => { const v = Number(x); return Number.isFinite(v) ? v : 0; };
@@ -50,19 +50,19 @@ export const effectivePeriods = (claimPeriodsJson: string | null, trPeriodsJson:
   try {
     const arr = JSON.parse(json);
     if (!Array.isArray(arr)) return [];
-    return arr.filter((r) => isISO(r?.start) && isISO(r?.end)).map((r) => ({ start: r.start, end: r.end, location: typeof r.location === 'string' && r.location ? r.location : undefined }));
+    return arr.filter((r) => isISO(r?.start) && isISO(r?.end)).map((r) => ({ start: r.start, end: r.end }));
   } catch { return []; }
 };
 // PersonalPeriod.start/end are ISO YYYY-MM-DD STRINGS (personal.ts slices them), so pass them through.
 const asPeriods = (rows: PeriodRow[]): PersonalPeriod[] => rows.filter((r) => r.start && r.end).map((r) => ({ start: r.start, end: r.end }));
-// A period applies to a city when it names that city, or names nowhere (then it falls to date overlap).
-const periodsForCity = (periods: PeriodRow[], city: string | null) => periods.filter((p) => !p.location || p.location === city);
 
-// Per-row derivations (all from dates + the location-matched periods).
+// Per-row derivations — personalDaysInStay / personalNightsInStay already attribute each period to the
+// stop whose [arrive, depart] / [checkIn, checkOut] window the dates fall in, so the city is matched by
+// DATE overlap (no stored location).
 export const odaStayDays = (r: OdaBasisRow) => { const a = toDate(r.arrive), d = toDate(r.depart); return a && d ? Math.max(Math.round((d.getTime() - a.getTime()) / 86400000) + 1, 0) : 0; };
 export const accomStayNights = (r: AccomBasisRow) => { const a = toDate(r.checkIn), d = toDate(r.checkOut); return a && d ? Math.max(Math.round((d.getTime() - a.getTime()) / 86400000), 0) : 0; };
-export const odaPersonalDays = (r: OdaBasisRow, periods: PeriodRow[]) => personalDaysInStay(toDate(r.arrive), toDate(r.depart), asPeriods(periodsForCity(periods, r.city)));
-export const accomPersonalNights = (r: AccomBasisRow, periods: PeriodRow[]) => personalNightsInStay(toDate(r.checkIn), toDate(r.checkOut), asPeriods(periodsForCity(periods, r.city)));
+export const odaPersonalDays = (r: OdaBasisRow, periods: PeriodRow[]) => personalDaysInStay(toDate(r.arrive), toDate(r.depart), asPeriods(periods));
+export const accomPersonalNights = (r: AccomBasisRow, periods: PeriodRow[]) => personalNightsInStay(toDate(r.checkIn), toDate(r.checkOut), asPeriods(periods));
 export const odaFundedDays = (r: OdaBasisRow, periods: PeriodRow[]) => Math.max(odaStayDays(r) - odaPersonalDays(r, periods), 0);
 export const accomFundedNights = (r: AccomBasisRow, periods: PeriodRow[]) => Math.max(accomStayNights(r) - accomPersonalNights(r, periods), 0);
 
@@ -87,6 +87,6 @@ export function readAccomBasisForm(fd: FormData): AccomBasisRow[] {
   }));
 }
 export function readPeriodsForm(fd: FormData): PeriodRow[] {
-  return Array.from({ length: num(fd.get('periodCount')) }, (_, i) => ({ start: s(fd, `period_${i}_start`), end: s(fd, `period_${i}_end`), location: s(fd, `period_${i}_location`) || undefined }))
+  return Array.from({ length: num(fd.get('periodCount')) }, (_, i) => ({ start: s(fd, `period_${i}_start`), end: s(fd, `period_${i}_end`) }))
     .filter((p) => p.start && p.end);
 }

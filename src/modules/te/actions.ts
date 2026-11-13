@@ -301,7 +301,7 @@ export async function saveClaimBasis(claimId: string, fd: FormData) {
   await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: {
     odaBasisJson: oda.length ? JSON.stringify(oda) : null,
     accomBasisJson: accom.length ? JSON.stringify(accom) : null,
-    claimPersonalPeriodsJson: periods.length ? JSON.stringify(periods.map((p) => ({ start: p.start, end: p.end, ...(p.location ? { location: p.location } : {}) }))) : null,
+    claimPersonalPeriodsJson: periods.length ? JSON.stringify(periods.map((p) => ({ start: p.start, end: p.end }))) : null,
   } });
   // Reflect the recomputed funded totals on the ODA / accommodation expense lines (the claim actual).
   const setLine = async (category: string, amount: number) => {

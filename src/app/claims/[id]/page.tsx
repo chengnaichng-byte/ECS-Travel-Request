@@ -153,9 +153,12 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const basisEdited = !!claim.odaBasisJson || !!claim.accomBasisJson || !!claim.claimPersonalPeriodsJson;
   const basisPersonalDays = personalDaysTotal(effOda, effPeriods);
   const anyPersonalBasis = effPeriods.length > 0;
-  // Cities on the trip — the Location options for a personal extension (so the right city's rate is excluded).
-  const basisCities = [...new Set([...effOda.map((o) => o.city), ...effAccom.map((a) => a.city)].filter((c): c is string => !!c))]
-    .map((code) => ({ code, name: EcsReference.city(code)?.name ?? EcsReference.country(code)?.name ?? code }));
+  // Stay windows per city — a personal extension is auto-matched to the stay its dates fall in (date
+  // overlap), so the right city's ODA / accommodation rate is excluded without the claimant picking one.
+  const basisStops = [
+    ...effOda.map((o) => ({ city: EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country ?? '', from: o.arrive, to: o.depart })),
+    ...effAccom.map((a) => ({ city: EcsReference.city(a.city)?.name ?? a.city, from: a.checkIn, to: a.checkOut })),
+  ].filter((s) => s.from && s.to && s.city);
   // Phase 4 — soft guard: the approved ODA / accommodation line IS the funded (personal-excluded)
   // amount. A claimed actual ABOVE it means more days/nights than funded are being claimed (personal
   // days creeping in). Not a hard block (the amounts are advisory, reviewed at claim), just a flag.
@@ -566,8 +569,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
             <input type="hidden" name="odaCount" value={effOda.length} />
             <input type="hidden" name="accomCount" value={effAccom.length} />
             <div className="mb-4 rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] p-3">
-              <PersonalPeriodsEditor initial={effPeriods} cities={basisCities} canEdit={canEdit} />
-              <p className="text-[10px] text-[var(--ecs-muted)] mt-2">Personal <b>days</b> (ODA) and <b>nights</b> (accommodation) are counted from these dates for the chosen city — they differ by a night because a stay&apos;s last day has no onward night. Saving recomputes the funded amounts, <b>updates the ODA / accommodation claim lines</b>, and the header personal-day count.</p>
+              <PersonalPeriodsEditor initial={effPeriods} stops={basisStops} canEdit={canEdit} />
+              <p className="text-[10px] text-[var(--ecs-muted)] mt-2">Personal <b>days</b> (ODA) and <b>nights</b> (accommodation) are counted from these dates and matched to the city whose stay they fall in — they differ by a night because a stay&apos;s last day has no onward night. Saving recomputes the funded amounts, <b>updates the ODA / accommodation claim lines</b>, and the header personal-day count.</p>
             </div>
             <p className="text-[11px] text-[var(--ecs-muted)] mb-2">The table below is the approved funded <b>reference</b> (from the TR, personal-excluded) — not an input. The actual amounts are claimed in the Expense items above.</p>
             {effOda.length > 0 && (
