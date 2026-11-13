@@ -4,7 +4,7 @@
 // systems (ECS, TMC, Workday) are grouped and marked as opening elsewhere. Per-tile permission gating.
 import Link from 'next/link';
 import { currentPersona, currentPersonaId } from '@/shared/session';
-import { ROLE, REQUEST_STATUS, BOOKING_STATUS, APPROVER_ROLE, CLAIM_STATUS } from '@/shared/enums';
+import { ROLE, REQUEST_STATUS, BOOKING_STATUS, APPROVER_ROLE } from '@/shared/enums';
 import { listRequests } from '@/modules/pretrip/queries';
 import { prisma } from '@/shared/db';
 import { EcsReference, EcsIdentity } from '@/shared/ecs/services';
@@ -35,7 +35,11 @@ const ICON = {
   chart: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
 };
 
-function statHref(key: string) { return `/dashboard?view=${key}`; }
+const TONES = {
+  info: { bg: '#e6f1fb', border: '#bcd9f5', ink: '#185fa5' },
+  warning: { bg: '#faeeda', border: '#ead7b0', ink: '#854f0b' },
+  success: { bg: '#e1f5ee', border: '#a7dcc6', ink: '#0f6e56' },
+} as const;
 
 const Badge = ({ children }: { children: React.ReactNode }) => <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[var(--ecs-panel)] border border-[var(--ecs-border)] text-[var(--ecs-muted)]">{children}</span>;
 const ExtIcon = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>;
@@ -75,32 +79,14 @@ export default async function Home() {
   // §GRP-11: every group member sees their request, via the shared isRequestVisibleTo helper.
   const scoped = isAdmin ? requests : requests.filter((r) => isRequestVisibleTo(r, personaId));
   const today0 = new Date(); today0.setHours(0, 0, 0, 0);
-  const drafts = scoped.filter((r) => r.status === REQUEST_STATUS.Draft || r.status === REQUEST_STATUS.SentBack);
-  const pending = scoped.filter((r) => r.status.startsWith('Pending'));
-  const approvedUnbooked = scoped.filter((r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus === BOOKING_STATUS.NotSent);
-  const toClaim = scoped.filter((r) => r.status === REQUEST_STATUS.Approved && r.bookingStatus !== BOOKING_STATUS.NotSent && !(r.claims && r.claims.length));
   const upcoming = scoped.filter((r) => r.status === REQUEST_STATUS.Approved && r.startDate && r.startDate >= today0)
     .sort((a, b) => (a.startDate!.getTime()) - (b.startDate!.getTime()));
 
-  // §13.22 Claim-side stats — the traveller's own expense claims (the TE claims the prototype holds),
-  // so the band spans the whole ECS journey (request -> book -> travel -> claim), not just the TR.
-  const myClaims = await prisma.travelExpenseClaim.findMany({
-    where: { claimantId: personaId },
-    select: { id: true, status: true },
-    orderBy: { createdAt: 'asc' },
-  });
-  const claimsToFinish = myClaims.filter((c) => c.status === CLAIM_STATUS.Draft || c.status === CLAIM_STATUS.SentBack);
-  const claimsPending = myClaims.filter((c) => c.status.startsWith('Pending'));
-
-  // Journey order: travel-request stages, then claim stages. Each card deep-links where it can.
-  const stats = [
-    { label: 'Drafts to finish', value: drafts.length, ink: '#854f0b', href: statHref('drafts') },
-    { label: 'Awaiting approval', value: pending.length, ink: '#185fa5', href: statHref('pending') },
-    { label: 'Approved, not booked', value: approvedUnbooked.length, ink: '#0f6e56', href: statHref('unbooked') },
-    { label: 'Upcoming trips', value: upcoming.length, ink: '#3c3489', href: statHref('upcoming') },
-    { label: 'Trips to claim', value: toClaim.length, ink: '#993556', href: statHref('toclaim') },
-    { label: 'Claims to finish', value: claimsToFinish.length, ink: '#993556', href: claimsToFinish[0] ? `/claims/${claimsToFinish[0].id}` : '/claims' },
-    { label: 'Claims awaiting approval', value: claimsPending.length, ink: '#993556', href: claimsPending[0] ? `/claims/${claimsPending[0].id}` : '/claims' },
+  // Home announcement strip — representative travel notices. (The Announcements configuration is a stub
+  // for now, so these are static; it replaces the mixed TR / TE stat band, which was easy to misread.)
+  const announcements: { tone: keyof typeof TONES; message: string; href?: string; linkLabel?: string }[] = [
+    { tone: 'warning', message: 'Year-end travel claims for 2026 must be submitted by 15 December 2026 to be settled in this financial year.', href: '/claims', linkLabel: 'My claims' },
+    { tone: 'info', message: 'New: an expense claim can now be raised without a pre-trip Travel Request for genuine exception situations (e.g. emergency travel).', href: '/claims', linkLabel: 'My claims' },
   ];
 
   const next = upcoming[0];
@@ -158,21 +144,21 @@ export default async function Home() {
         <p className="text-sm text-[var(--ecs-muted)] mt-0.5">{persona.title}{persona.roles.length ? ` · ${persona.roles[0]}` : ''} — here is where your trips and claims stand.</p>
       </div>
 
-      {/* Live status band — travel-request and claim stages across the journey. Click a count to open it. */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
-        {stats.map((s) => {
-          const inner = (
-            <>
-              <div className="text-3xl font-semibold tabular-nums" style={{ color: s.value ? s.ink : 'var(--ecs-muted)' }}>{s.value}</div>
-              <div className="text-xs text-[var(--ecs-muted)] mt-1 leading-snug">{s.label}</div>
-            </>
-          );
-          const cls = 'rounded-xl border border-[var(--ecs-border)] bg-white p-4';
-          return s.href
-            ? <Link key={s.label} href={s.href} className={`${cls} hover:border-[var(--ecs-navy-2)] hover:shadow-sm transition`}>{inner}</Link>
-            : <div key={s.label} className={cls}>{inner}</div>;
-        })}
-      </div>
+      {/* Announcement strip — configurable travel notices (replaces the mixed TR/TE stat band). */}
+      {announcements.length > 0 && (
+        <div className="space-y-2 mb-5">
+          {announcements.map((a, i) => {
+            const t = TONES[a.tone] ?? TONES.info;
+            return (
+              <div key={i} className="flex items-start gap-3 rounded-xl border p-3.5" style={{ background: t.bg, borderColor: t.border, color: t.ink }}>
+                <span className="shrink-0 mt-0.5">{I(ICON.megaphone)}</span>
+                <div className="min-w-0 flex-1 text-[13px] leading-snug">{a.message}</div>
+                {a.href && a.linkLabel && <Link href={a.href} className="shrink-0 text-[13px] font-semibold underline whitespace-nowrap self-center" style={{ color: t.ink }}>{a.linkLabel} →</Link>}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Upcoming-trip card — the soonest approved trip. */}
       {next && (
