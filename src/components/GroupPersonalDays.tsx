@@ -15,6 +15,7 @@ export interface PersonalMember {
   tripStart: string;   // the member's effective window (ISO), for min/max + validation
   tripEnd: string;
   initial: PersonalPeriod[];
+  stops: { city: string; from: string; to: string }[];   // §4.5 this member's stay windows, for the city auto-match
   action: (fd: FormData) => void | Promise<void>;
 }
 
@@ -44,6 +45,8 @@ function MemberEditor({ m, disabled, onCancel }: { m: PersonalMember; disabled?:
   const add = () => setPeriods((ps) => [...ps, { start: m.tripStart || '', end: m.tripEnd || '' }]);
   const set = (i: number, patch: Partial<PersonalPeriod>) => setPeriods((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const remove = (i: number) => setPeriods((ps) => ps.filter((_, j) => j !== i));
+  // §4.5 auto-match each range to the city whose stay window the dates fall in (ISO strings compare chronologically).
+  const matchCity = (p: PersonalPeriod): string | null => (!p.start || !p.end ? null : m.stops.find((s) => p.start <= s.to && p.end >= s.from)?.city ?? null);
 
   const errors = useMemo(() => {
     const e: string[] = [];
@@ -64,7 +67,7 @@ function MemberEditor({ m, disabled, onCancel }: { m: PersonalMember; disabled?:
       {periods.length === 0 ? (
         <p className="text-sm text-[var(--ecs-muted)] italic">No personal days yet — add a range, or save to leave this member on official business only.</p>
       ) : (
-        periods.map((p, i) => (
+        periods.map((p, i) => { const city = matchCity(p); return (
           <div key={i} className="grid md:grid-cols-[1fr_1fr_2fr_auto] gap-2 items-end">
             <div>
               <label className="text-[11px] text-[var(--ecs-muted)]">From</label>
@@ -79,8 +82,13 @@ function MemberEditor({ m, disabled, onCancel }: { m: PersonalMember; disabled?:
               <input type="text" value={p.note ?? ''} onChange={(e) => set(i, { note: e.target.value })} disabled={disabled} className="field" placeholder="e.g. personal days after the event" />
             </div>
             {!disabled && <button type="button" onClick={() => remove(i)} aria-label="Remove" className="h-[38px] px-3 rounded border border-[var(--ecs-border)] text-[var(--ecs-muted)] hover:text-[var(--ecs-red)] hover:border-[var(--ecs-red)]">✕</button>}
+            <div className="md:col-span-4 -mt-1">
+              {p.start && p.end && (city
+                ? <span className="text-[11px] txt-derived">→ matched to <b>{city}</b> (from the itinerary) — excluded from {city}&apos;s ODA &amp; accommodation</span>
+                : <span className="text-[11px] text-amber-700">→ these dates don&apos;t fall within any destination stay — check them against the itinerary</span>)}
+            </div>
           </div>
-        ))
+        ); })
       )}
       {errors.length > 0 && <ul className="text-[12px] text-red-700 list-disc pl-4">{errors.map((x, i) => <li key={i}>{x}</li>)}</ul>}
       {!disabled && (

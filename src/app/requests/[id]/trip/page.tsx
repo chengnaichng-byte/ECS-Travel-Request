@@ -154,6 +154,24 @@ export default async function TripStep({ params, searchParams }: { params: Promi
   // booking-method notice sits above it so it stays visible while the card is closed.
   // §4.5 Per-traveller personal days — EVERY group (independent of the sub-itinerary toggle); staff and
   // student members declare, guests do not. Each member's window is their own dates when they deviate.
+  // §4.5 Each member's stay windows (city + [arrive, depart]) from their EFFECTIVE itinerary — their own
+  // legs if they deviate, else the shared legs. The personal-days editor matches each declared range to
+  // the stop its dates fall in, so the city is derived (no manual location), same as the individual flow.
+  const memberStops = (employeeId: string): { city: string; from: string; to: string }[] => {
+    const own = req.legs.filter((l) => l.travellerId === employeeId).sort((a, b) => a.seq - b.seq);
+    const legList = own.length ? own : sharedLegList;
+    const out: { city: string; from: string; to: string }[] = [];
+    for (let i = 0; i < legList.length; i++) {
+      const meta = airportMeta[legList[i].destCode];
+      if (!meta || meta.cityCode === 'SIN') continue; // the fly-home leg is not a funded stop
+      const from = legList[i].arriveDate ?? legList[i].departDate;
+      const next = legList[i + 1];
+      const to = next ? (next.departDate ?? next.arriveDate) : req.endDate;
+      if (!from || !to) continue;
+      out.push({ city: meta.city, from: d(from), to: d(to) });
+    }
+    return out;
+  };
   const personalMembers = req.isGroup ? req.travellers.filter((t) => !isGuestMember(t)) : [];
   const personalDeclaredCount = personalMembers.filter((t) => (parsePersonalPeriods(t.personalPeriodsJson)).length > 0).length;
   const perTravellerCard = req.isGroup ? (
@@ -197,7 +215,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
           defaultOpen={false}
           stub={personalDeclaredCount > 0 ? `${personalDeclaredCount} with personal days` : 'All official business'}
         >
-          <p className="text-sm text-[var(--ecs-muted)] mb-3">Select a traveller to declare their own personal days (before, during or after the business portion). Personal days are excluded from that member&apos;s ODA and personal nights from the accommodation budget. Guests do not declare.</p>
+          <p className="text-sm text-[var(--ecs-muted)] mb-3">Select a traveller to declare their own personal days (before, during or after the business portion) — <b>dates only</b>; the city is matched from their itinerary. Personal days are excluded from that member&apos;s ODA and personal nights from the accommodation budget. Guests do not declare.</p>
           <GroupPersonalDays
             disabled={!canEdit}
             members={personalMembers.map((t) => ({
@@ -206,6 +224,7 @@ export default async function TripStep({ params, searchParams }: { params: Promi
               tripStart: d(t.ownStartDate ?? req.startDate),
               tripEnd: d(t.ownEndDate ?? req.endDate),
               initial: parsePersonalPeriods(t.personalPeriodsJson),
+              stops: memberStops(t.employeeId),
               action: saveTravellerPersonal.bind(null, id, t.employeeId),
             }))}
           />
