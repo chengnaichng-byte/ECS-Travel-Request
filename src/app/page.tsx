@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 const ECS_URL = 'https://apps.ntu.edu.sg/ECS';
 const ECS_REPORTING_URL = 'https://apps.ntu.edu.sg/ECS/ReportingDashboard';
 
-type State = 'live' | 'ecs' | 'soon' | 'ext';
+type State = 'live' | 'ecs' | 'soon' | 'ext' | 'role';
 interface Tile { title: string; desc: string; href: string; state: State; tint: string; ink: string; icon: React.ReactNode; show: boolean; group: string; count?: number }
 
 const I = (d: string) => <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: d }} />;
@@ -30,6 +30,7 @@ const ICON = {
   policy: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3.5s-2.5 0-4 1.5L13.5 8.5 5.2 6.8c-.6-.1-.9.1-1.1.5l-.3.5c-.2.4-.1.9.3 1.1L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 2.3 4.8c.2.4.7.5 1.1.3l.5-.3c.4-.2.6-.5.5-1.1z"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
   exception: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   additional: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
   chart: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
@@ -53,6 +54,7 @@ function TileCard({ t }: { t: Tile }) {
         {t.count == null && t.state === 'ecs' && <Badge><ExtIcon />ECS</Badge>}
         {t.count == null && t.state === 'ext' && <Badge><ExtIcon />Opens elsewhere</Badge>}
         {t.count == null && t.state === 'soon' && <Badge><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Soon</Badge>}
+        {t.count == null && t.state === 'role' && <Badge><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>For approvers</Badge>}
       </span>
       <span className="inline-flex items-center justify-center w-10 h-10 rounded-[10px]" style={{ background: t.tint, color: t.ink }}>{t.icon}</span>
       <div>
@@ -65,7 +67,7 @@ function TileCard({ t }: { t: Tile }) {
   if (t.state === 'live') return <Link href={t.href} className={`${base} hover:border-[var(--ecs-navy-2)] hover:shadow-sm transition`}>{inner}</Link>;
   if (t.state === 'ecs') return <a href={t.href} target="_blank" rel="noopener noreferrer" className={`${base} hover:border-[var(--ecs-navy-2)] transition`} title="Opens in ECS">{inner}</a>;
   if (t.state === 'ext') return <a href={t.href} target="_blank" rel="noopener noreferrer" className={`${base} hover:border-[var(--ecs-navy-2)] transition`} title="Opens the TMC online booking tool (URL set per deployment)">{inner}</a>;
-  return <div className={`${base} cursor-not-allowed`} aria-disabled="true" title="Not yet built in this prototype">{inner}</div>;
+  return <div className={`${base} cursor-not-allowed ${t.state === 'role' ? 'opacity-70' : ''}`} aria-disabled="true" title={t.state === 'role' ? 'Visible when you hold an approver role (RO, DOA, Exception)' : 'Not yet built in this prototype'}>{inner}</div>;
 }
 
 export default async function Home() {
@@ -114,16 +116,19 @@ export default async function Home() {
   const TMC_URL = '#'; // TMC online booking tool — URL set per deployment
 
   const tiles: Tile[] = [
-    // Awaiting my approval (approvers only) — three step-type tiles with live counts
+    // Awaiting my approval (approvers only) — three step-type tiles with live counts; a greyed
+    // placeholder shows for non-approvers so the step is visible in the process.
     { group: 'Awaiting my approval', title: 'RO / DOA', desc: 'Reporting officer and DOA steps', href: '/approvals?role=rodoa', state: 'live', count: approvalCounts.rodoa, tint: '#e6f1fb', ink: '#185fa5', icon: I(ICON.approve), show: isApprover },
     { group: 'Awaiting my approval', title: 'Exception', desc: 'Policy exception approvals', href: '/approvals?role=exception', state: 'live', count: approvalCounts.exception, tint: '#faeeda', ink: '#854f0b', icon: I(ICON.exception), show: isApprover },
     { group: 'Awaiting my approval', title: 'Additional approval', desc: 'Requestor-added approver steps', href: '/approvals?role=additional', state: 'live', count: approvalCounts.additional, tint: '#eeedfe', ink: '#3c3489', icon: I(ICON.additional), show: isApprover },
+    { group: 'Awaiting my approval', title: 'Awaiting my approval', desc: 'Requests waiting on your decision — appears when you hold an approver role', href: '#', state: 'role', tint: '#eef1f5', ink: '#5b6472', icon: I(ICON.approve), show: !isApprover },
     // Plan & request
     { group: 'Plan & request', title: 'Raise a travel request', desc: 'Start a new pre-trip request', href: '/requests/new', state: 'live', tint: '#e6f1fb', ink: '#185fa5', icon: I(ICON.raiseTR), show: true },
     { group: 'Plan & request', title: 'My travel requests', desc: 'Track status, approvals and bookings', href: '/dashboard', state: 'live', tint: '#e1f5ee', ink: '#0f6e56', icon: I(ICON.myTR), show: true },
     { group: 'Plan & request', title: 'Find a policy', desc: 'Travel policy and your entitlements', href: '/policy', state: 'live', tint: '#eaf3de', ink: '#3b6d11', icon: I(ICON.policy), show: true },
     // Book & travel
     { group: 'Book & travel', title: 'Book your trip (TMC)', desc: 'Online booking tool, once approved', href: TMC_URL, state: 'ext', tint: '#e6f1fb', ink: '#185fa5', icon: I(ICON.plane), show: true },
+    { group: 'Book & travel', title: 'My upcoming trips', desc: 'Your booked itineraries in the TMC', href: TMC_URL, state: 'ext', tint: '#e1f5ee', ink: '#0f6e56', icon: I(ICON.calendar), show: true },
     // Claim & settle
     { group: 'Claim & settle', title: 'Raise an expense claim', desc: 'Travel (TE) or general (GE) claim', href: ECS_URL, state: 'ecs', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.receipt), show: true },
     { group: 'Claim & settle', title: 'My claims', desc: 'Your Pre-Trip travel expense claims', href: '/claims', state: 'live', tint: '#fbeaf0', ink: '#993556', icon: I(ICON.wallet), show: true },
@@ -133,7 +138,12 @@ export default async function Home() {
     // Reports (approvers / admin / finance) — the single ECS reporting hub
     { group: 'Reports', title: 'Reporting Dashboard', desc: 'All reports: admin, finance and CTA', href: ECS_REPORTING_URL, state: 'ecs', tint: '#eaf3de', ink: '#3b6d11', icon: I(ICON.chart), show: showReports },
   ];
-  const groups = ['Awaiting my approval', 'Plan & request', 'Book & travel', 'Claim & settle', 'Your account', 'Reports']
+  // The lifecycle journey (left → right): Plan → Book → Claim. Role / utility groups (approvals, account,
+  // reports) are not steps in the traveller's own journey, so they sit as horizontal strips below it.
+  const journey = ['Plan & request', 'Book & travel', 'Claim & settle']
+    .map((g) => ({ g, items: tiles.filter((t) => t.group === g && t.show) }))
+    .filter((x) => x.items.length);
+  const strips = ['Awaiting my approval', 'Your account', 'Reports']
     .map((g) => ({ g, items: tiles.filter((t) => t.group === g && t.show) }))
     .filter((x) => x.items.length);
 
@@ -173,17 +183,40 @@ export default async function Home() {
         </Link>
       )}
 
-      {/* Journey-grouped tiles */}
-      <div className="space-y-6">
-        {groups.map(({ g, items }) => (
-          <section key={g}>
-            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ecs-muted)] mb-2">{g}</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {items.map((t) => <TileCard key={t.title} t={t} />)}
+      {/* Lifecycle journey — Plan → Book → Claim, left to right (columns stack on phones). */}
+      <div className="flex flex-col lg:flex-row lg:items-stretch gap-3 mb-6">
+        {journey.flatMap(({ g, items }, i) => {
+          const col = (
+            <section key={g} className="flex-1 min-w-0 flex flex-col">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ecs-muted)] mb-2">{g}</h2>
+              <div className="flex flex-col gap-3">
+                {items.map((t) => <TileCard key={t.title} t={t} />)}
+              </div>
+            </section>
+          );
+          if (i === 0) return [col];
+          const chev = (
+            <div key={`chev-${i}`} className="hidden lg:flex items-center justify-center shrink-0 text-[var(--ecs-muted)] opacity-50" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
             </div>
-          </section>
-        ))}
+          );
+          return [chev, col];
+        })}
       </div>
+
+      {/* Role & utility strips — approvals (greyed for non-approvers), account and reports. */}
+      {strips.length > 0 && (
+        <div className="space-y-6 border-t border-[var(--ecs-border)] pt-5">
+          {strips.map(({ g, items }) => (
+            <section key={g}>
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ecs-muted)] mb-2">{g}</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {items.map((t) => <TileCard key={t.title} t={t} />)}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--ecs-muted)]">
         <span className="inline-flex items-center gap-1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" /></svg>ECS = opens in ECS.</span>
