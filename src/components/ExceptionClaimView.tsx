@@ -97,15 +97,19 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
 
       <form action={updateClaimHeader.bind(null, claim.id)} className="space-y-5">
         <Card title="Travel booking details">
-          <div className="flex flex-wrap gap-x-8 gap-y-2 mb-4">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="trsNotBooked" defaultChecked={claim.trsNotBooked} disabled={!canEdit} className="w-4 h-4" />
-              Booking not made on NTU&apos;s Travel Reservation System (TRS)
-            </label>
+          <div className="flex flex-wrap gap-x-8 gap-y-2 mb-3">
             <label className="flex items-center gap-2 text-sm text-[var(--ecs-navy)]" title="This claim was raised directly on the claim side with no Pre-Trip Travel Request. It can only be created from the claim side.">
               <input type="checkbox" checked readOnly disabled className="w-4 h-4" />
               <span className="font-medium">No pre-trip Travel Request (exception)</span>
             </label>
+            <label className="flex items-center gap-2 text-sm" title="Independent of the exception: the trip may or may not have been booked through NTU's TRS.">
+              <input type="checkbox" name="trsNotBooked" defaultChecked={claim.trsNotBooked} disabled={!canEdit} className="w-4 h-4" />
+              Booking not made on NTU&apos;s Travel Reservation System (TRS)
+            </label>
+          </div>
+          <div className="mb-4 max-w-3xl">
+            <label className="label text-amber-800">Reason for no Travel Request <span className="text-[var(--ecs-red)]">* required</span></label>
+            <textarea name="noTrReason" defaultValue={claim.noTrReason ?? ''} disabled={!canEdit} rows={2} className="field" placeholder="Why was this trip not raised as a pre-trip Travel Request? (e.g. emergency / short-notice travel)" />
           </div>
           <div className="grid md:grid-cols-3 gap-4">
             <div><label className="label">Employee Name</label><input className="field bg-[var(--ecs-readonly,#f1f1f6)]" value={emp?.name ?? claim.claimantId} disabled /></div>
@@ -120,10 +124,6 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
             <div><label className="label">Travel Start Date</label><input type="date" name="travelStart" defaultValue={d(claim.travelStart)} disabled={!canEdit} className="field" /></div>
             <div><label className="label">Travel End Date</label><input type="date" name="travelEnd" defaultValue={d(claim.travelEnd)} disabled={!canEdit} className="field" /></div>
             <div className="md:col-span-3"><label className="label">Trip Description</label><input name="exDescription" defaultValue={claim.exDescription ?? ''} disabled={!canEdit} className="field" /></div>
-            <div className="md:col-span-3">
-              <label className="label text-amber-800">Reason for no Travel Request <span className="text-[var(--ecs-red)]">* required</span></label>
-              <textarea name="noTrReason" defaultValue={claim.noTrReason ?? ''} disabled={!canEdit} rows={2} className="field" placeholder="Why was this trip not raised as a pre-trip Travel Request? (e.g. emergency / short-notice travel)" />
-            </div>
           </div>
         </Card>
 
