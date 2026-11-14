@@ -102,6 +102,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
     ? airBookedClasses.reduce((best, cid) => (rankOfClass(cid) > rankOfClass(best) ? cid : best))
     : null;
   const bookedClassName = highestBookedRaw ? (resolveClass(highestBookedRaw)?.name ?? null) : null;
+  // Where the "highest class booked" comes from: the TMC feed for a TMC booking, else self-reported.
+  const bookedClassSource = req.bookings.some((b) => b.channel === 'TMC') ? 'TMC feed' : 'self-reported';
   // Was the booked cabin above the entitlement? (amber flag — an upgrade actually travelled)
   const bookedAboveEntitlement = !!highestBookedRaw && rankOfClass(highestBookedRaw) > rankOfClass(entitledClassId);
   const labelOf = (l: { category: string; expenseTypeId: string }) => EcsReference.expenseType(l.expenseTypeId)?.name ?? prep.lines.find((p) => p.category === l.category)?.label ?? l.category;
@@ -409,13 +411,13 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
             <div>
               <label className="label">Travel Entitlement | Class Planned | Highest Class Booked {newTag()}</label>
               <div className="field" style={{ background: 'var(--ecs-readonly)', minHeight: '2.375rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: '0.5rem', rowGap: '0.125rem', ...(bookedAboveEntitlement ? { borderColor: '#d9a300', background: '#fdf6e3' } : {}) }}
-                title="Entitled cabin (pre-trip · policy group)  |  cabin approved on the TR (pre-trip)  |  highest cabin actually booked (TMC feed)">
+                title={`Entitled cabin (pre-trip · policy group)  |  cabin approved on the TR (pre-trip)  |  highest cabin actually booked (${bookedClassSource})`}>
                 <span>{entitledClassName}</span><span className="text-[var(--ecs-border)]">|</span>
                 <span>{plannedClassName}</span><span className="text-[var(--ecs-border)]">|</span>
                 <span>{bookedClassName ?? '—'}</span>
               </div>
               <div className="text-[10px] mt-1" style={{ color: bookedAboveEntitlement ? '#9a7500' : 'var(--ecs-muted)' }}>
-                Pre-trip · Pre-trip · TMC feed{bookedAboveEntitlement ? ' — booked above entitlement' : (!bookedClassName ? ' (awaiting booking feed)' : '')}
+                Pre-trip · Pre-trip · {bookedClassSource}{bookedAboveEntitlement ? ' — booked above entitlement' : (!bookedClassName ? ' (not yet reported)' : '')}
               </div>
             </div>
             <div><label className="label">Travel Purpose</label><input className="field" value={EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? '—'} disabled /></div>
