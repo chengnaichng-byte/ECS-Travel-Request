@@ -156,6 +156,7 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
               exBookingRef={claim.exBookingRef ?? ''} linkableTrs={linkableTrs} linkAction={linkClaimToRequest.bind(null, claim.id)} />
           </div>
           <div className="grid md:grid-cols-3 gap-4">
+            <div><label className="label">Travel Booking Reference <span className="text-[var(--ecs-muted)] font-normal">(optional)</span></label><input name="exBookingRef" defaultValue={claim.exBookingRef ?? ''} disabled={!canEdit} className="field" placeholder="PNR / e-ticket — separate multiple PNRs with a comma" /></div>
             <div><label className="label">Main Country / Region of Travel</label><input name="exDestination" defaultValue={claim.exDestination ?? ''} disabled={!canEdit} className="field" placeholder="e.g. United Kingdom · London" /></div>
             <div>
               <label className="label">Travel Entitlement | Class Planned | Highest Class Booked {newTag()}</label>

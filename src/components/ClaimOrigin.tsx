@@ -74,10 +74,11 @@ export function ClaimOrigin({
         </div>
       )}
 
-      {/* Travel Booking Reference — free-text PNR in exception mode, a TR picker once "No pre-trip" is unticked. */}
-      {showPicker ? (
+      {/* Linking an approved TR (once "No pre-trip" is unticked). The free-text booking reference itself
+          lives in the Travel Booking Details grid below, matching the TR-claim layout. */}
+      {showPicker && (
         <div>
-          <label className="label">Travel Booking Reference <span className="text-[var(--ecs-muted)] font-normal">— select the approved Travel Request to link</span></label>
+          <label className="label">Link an approved Travel Request <span className="text-[var(--ecs-muted)] font-normal">— pre-populate this claim from it</span></label>
           {linkableTrs.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
               <select name="linkRequestId" defaultValue="" disabled={!canEdit} className="field max-w-md">
@@ -89,12 +90,7 @@ export function ClaimOrigin({
           ) : <p className="text-sm text-[var(--ecs-muted)]">No approved Travel Request of yours is available to link.</p>}
           <p className="text-[11px] text-[var(--ecs-muted)] mt-1">Linking replaces the entered items with the Travel Request&apos;s budget lines and clears the exception — the claim becomes a normal TR claim.</p>
         </div>
-      ) : showReasonAttach ? (
-        <div className="md:max-w-md">
-          <label className="label">Travel Booking Reference <span className="text-[var(--ecs-muted)] font-normal">(optional)</span></label>
-          <input name="exBookingRef" defaultValue={exBookingRef} disabled={!canEdit} className="field" placeholder="PNR / e-ticket — separate multiple PNRs with a comma" />
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }
