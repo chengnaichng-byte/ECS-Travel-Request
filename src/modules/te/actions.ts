@@ -15,7 +15,7 @@ import { isNonEmployeeMember } from '@/modules/pretrip/traveller';
 import { resolveClaimTraveller } from './claimRemit';
 import { buildClaimRoute, buildExceptionClaimRoute, type ClaimLike } from './workflow';
 import { consumeLegacyBooking, releaseLegacyBookingsForClaim, legacyBookingByPnr } from './pnrLedger';
-import { readOdaBasisForm, readAccomBasisForm, readPeriodsForm, fundedOdaTotal, fundedAccomTotal, effectivePeriods } from './basis';
+import { readOdaBasisForm, readAccomBasisForm, readPeriodsForm, claimOdaTotal, claimAccomTotal, carveClaimable, effectivePeriods } from './basis';
 import { CLAIM_STATUS, claimStatusForRole, EXPENSE_CATEGORY } from '@/shared/enums';
 
 const claimYear = () => new Date().getFullYear();
@@ -309,24 +309,28 @@ export async function updateClaimHeader(claimId: string, fd: FormData) {
 export async function saveClaimBasis(claimId: string, fd: FormData) {
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { lines: true } });
   if (!claim || (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack)) return;
-  const oda = readOdaBasisForm(fd);
-  const accom = readAccomBasisForm(fd);
+  // The Funded basis card posts the BOOKED stay windows (full footprint) + the declared personal periods.
+  // Carve the personal periods out of each window → CLAIMABLE segments (auto-split), which are what we store.
+  const bookedOda = readOdaBasisForm(fd);
+  const bookedAccom = readAccomBasisForm(fd);
   const periods = readPeriodsForm(fd);
-  const odaFunded = fundedOdaTotal(oda, periods);
-  const accomFunded = fundedAccomTotal(accom, periods);
+  const oda = bookedOda.flatMap((o) => carveClaimable(o.arrive, o.depart, periods, 'day').map((s) => ({ ...o, arrive: s.from, depart: s.to })));
+  const accom = bookedAccom.flatMap((a) => carveClaimable(a.checkIn, a.checkOut, periods, 'night').map((s) => ({ ...a, checkIn: s.from, checkOut: s.to })));
+  const odaTotal = claimOdaTotal(oda);
+  const accomTotal = claimAccomTotal(accom);
   await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: {
-    odaBasisJson: oda.length ? JSON.stringify(oda) : null,
-    accomBasisJson: accom.length ? JSON.stringify(accom) : null,
+    odaBasisJson: bookedOda.length ? JSON.stringify(oda) : null,       // claimable segments ("[]" = whole stay personal)
+    accomBasisJson: bookedAccom.length ? JSON.stringify(accom) : null,
     claimPersonalPeriodsJson: periods.length ? JSON.stringify(periods.map((p) => ({ start: p.start, end: p.end }))) : null,
   } });
-  // Reflect the recomputed funded totals on the ODA / accommodation expense lines (the claim actual).
+  // Reflect the recomputed claimable totals on the ODA / accommodation expense lines (the claim actual).
   const setLine = async (category: string, amount: number) => {
     const line = claim.lines.find((l) => l.category === category);
     if (line) await prisma.tEExpenseLine.update({ where: { id: line.id }, data: { actualSgd: amount, varianceSgd: Math.round((amount - line.approvedSgd) * 100) / 100 } });
   };
-  if (oda.length) await setLine(EXPENSE_CATEGORY.ODA, odaFunded);
-  if (accom.length) await setLine(EXPENSE_CATEGORY.Accommodation, accomFunded);
-  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Claim ${claim.claimNumber} funded basis edited — ODA ${odaFunded}, accommodation ${accomFunded} (personal-excluded)` } });
+  if (bookedOda.length) await setLine(EXPENSE_CATEGORY.ODA, odaTotal);
+  if (bookedAccom.length) await setLine(EXPENSE_CATEGORY.Accommodation, accomTotal);
+  await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Claim ${claim.claimNumber} claimable basis edited — ODA ${odaTotal}, accommodation ${accomTotal} (personal days carved out)` } });
   revalidatePath(`/claims/${claimId}`);
 }
 
@@ -380,20 +384,20 @@ export async function updateClaimExpenseLine(claimId: string, lineId: string, fd
   if (!line || line.claimId !== claimId) return;
   // A CTA / Reference line is centrally billed (shown for comparison) — the claimant does not edit it.
   if (line.treatment === 'REFERENCE') return;
-  // §4.5 editable stay basis — an accommodation / ODA line carries an editable per-stay / per-city table.
-  // When the claimant submits it, the funded (personal-excluded) total DRIVES the line amount, and the
-  // edited rows are saved on the claim (accomBasisJson / odaBasisJson), overriding the TMC-feed seed.
-  const periods = readPeriodsForm(fd);
+  // §4.5 editable CLAIMABLE basis — an accommodation / ODA line carries an editable per-segment table of
+  // claimable stays (personal already carved out). The rows are stored AS-IS (overriding the TMC-feed seed)
+  // and totalled directly (nights/days × rate, no personal re-subtraction — so a deliberately claimed
+  // personal date still counts and is flagged on the claim). "[]" = the whole stay was personal.
   const basisData: { accomBasisJson?: string | null; odaBasisJson?: string | null } = {};
   let amount = num(fd, `amount`);
   if (fd.has('accomCount') && line.category === EXPENSE_CATEGORY.Accommodation) {
     const accom = readAccomBasisForm(fd);
-    basisData.accomBasisJson = accom.length ? JSON.stringify(accom) : null;
-    amount = fundedAccomTotal(accom, periods);
+    basisData.accomBasisJson = JSON.stringify(accom);
+    amount = claimAccomTotal(accom);
   } else if (fd.has('odaCount') && line.category === EXPENSE_CATEGORY.ODA) {
     const oda = readOdaBasisForm(fd);
-    basisData.odaBasisJson = oda.length ? JSON.stringify(oda) : null;
-    amount = fundedOdaTotal(oda, periods);
+    basisData.odaBasisJson = JSON.stringify(oda);
+    amount = claimOdaTotal(oda);
   }
   // Only a manually-added line may change its expense type (a TR budget line's type is fixed).
   const typeUpd = line.manualEntry

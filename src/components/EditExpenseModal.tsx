@@ -146,15 +146,10 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
           {stayKind && (
             <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 space-y-2">
               <div className="text-sm font-semibold text-[var(--ecs-navy)]">
-                {stayKind === 'accom' ? 'Accommodation stay' : 'Overseas daily allowance'}
-                <span className="font-normal text-[var(--ecs-muted)]"> — editable; seeded from the approved TR &amp; TMC feed</span>
+                {stayKind === 'accom' ? 'Accommodation — claimable nights' : 'Overseas daily allowance — claimable days'}
+                <span className="font-normal text-[var(--ecs-muted)]"> — seeded from the booked stay, personal time excluded</span>
               </div>
-              <EditableStayTable kind={stayKind} rows={stayRows} cities={cities ?? []} onTotalChange={setStayTotal} />
-              {/* personal periods — posted so the server recomputes the funded (personal-excluded) total. */}
-              <input type="hidden" name="periodCount" value={(periods ?? []).length} />
-              {(periods ?? []).map((p, i) => (
-                <span key={i}><input type="hidden" name={`period_${i}_start`} value={p.start} /><input type="hidden" name={`period_${i}_end`} value={p.end} /></span>
-              ))}
+              <EditableStayTable kind={stayKind} rows={stayRows} cities={cities ?? []} declaredPeriods={periods ?? []} onTotalChange={setStayTotal} />
             </div>
           )}
 

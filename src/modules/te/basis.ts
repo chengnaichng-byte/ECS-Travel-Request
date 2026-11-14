@@ -69,6 +69,49 @@ export const accomFundedNights = (r: AccomBasisRow, periods: PeriodRow[]) => Mat
 export const fundedOdaTotal = (rows: OdaBasisRow[], periods: PeriodRow[]) => round2(rows.reduce((s, r) => s + odaFundedDays(r, periods) * num(r.dailyRate), 0));
 export const fundedAccomTotal = (rows: AccomBasisRow[], periods: PeriodRow[]) => round2(rows.reduce((s, r) => s + accomFundedNights(r, periods) * num(r.nightlyRate), 0));
 
+// ── Claimable-segment model ──────────────────────────────────────────────────────────────────────
+// The stored basis rows are CLAIMABLE segments (personal already carved out), so the amount is simply
+// nights/days × rate — no further personal subtraction (that would double-exclude, and it must NOT, so
+// that a traveller who deliberately claims a declared-personal date — "allow + flag" — gets the amount).
+export const claimOdaTotal = (rows: OdaBasisRow[]) => round2(rows.reduce((s, r) => s + odaStayDays(r) * num(r.dailyRate), 0));
+export const claimAccomTotal = (rows: AccomBasisRow[]) => round2(rows.reduce((s, r) => s + accomStayNights(r) * num(r.nightlyRate), 0));
+export const claimOdaDays = (rows: OdaBasisRow[]) => rows.reduce((s, r) => s + odaStayDays(r), 0);
+export const claimAccomNights = (rows: AccomBasisRow[]) => rows.reduce((s, r) => s + accomStayNights(r), 0);
+
+const DAY = 86400000;
+const utcMs = (s: string) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+const msISO = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const isPersonalUnit = (d: number, periods: PeriodRow[]) => periods.some((p) => p.start && p.end && d >= utcMs(p.start) && d <= utcMs(p.end));
+export type ClaimSeg = { from: string; to: string };
+
+// Carve the declared personal periods OUT of a booked stay window, returning only the CLAIMABLE
+// segment(s). mode 'day' = ODA (inclusive days arrive..depart); mode 'night' = accommodation (nights,
+// which run checkIn..checkOut−1). A personal break in the middle yields two segments (auto-split).
+export function carveClaimable(from: string, to: string, periods: PeriodRow[], mode: 'day' | 'night'): ClaimSeg[] {
+  if (!from || !to) return [];
+  const a = utcMs(from), b = utcMs(to);
+  if (a > b) return [];
+  const last = mode === 'night' ? b - DAY : b;   // nights: checkIn..checkOut−1; days: arrive..depart
+  if (last < a) return [];
+  const segs: ClaimSeg[] = [];
+  let run: number | null = null;
+  for (let d = a; d <= last; d += DAY) {
+    if (!isPersonalUnit(d, periods)) { if (run === null) run = d; }
+    else if (run !== null) { segs.push({ from: msISO(run), to: mode === 'night' ? msISO(d) : msISO(d - DAY) }); run = null; }
+  }
+  if (run !== null) segs.push({ from: msISO(run), to: mode === 'night' ? msISO(last + DAY) : msISO(last) });
+  return segs;
+}
+// Does this claimable row COVER any declared-personal unit? (drives the "allow + flag" warning.)
+export function rowCoversPersonal(from: string, to: string, periods: PeriodRow[], mode: 'day' | 'night'): boolean {
+  if (!from || !to || !periods.length) return false;
+  const a = utcMs(from), b = utcMs(to);
+  if (a > b) return false;
+  const last = mode === 'night' ? b - DAY : b;
+  for (let d = a; d <= last; d += DAY) if (isPersonalUnit(d, periods)) return true;
+  return false;
+}
+
 // Claim header personal-day count — the ODA basis is per DAY (matching the pre-existing "N personal days").
 export const personalDaysTotal = (rows: OdaBasisRow[], periods: PeriodRow[]) => rows.reduce((s, r) => s + odaPersonalDays(r, periods), 0);
 export const personalNightsTotal = (rows: AccomBasisRow[], periods: PeriodRow[]) => rows.reduce((s, r) => s + accomPersonalNights(r, periods), 0);
