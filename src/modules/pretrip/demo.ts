@@ -873,21 +873,10 @@ export async function demoComplexDoaReview() {
  *  claim, acts as the traveller and opens the claim. Shows all four claim-side features on one claim:
  *  the tePersonalDays header field, the funded-vs-stay basis (personal excluded), the M6 differential
  *  split in the Accounting Entries, and the soft over-funded guard (actuals seeded ~8% over). */
-export async function demoClaimEnhancements() {
+/** Build the claim-enhancements scenario (self-booked Tokyo, 3 personal days, M6 reimbursed at claim).
+ *  Shared by the base seed (so the claim PERSISTS across reset+reload) and the demoClaimEnhancements button. */
+async function buildClaimEnhancementsS34(): Promise<string> {
   const TAG = '[demo:claim-enh]';
-  // clearDemoByTag only removes the request (a linked claim's requestId would SetNull → orphan), so
-  // delete this demo's prior claims first.
-  const stale = await prisma.travelRequest.findMany({ where: { description: { contains: TAG } }, select: { id: true } });
-  if (stale.length) {
-    const cids = (await prisma.travelExpenseClaim.findMany({ where: { requestId: { in: stale.map((s) => s.id) } }, select: { id: true } })).map((c) => c.id);
-    if (cids.length) {
-      await prisma.claimApprovalStep.deleteMany({ where: { claimId: { in: cids } } });
-      await prisma.tEExpenseLine.deleteMany({ where: { claimId: { in: cids } } });
-      await prisma.travelExpenseLink.deleteMany({ where: { claimId: { in: cids } } });
-      await prisma.travelExpenseClaim.deleteMany({ where: { id: { in: cids } } });
-    }
-  }
-  await clearDemoByTag(TAG);
   const off = 48;
   const id = await buildDraft({
     requestorId: 'E-TRAV', travellerId: 'E-TRAV', purposeId: 'TP-TC-ACAD', isResearch: false,
@@ -922,6 +911,25 @@ export async function demoClaimEnhancements() {
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   await makeClaim(id, 'E-TRAV', 1.08); // actuals ~8% over approved → the soft over-funded guard shows
   // Self-booked → off-TRS (trsNotBooked derives true from the absence of a TMC booking); no override needed.
+  return id;
+}
+
+/** Dashboard button — clear any prior instance (a linked claim's requestId SetNulls rather than cascades,
+ *  so delete its claims first), rebuild, switch to the traveller, and open the claim. */
+export async function demoClaimEnhancements() {
+  const TAG = '[demo:claim-enh]';
+  const stale = await prisma.travelRequest.findMany({ where: { description: { contains: TAG } }, select: { id: true } });
+  if (stale.length) {
+    const cids = (await prisma.travelExpenseClaim.findMany({ where: { requestId: { in: stale.map((s) => s.id) } }, select: { id: true } })).map((c) => c.id);
+    if (cids.length) {
+      await prisma.claimApprovalStep.deleteMany({ where: { claimId: { in: cids } } });
+      await prisma.tEExpenseLine.deleteMany({ where: { claimId: { in: cids } } });
+      await prisma.travelExpenseLink.deleteMany({ where: { claimId: { in: cids } } });
+      await prisma.travelExpenseClaim.deleteMany({ where: { id: { in: cids } } });
+    }
+  }
+  await clearDemoByTag(TAG);
+  const id = await buildClaimEnhancementsS34();
   await switchPersona('E-TRAV', 'REQUESTOR');
   const claim = await prisma.travelExpenseClaim.findFirst({ where: { requestId: id }, select: { id: true } });
   redirect(`/claims/${claim!.id}`);
@@ -1144,6 +1152,9 @@ export async function seedDemoScenarios() {
   await seedLegacyBookings();
   // Claim-side exception claim with no Travel Request (so the no-TR scenario survives a full reset).
   await seedExceptionClaim();
+  // Personal-extension + M6-at-claim demo — built AFTER the rebuildOda post-processing above (which would
+  // otherwise reset its personal days to 0), so this claim persists in My Claims across reset + reload.
+  await buildClaimEnhancementsS34();
 
   // Completion sentinel — only now is the seed known to be FULL. Written last so an interrupted run
   // leaves it absent and the demo re-seeds cleanly next time rather than persisting a partial state.
