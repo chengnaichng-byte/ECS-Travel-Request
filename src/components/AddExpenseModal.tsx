@@ -42,20 +42,20 @@ export function AddExpenseModal({ action, expenseTypes, currencies }: {
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1 min-w-0">
                 {hasReceipt ? (
-                  <label className="flex h-full min-h-[8.5rem] flex-col items-center justify-center cursor-pointer rounded-lg border-2 border-dashed border-[var(--ecs-border)] bg-white px-4 py-5 text-center hover:border-[var(--ecs-navy)]">
+                  <label className="flex h-full flex-col items-center justify-center cursor-pointer rounded-lg border-2 border-dashed border-[var(--ecs-border)] bg-white px-4 py-3 text-center hover:border-[var(--ecs-navy)]">
                     <input type="file" name="receiptFile" accept="image/*,.pdf" className="hidden" onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')} />
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-[var(--ecs-muted)] mb-1"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-[var(--ecs-muted)] mb-0.5"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
                     <div className="text-sm font-medium text-[var(--ecs-navy)]">{fileName || 'Attach or photograph the receipt'}</div>
                     <div className="text-[11px] text-[var(--ecs-muted)] mt-0.5">The expense details below will be <b>pre-filled from the receipt</b> (AI pre-fill coming soon).</div>
                   </label>
                 ) : (
                   <div>
                     <label className="label text-amber-800">Justification for no receipt</label>
-                    <textarea name="noReceiptReason" rows={4} className="field" placeholder="Why is there no receipt for this expense?" />
+                    <textarea name="noReceiptReason" rows={3} className="field" placeholder="Why is there no receipt for this expense?" />
                   </div>
                 )}
               </div>
-              <div className="sm:w-64 shrink-0 flex flex-col gap-2 text-sm">
+              <div className="sm:w-64 shrink-0 flex flex-col justify-center gap-2 text-sm">
                 {RECEIPTS.map(([v, lab]) => (
                   <label key={v} className="flex items-start gap-2 leading-tight"><input type="radio" name="receiptTypeRadio" className="mt-0.5" value={v} checked={receiptType === v} onChange={() => setReceiptType(v)} /> {lab}</label>
                 ))}
