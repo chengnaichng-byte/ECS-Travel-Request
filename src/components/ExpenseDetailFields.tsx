@@ -94,7 +94,7 @@ export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelF
           <div><label className="label">Payment Type</label>
             <div className="flex flex-wrap gap-x-5 gap-y-1 pt-1 text-sm">
               <label className="flex items-center gap-1.5"><input type="radio" name="paymentType" value="SELF" defaultChecked /> Reimbursement To Staff</label>
-              <label className="flex items-center gap-1.5"><input type="radio" name="paymentType" value="CTC" /> NTU Corporate Card (CTC)</label>
+              <label className="flex items-center gap-1.5"><input type="radio" name="paymentType" value="CTC" /> NTU Corporate Travel Card (CTC)</label>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

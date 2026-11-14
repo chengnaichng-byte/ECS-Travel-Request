@@ -106,7 +106,7 @@ export async function LegacyClaimView({ claim, persona }: { claim: LegacyClaim; 
           )}
           <div className="mt-4 ml-auto max-w-md space-y-1.5 text-sm">
             <div className="flex justify-between"><span className="text-[var(--ecs-muted)]">Total expenses</span><span className="font-medium">{fmtSgd(totalExpenses)}</span></div>
-            <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less NTU Corporate Card</span>{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessCorpCard)}</span>}</div>
+            <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less NTU Corporate Travel Card</span>{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessCorpCard)}</span>}</div>
             <div className="flex justify-between items-center"><span className="text-[var(--ecs-muted)]">Less Personal / Sponsorship</span>{canEdit ? <input name="lessPersonal" type="number" step="any" defaultValue={claim.lessPersonal} className="field text-right w-28" /> : <span>{fmtSgd(claim.lessPersonal)}</span>}</div>
             <div className="flex justify-between border-t border-[var(--ecs-border)] pt-1.5 font-bold text-[var(--ecs-navy)]"><span>Total Reimbursable Amount</span><span>{fmtSgd(totalReimbursable)}</span></div>
           </div>

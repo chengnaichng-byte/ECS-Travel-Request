@@ -292,7 +292,7 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
                     <td colSpan={12}></td>
                   </tr>
                   <tr>
-                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</td>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Travel Card (other)</td>
                     <td className="td text-right">{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right" /> : fmtSgd(claim.lessCorpCard)}</td>
                     <td colSpan={12}></td>
                   </tr>

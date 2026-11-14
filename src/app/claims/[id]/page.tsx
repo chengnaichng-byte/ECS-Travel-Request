@@ -544,7 +544,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                     <td colSpan={12}></td>
                   </tr>
                   <tr>
-                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Card (other)</td>
+                    <td colSpan={5} className="td text-right text-[var(--ecs-muted)]">Less NTU Corporate Travel Card (other)</td>
                     <td className="td text-right">{canEdit ? <input name="lessCorpCard" type="number" step="any" defaultValue={claim.lessCorpCard} className="field text-right" /> : fmtSgd(claim.lessCorpCard)}</td>
                     <td colSpan={12}></td>
                   </tr>
@@ -562,7 +562,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
               </table>
             </div>
           )}
-          {ctaPaidTotal > 0 && <p className="text-xs text-[var(--ecs-muted)] mt-2">CTA-settled airfare / hotel are deducted automatically (paid centrally, not reimbursed). &ldquo;Less NTU Corporate Card (other)&rdquo; is for any other corporate-card spend not already shown as a reference line.</p>}
+          {ctaPaidTotal > 0 && <p className="text-xs text-[var(--ecs-muted)] mt-2">CTA-settled airfare / hotel are deducted automatically (paid centrally, not reimbursed). &ldquo;Less NTU Corporate Travel Card (other)&rdquo; is for any other corporate travel card spend not already shown as a reference line.</p>}
           {canEdit && <div className="flex justify-end mt-4"><button type="submit" className="btn-secondary">Save draft</button></div>}
         </Card>
       </form>

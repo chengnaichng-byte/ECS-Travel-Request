@@ -130,7 +130,7 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
                 </div>
                 {/* RIGHT */}
                 <div className="space-y-4">
-                  <Radios label="Payment Type" options={[['SELF', 'Reimbursement To Staff'], ['CTC', 'NTU Corporate Card (CTC)']]} selected={e.isRef ? '' : (e.paymentCtc ? 'CTC' : 'SELF')} isNew={e.isRef} hint={e.isRef ? 'Centrally billed via the CTA (corporate travel account) — neither a staff reimbursement nor a corporate card (CTC).' : undefined} />
+                  <Radios label="Payment Type" options={[['SELF', 'Reimbursement To Staff'], ['CTC', 'NTU Corporate Travel Card (CTC)']]} selected={e.isRef ? '' : (e.paymentCtc ? 'CTC' : 'SELF')} isNew={e.isRef} hint={e.isRef ? 'Centrally billed via the CTA (corporate travel account) — neither a staff reimbursement nor a corporate travel card (CTC).' : undefined} />
                   <div className="grid grid-cols-2 gap-3">
                     <F label={<>GST Rate (%) <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstRatePct)}</span>} strong />
                     <F label={<>GST Amount <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstAmount)}</span>} strong />
