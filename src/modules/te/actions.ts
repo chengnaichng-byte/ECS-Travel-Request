@@ -87,8 +87,9 @@ export async function createClaimFromRequest(requestId: string) {
       claimNumber: await nextClaimNumber(claimYear()),
       requestId,
       claimantId,
-      // §13.8 header pre-populated from the approved TR (dates editable; TRS flag off when a TMC booking exists).
-      trsNotBooked: req.bookings.length === 0,
+      // §13.8 header pre-populated from the approved TR. "Not on TRS" ⟺ no TMC booking exists — a self-booked
+      // trip (or none) is off-TRS; a TMC booking means it was on the TRS (and its airfare is CTA-settled).
+      trsNotBooked: !req.bookings.some((b) => b.channel === 'TMC'),
       travelStart: req.startDate,
       travelEnd: req.endDate,
       additionalApprover1: req.additionalApproverId,
@@ -146,7 +147,7 @@ export async function linkClaimToRequest(claimId: string, fd: FormData) {
   await prisma.tEExpenseLine.deleteMany({ where: { claimId } });
   await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: {
     requestId, noTrException: false, noTrReason: null, exBookingRef: null,
-    trsNotBooked: req.bookings.length === 0,
+    trsNotBooked: !req.bookings.some((b) => b.channel === 'TMC'),
     travelStart: req.startDate, travelEnd: req.endDate, additionalApprover1: req.additionalApproverId,
     chargingMode, chargingMainCode: mainAlloc?.chargingCode ?? null, chargingJson,
     lines: { create: prep.lines.map((l) => ({

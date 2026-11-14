@@ -339,7 +339,7 @@ async function makeClaim(id: string, claimantId: string, actualsFactor = 1) {
   const claim = await prisma.travelExpenseClaim.create({
     data: {
       claimNumber: await nextClaimNumber(YEAR), requestId: id, claimantId, status: 'Draft',
-      trsNotBooked: req.bookings.length === 0, travelStart: req.startDate, travelEnd: req.endDate,
+      trsNotBooked: !req.bookings.some((b) => b.channel === 'TMC'), travelStart: req.startDate, travelEnd: req.endDate,
       additionalApprover1: req.additionalApproverId,
       chargingMode: req.allocations.length > 1 ? 'CLAIM' : 'MAIN', chargingMainCode: mainAlloc?.chargingCode ?? null,
       chargingJson: JSON.stringify({ rows: req.allocations.map((a) => ({ code: a.chargingCode, percent: a.percent, amount: a.amountSgd ?? 0, io: a.internalOrder ?? '', isMain: a.isMain })), lineMap: {} }),
@@ -907,22 +907,21 @@ export async function demoClaimEnhancements() {
   // EMPLOYEE-paid (reimbursable/Editable) at claim, so the M6 differential splits there (Phase 3).
   await prisma.travelRequest.update({ where: { id }, data: { bookingArrangement: 'SELF_BOOKED', description: `Claim-side demo — personal days + M6 at claim ${TAG}`, personalPeriodsJson: JSON.stringify([{ start: demoDay(off + 5), end: demoDay(off + 7) }]) } });
   await submit(id); await approveAll(id);
-  // Give the trip a TMC booking across TWO PNRs (Premium Economy) so the claim's Travel Booking Reference
-  // shows TA | PNR | PNR and the "Highest Class Booked" reads from the feed. Kept REIMBURSABLE (channel
-  // TMC but ctaCharged false / no CTA account), so the airfare still settles via the M6 path at claim.
+  // SELF-BOOKED across TWO legs (Premium Economy) — the traveller booked and PAID themselves, so the
+  // airfare is REIMBURSABLE and the M6 differential settles at claim (Phase 3). Channel SELF_BOOKED (NOT
+  // TMC) keeps it consistent: off-TRS ⟺ reimbursable airfare (a TMC booking would be CTA-settled instead).
   const booked = await loadRequest(id);
   const bseed = (booked!.authorisationNo ?? '').replace(/\D/g, '').slice(-4) || '0004';
   const mkClaimEnhPnr = async (tag: string, o: string, dd: string, dep: Date, fare: number) => {
-    const pnr = `PNR${bseed}-${tag}`; const ticketNo = `TKT-${bseed}-${tag}`;
-    const b = await prisma.travelBooking.create({ data: { requestId: id, travellerId: 'E-TRAV', pnr, ticketNo, channel: 'TMC', fare, taxes: Math.round(fare * 0.1), fees: 30, ctaAccountId: null, ctaCharged: false, status: BOOKING_STATUS.Booked } });
+    const pnr = `ETKT${bseed}-${tag}`; const ticketNo = `TKT-${bseed}-${tag}`;
+    const b = await prisma.travelBooking.create({ data: { requestId: id, travellerId: 'E-TRAV', pnr, ticketNo, channel: 'SELF_BOOKED', fare, taxes: Math.round(fare * 0.1), fees: 30, ctaAccountId: null, ctaCharged: false, status: BOOKING_STATUS.Booked } });
     await prisma.bookingSegment.create({ data: { bookingId: b.id, type: 'AIR', originCode: o, destCode: dd, bookedClassId: 'TC-PEY', departDate: day(dep), arriveDate: day(dep), amount: fare, segmentRef: `SEG-${bseed}-${tag}A1`, pnr, segmentStatus: 'HK', ticketNumber: ticketNo, couponNumber: 1 } });
   };
   await mkClaimEnhPnr('A', 'SIN', 'HND', demoDay(off), 1700);
   await mkClaimEnhPnr('B', 'HND', 'SIN', demoDay(off + 7), 1700);
   await prisma.travelRequest.update({ where: { id }, data: { bookingStatus: BOOKING_STATUS.Booked } });
   await makeClaim(id, 'E-TRAV', 1.08); // actuals ~8% over approved → the soft over-funded guard shows
-  // The trip WAS booked through the TMC now, so it is not an off-TRS claim.
-  await prisma.travelExpenseClaim.updateMany({ where: { requestId: id }, data: { trsNotBooked: false } });
+  // Self-booked → off-TRS (trsNotBooked derives true from the absence of a TMC booking); no override needed.
   await switchPersona('E-TRAV', 'REQUESTOR');
   const claim = await prisma.travelExpenseClaim.findFirst({ where: { requestId: id }, select: { id: true } });
   redirect(`/claims/${claim!.id}`);
