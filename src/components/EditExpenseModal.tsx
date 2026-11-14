@@ -114,16 +114,10 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
             // (b) A PRE-FILLED line that STILL needs a receipt for the actual spend — e.g. hotel accommodation,
             // reimbursable airfare. The dates / nights come from the TMC feed, but the traveller paid and must
             // attach the receipt for the actual amount.
-            <div className="space-y-3">
-              <div className="rounded-lg border p-3 space-y-1" style={{ borderColor: '#9cc3e6', background: '#eef5fc' }}>
-                <div className="text-sm font-semibold text-[var(--ecs-navy)]">Dates pre-filled from the approved TR &amp; TMC feed</div>
-                <p className="text-[12px] text-[var(--ecs-navy-2)]">The stay days / nights and dates are seeded from the approved estimate and the <b>TMC feed</b> (booked PNRs). You still need to <b>attach the receipt</b> for the actual amount paid.</p>
-              </div>
-              <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 space-y-3">
-                <div className="text-sm font-semibold text-[var(--ecs-navy)]">Receipt <span className="font-normal text-[var(--ecs-muted)]">— attach the actual-spend receipt</span></div>
-                <input type="hidden" name="receiptType" value={receiptType} />
-                {receiptInner}
-              </div>
+            <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 space-y-3">
+              <div className="text-sm font-semibold text-[var(--ecs-navy)]">Receipt <span className="font-normal text-[var(--ecs-muted)]">— attach the actual-spend receipt</span></div>
+              <input type="hidden" name="receiptType" value={receiptType} />
+              {receiptInner}
             </div>
           ) : (
             // (c) A PRE-FILLED allowance with NO receipt — ODA / per-diem, or a centrally-billed (CTC) line.
