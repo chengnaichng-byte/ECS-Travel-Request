@@ -948,7 +948,7 @@ export async function seedExceptionClaim(): Promise<string> {
     claimNumber: await nextClaimNumber(YEAR),
     requestId: null, noTrException: true, claimantId: 'E-TRAV', trsNotBooked: true,
     noTrReason: 'Emergency short-notice travel — flew to London the same day to cover an incident; there was no time to raise a pre-trip Travel Request.',
-    exPurpose: 'Incident response (emergency)', exDestination: 'United Kingdom · London', exTravelClass: 'TC-ECO',
+    exPurpose: 'TP-OB-ACAD', exDestination: 'United Kingdom · London', exTravelClass: 'TC-ECO',
     exDescription: `Emergency no-TR exception claim ${TAG}`, exBookingRef: 'Self-booked — e-ticket 125-4412890',
     travelStart: day(demoDay(2)), travelEnd: day(demoDay(5)),
     chargingMode: 'MAIN', chargingMainCode: 'CC-1000',

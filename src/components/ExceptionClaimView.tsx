@@ -15,6 +15,7 @@ import { expenseTypes } from '@/data/expenseTypes';
 import { currencies } from '@/data/fxRates';
 import { employees } from '@/data/employees';
 import { travelClasses } from '@/data/travelClass';
+import { travelPurposes } from '@/data/travelPurposes';
 import { CLAIM_STATUS, APPROVER_ROLE, EXPENSE_CATEGORY, REQUEST_STATUS } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
@@ -173,7 +174,12 @@ export async function ExceptionClaimView({ claim, persona }: { claim: ExceptionC
               </div>
               <div className="text-[10px] text-[var(--ecs-muted)] mt-1">Policy group · n/a (no pre-trip TR) · you select the highest cabin booked</div>
             </div>
-            <div><label className="label">Travel Purpose</label><input name="exPurpose" defaultValue={claim.exPurpose ?? ''} disabled={!canEdit} className="field" placeholder="e.g. Conference / fieldwork" /></div>
+            <div><label className="label">Travel Purpose</label>
+              <select name="exPurpose" defaultValue={claim.exPurpose ?? ''} disabled={!canEdit} className="field">
+                <option value="">Select…</option>
+                {travelPurposes.filter((tp) => tp.active).map((tp) => <option key={tp.id} value={tp.id}>{tp.name}</option>)}
+              </select>
+            </div>
             <div><label className="label">Trip Description</label><input name="exDescription" defaultValue={claim.exDescription ?? ''} disabled={!canEdit} className="field" /></div>
             <div>
               <div className="grid grid-cols-2 gap-3">
