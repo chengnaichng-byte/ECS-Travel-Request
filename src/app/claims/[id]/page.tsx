@@ -16,7 +16,7 @@ import { getCtaAccount } from '@/modules/pretrip/ctaMaster';
 import { airfareUpgrade } from '@/modules/pretrip/upgrade';
 import { listUpgradeAccounts, effectiveDeltaCode } from '@/modules/pretrip/upgradeConfig';
 import { exceptionViews } from '@/modules/pretrip/exceptions';
-import { effectiveOdaBasis, effectiveAccomBasis, effectivePeriods, seedOdaBasis, seedAccomBasis, carveClaimable, rowCoversPersonal, claimOdaDays, claimAccomNights, odaStayDays, accomStayNights, odaPersonalDays, accomPersonalNights, odaFundedDays, accomFundedNights, personalDaysTotal } from '@/modules/te/basis';
+import { effectiveOdaBasis, effectiveAccomBasis, effectivePeriods, seedOdaBasis, seedAccomBasis, carveClaimable, rowCoversPersonal, claimOdaDays, claimAccomNights, odaStayDays, accomStayNights, odaPersonalDays, accomPersonalNights, odaFundedDays, accomFundedNights, personalDaysTotal, personalNightsTotal } from '@/modules/te/basis';
 import { PersonalPeriodsEditor } from '@/components/PersonalPeriodsEditor';
 import { currentPersonaId } from '@/shared/session';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
@@ -201,6 +201,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const odaEditRows = effOda.map((o) => ({ city: o.city ?? '', from: o.arrive, to: o.depart, rate: o.dailyRate, src: o.src }));
   const basisPersonalDays = residualPersonalDays;   // personal = booked − claimed (residual)
   const anyPersonalBasis = effPeriods.length > 0;
+  // Declared personal totals (for the compact summary in the Personal-extension card).
+  const declaredPersonalDays = personalDaysTotal(fullOdaStays, effPeriods);
+  const declaredPersonalNights = personalNightsTotal(fullAccomStays, effPeriods);
   // Stay windows per city — a personal extension is auto-matched to the stay its dates fall in (date
   // overlap), so the right city's ODA / accommodation rate is excluded without the claimant picking one.
   const basisStops = [
@@ -624,11 +627,11 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
 
       {hasFundedBasis && (
         <CollapsibleCard
-          title={<>Funded basis — personal days / nights excluded {newTag()}</>}
-          stub={anyPersonalBasis ? 'Personal time excluded from the funded ODA / accommodation' : 'No personal days declared — funded = full stay'}
+          title={<>Personal extension — days excluded from ODA &amp; accommodation {newTag()}</>}
+          stub={anyPersonalBasis ? `${declaredPersonalDays} personal day${declaredPersonalDays === 1 ? '' : 's'} / ${declaredPersonalNights} night${declaredPersonalNights === 1 ? '' : 's'} declared` : 'No personal days declared — the whole trip is claimable'}
           className="border-l-4 border-l-emerald-400"
         >
-          <p className="text-xs text-[var(--ecs-muted)] mb-3">The <b>booked</b> ODA and accommodation stays (approved TR; actual dates <b>inferred from your booked flights</b> — the feed carries no hotel dates) with the declared personal days marked.{canEdit ? ' Declaring personal days here CARVES them out — the Expense items above then show only the CLAIMABLE segments (a mid-stay personal break auto-splits into two rows), and saving recomputes the claim amounts + the header personal-day count.' : ''}{anyPersonalBasis ? '' : ' No personal days are declared, so the whole booked stay is claimable.'}</p>
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">Declare the <b>personal extension</b> within your trip — seeded from the approved Travel Request.{canEdit ? ' Editing here recomputes your ODA & accommodation claim amounts in the Expense items above (personal time is carved out) and the header personal-day count.' : ''} The per-stay claimable breakdown is shown and edited on each ODA / accommodation line above.</p>
           {overFundedLines.length > 0 && (
             <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
               <b>Check personal-day claiming:</b> {overFundedLines.map((l) => labelOf(l)).join(', ')} claimed above the funded (personal-excluded) approved amount. The funded day / night counts exclude personal time; the claimed ODA / accommodation should not exceed them.
@@ -641,61 +644,27 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
               <PersonalPeriodsEditor initial={effPeriods} stops={basisStops} canEdit={canEdit} />
               <p className="text-[10px] text-[var(--ecs-muted)] mt-2">Personal <b>days</b> (ODA) and <b>nights</b> (accommodation) are counted from these dates and matched to the city whose stay they fall in — they differ by a night because a stay&apos;s last day has no onward night. Saving recomputes the funded amounts, <b>updates the ODA / accommodation claim lines</b>, and the header personal-day count.</p>
             </div>
-            <p className="text-[11px] text-[var(--ecs-muted)] mb-2">{feedSynced ? <>The stay dates are <b>inferred from your booked flights</b> (PNRs) — the feed carries no hotel dates; the rate is the TR-approved estimate.</> : <>The stay dates are from the approved TR (no flights booked through the TMC).</>} These are the <b>booked</b> stays; the <b>claimable</b> days/nights (booked − personal) drive the ODA / accommodation amounts in the Expense items above.</p>
-            {fullOdaStays.length > 0 && (
-              <div className="overflow-x-auto mb-4">
-                <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-                  <colgroup><col style={{ width: '22%' }} /><col style={{ width: '15%' }} /><col style={{ width: '15%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /></colgroup>
-                  <thead><tr>
-                    <th className="th">Overseas Daily Allowance — city</th><th className="th">Arrive</th><th className="th">Depart</th>
-                    <th className="th text-right">Booked days</th><th className="th text-right">Personal</th><th className="th text-right">Claimable days</th><th className="th text-right">Rate/day</th>
-                  </tr></thead>
-                  <tbody>
-                    {fullOdaStays.map((o, i) => { const pd = odaPersonalDays(o, effPeriods); return (
-                      <tr key={i}>
-                        <td className="td">{EcsReference.city(o.city ?? '')?.name ?? EcsReference.country(o.country)?.name ?? o.city ?? o.country}
-                          <input type="hidden" name={`oda_${i}_city`} value={o.city ?? ''} /><input type="hidden" name={`oda_${i}_country`} value={o.country} />
-                          <input type="hidden" name={`oda_${i}_arrive`} value={o.arrive} /><input type="hidden" name={`oda_${i}_depart`} value={o.depart} /><input type="hidden" name={`oda_${i}_dailyRate`} value={o.dailyRate} />
-                        </td>
-                        <td className="td whitespace-nowrap">{o.arrive || '—'}</td>
-                        <td className="td whitespace-nowrap">{o.depart || '—'}</td>
-                        <td className="td text-right">{odaStayDays(o)}</td>
-                        <td className={`td text-right ${pd > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`} title="Derived from the personal extension dates">{pd}</td>
-                        <td className="td text-right font-medium">{odaFundedDays(o, effPeriods)}</td>
-                        <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(o.dailyRate)}</td>
-                      </tr>
-                    ); })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {fullAccomStays.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-                  <colgroup><col style={{ width: '22%' }} /><col style={{ width: '15%' }} /><col style={{ width: '15%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /></colgroup>
-                  <thead><tr>
-                    <th className="th">Accommodation — city</th><th className="th">Check-in</th><th className="th">Check-out</th>
-                    <th className="th text-right">Booked nights</th><th className="th text-right">Personal</th><th className="th text-right">Claimable nights</th><th className="th text-right">Avg/night</th>
-                  </tr></thead>
-                  <tbody>
-                    {fullAccomStays.map((a, i) => { const pn = accomPersonalNights(a, effPeriods); return (
-                      <tr key={i}>
-                        <td className="td">{EcsReference.city(a.city)?.name ?? a.city}
-                          <input type="hidden" name={`accom_${i}_city`} value={a.city} />
-                          <input type="hidden" name={`accom_${i}_checkIn`} value={a.checkIn} /><input type="hidden" name={`accom_${i}_checkOut`} value={a.checkOut} /><input type="hidden" name={`accom_${i}_nightlyRate`} value={a.nightlyRate} />
-                        </td>
-                        <td className="td whitespace-nowrap">{a.checkIn || '—'}</td>
-                        <td className="td whitespace-nowrap">{a.checkOut || '—'}</td>
-                        <td className="td text-right">{accomStayNights(a)}</td>
-                        <td className={`td text-right ${pn > 0 ? 'font-medium text-amber-700' : 'text-[var(--ecs-muted)]'}`} title="Derived from the personal extension dates (nights, not days)">{pn}</td>
-                        <td className="td text-right font-medium">{accomFundedNights(a, effPeriods)}</td>
-                        <td className="td text-right text-[var(--ecs-muted)]">{fmtSgd(a.nightlyRate)}</td>
-                      </tr>
-                    ); })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {/* Hidden inputs carry the BOOKED stay windows to saveClaimBasis, which carves them by the
+                declared personal periods. No visible stay tables here — the per-stay claimable breakdown
+                lives on each ODA / accommodation Expense line above, where it is editable. */}
+            {fullOdaStays.map((o, i) => (
+              <span key={`o${i}`}>
+                <input type="hidden" name={`oda_${i}_city`} value={o.city ?? ''} /><input type="hidden" name={`oda_${i}_country`} value={o.country} />
+                <input type="hidden" name={`oda_${i}_arrive`} value={o.arrive} /><input type="hidden" name={`oda_${i}_depart`} value={o.depart} /><input type="hidden" name={`oda_${i}_dailyRate`} value={o.dailyRate} />
+              </span>
+            ))}
+            {fullAccomStays.map((a, i) => (
+              <span key={`a${i}`}>
+                <input type="hidden" name={`accom_${i}_city`} value={a.city} />
+                <input type="hidden" name={`accom_${i}_checkIn`} value={a.checkIn} /><input type="hidden" name={`accom_${i}_checkOut`} value={a.checkOut} /><input type="hidden" name={`accom_${i}_nightlyRate`} value={a.nightlyRate} />
+              </span>
+            ))}
+            {/* Compact effect summary (replaces the old booked/claimable stay tables). */}
+            <div className="text-sm rounded border border-[var(--ecs-border)] bg-[var(--ecs-panel-2)] px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1">
+              <span><b className={declaredPersonalDays > 0 ? 'text-amber-700' : 'text-[var(--ecs-navy)]'}>{declaredPersonalDays}</b> personal day{declaredPersonalDays === 1 ? '' : 's'} <span className="text-[var(--ecs-muted)]">(ODA)</span></span>
+              <span><b className={declaredPersonalNights > 0 ? 'text-amber-700' : 'text-[var(--ecs-navy)]'}>{declaredPersonalNights}</b> personal night{declaredPersonalNights === 1 ? '' : 's'} <span className="text-[var(--ecs-muted)]">(accommodation)</span></span>
+              <span className="text-[11px] text-[var(--ecs-muted)]">— excluded from the ODA &amp; accommodation claim in the Expense items above.</span>
+            </div>
             {canEdit && <div className="flex justify-end mt-3"><button className="btn-secondary">Save &amp; recompute claim amounts</button></div>}
           </form>
         </CollapsibleCard>
