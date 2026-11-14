@@ -42,39 +42,42 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
   // The receipt radios + capture/justification — reused by the out-of-pocket (receipt-first) line AND by a
   // pre-filled line that still needs a receipt for the actual spend (hotel, reimbursable airfare).
   const receiptInner = (
-    <>
-      <div className="flex flex-col gap-1.5 text-sm">
+    // Two columns — the capture / justification on the LEFT, the receipt-type radios on the RIGHT.
+    <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex-1 min-w-0">
+        {hasReceipt ? (
+          <div className="space-y-2">
+            {line.receipt && (
+              // §2 the receipt already persisted on this line — view / remove / replace
+              <div className="flex items-center gap-2 rounded-lg border border-[var(--ecs-border)] bg-white px-3 py-2 text-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--ecs-navy-2)] shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+                <a href={line.receipt.href} target="_blank" rel="noreferrer" className="font-medium text-[var(--ecs-navy)] underline truncate">{line.receipt.fileName}</a>
+                <span className="text-[11px] text-[var(--ecs-muted)] ml-auto shrink-0">attached</span>
+                {removeReceipt && (
+                  <button type="button" formAction={removeReceipt} className="text-[var(--ecs-red)] hover:underline text-xs shrink-0">Remove</button>
+                )}
+              </div>
+            )}
+            <label className="flex min-h-[8.5rem] flex-col items-center justify-center cursor-pointer rounded-lg border-2 border-dashed border-[var(--ecs-border)] bg-white px-4 py-5 text-center hover:border-[var(--ecs-navy)]">
+              <input type="file" name="receiptFile" accept="image/*,.pdf" className="hidden" onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')} />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-[var(--ecs-muted)] mb-1"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
+              <div className="text-sm font-medium text-[var(--ecs-navy)]">{fileName || (line.receipt ? 'Attach a new file to replace it' : 'Attach or photograph the receipt')}</div>
+              <div className="text-[11px] text-[var(--ecs-muted)] mt-0.5">The expense details below will be <b>pre-filled from the receipt</b> (AI pre-fill coming soon).</div>
+            </label>
+          </div>
+        ) : (
+          <div>
+            <label className="label text-amber-800">Justification for no receipt</label>
+            <textarea name="noReceiptReason" rows={4} className="field" placeholder="Why is there no receipt for this expense?" />
+          </div>
+        )}
+      </div>
+      <div className="sm:w-64 shrink-0 flex flex-col gap-2 text-sm">
         {RECEIPTS.map(([v, lab]) => (
-          <label key={v} className="flex items-center gap-2"><input type="radio" name="receiptTypeRadio" value={v} checked={receiptType === v} onChange={() => setReceiptType(v)} /> {lab}</label>
+          <label key={v} className="flex items-start gap-2 leading-tight"><input type="radio" name="receiptTypeRadio" className="mt-0.5" value={v} checked={receiptType === v} onChange={() => setReceiptType(v)} /> {lab}</label>
         ))}
       </div>
-      {hasReceipt ? (
-        <div className="space-y-2">
-          {line.receipt && (
-            // §2 the receipt already persisted on this line — view / remove / replace
-            <div className="flex items-center gap-2 rounded-lg border border-[var(--ecs-border)] bg-white px-3 py-2 text-sm">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--ecs-navy-2)] shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
-              <a href={line.receipt.href} target="_blank" rel="noreferrer" className="font-medium text-[var(--ecs-navy)] underline truncate">{line.receipt.fileName}</a>
-              <span className="text-[11px] text-[var(--ecs-muted)] ml-auto shrink-0">attached</span>
-              {removeReceipt && (
-                <button type="button" formAction={removeReceipt} className="text-[var(--ecs-red)] hover:underline text-xs shrink-0">Remove</button>
-              )}
-            </div>
-          )}
-          <label className="block cursor-pointer rounded-lg border-2 border-dashed border-[var(--ecs-border)] bg-white px-4 py-5 text-center hover:border-[var(--ecs-navy)]">
-            <input type="file" name="receiptFile" accept="image/*,.pdf" className="hidden" onChange={(e) => setFileName(e.target.files?.[0]?.name ?? '')} />
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-[var(--ecs-muted)] mb-1"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
-            <div className="text-sm font-medium text-[var(--ecs-navy)]">{fileName || (line.receipt ? 'Attach a new file to replace it' : 'Attach or photograph the receipt')}</div>
-            <div className="text-[11px] text-[var(--ecs-muted)] mt-0.5">The expense details below will be <b>pre-filled from the receipt</b> (AI pre-fill coming soon).</div>
-          </label>
-        </div>
-      ) : (
-        <div>
-          <label className="label text-amber-800">Justification for no receipt</label>
-          <textarea name="noReceiptReason" rows={2} className="field" placeholder="Why is there no receipt for this expense?" />
-        </div>
-      )}
-    </>
+    </div>
   );
 
   if (!open || typeof document === 'undefined') return trigger;
@@ -83,7 +86,7 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
       {trigger}
       {createPortal(
     <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-6">
-      <div className="bg-white rounded-xl w-full max-w-2xl shadow-2xl my-2">
+      <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl my-2">
         <div className="bg-[var(--ecs-navy)] text-white px-5 py-3 rounded-t-xl flex items-center justify-between">
           <span className="font-semibold text-lg">Edit Expense — {line.label}</span>
           <button type="button" onClick={() => setOpen(false)} className="text-white/90">✕</button>
