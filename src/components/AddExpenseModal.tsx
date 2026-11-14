@@ -25,13 +25,15 @@ export function AddExpenseModal({ action, expenseTypes, currencies }: {
     <>
       {trigger}
       {createPortal(
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-6">
-      <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl my-2">
-        <div className="bg-[var(--ecs-navy)] text-white px-5 py-3 rounded-t-xl flex items-center justify-between">
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
+      <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl my-2 flex flex-col max-h-[90vh]">
+        <div className="bg-[var(--ecs-navy)] text-white px-5 py-3 rounded-t-xl flex items-center justify-between shrink-0">
           <span className="font-semibold text-lg">Add Expense</span>
           <button type="button" onClick={() => setOpen(false)} className="text-white/90">✕</button>
         </div>
-        <form action={submit} className="p-5 space-y-4">
+        {/* Scrollable body between a pinned header and a sticky footer, so the modal always fits the window. */}
+        <form action={submit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
           {/* ── 1. RECEIPT FIRST ─────────────────────────────────────────────── */}
           <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 space-y-3">
             <div className="text-sm font-semibold text-[var(--ecs-navy)]">Receipt <span className="font-normal text-[var(--ecs-muted)]">— start here</span></div>
@@ -64,7 +66,8 @@ export function AddExpenseModal({ action, expenseTypes, currencies }: {
           {/* ── 2. EXPENSE DETAILS — full ECS datapoint set (the fields OCR would pre-fill) ── */}
           <ExpenseDetailFields expenseTypes={expenseTypes} currencies={currencies} />
 
-          <div className="flex justify-end gap-2 pt-2">
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--ecs-border)] bg-white rounded-b-xl shrink-0">
             <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
             <button type="submit" className="btn-primary">Save</button>
           </div>

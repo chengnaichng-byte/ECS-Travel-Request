@@ -91,13 +91,16 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
     <>
       {trigger}
       {createPortal(
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-6">
-      <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl my-2">
-        <div className="bg-[var(--ecs-navy)] text-white px-5 py-3 rounded-t-xl flex items-center justify-between">
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
+      <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl my-2 flex flex-col max-h-[90vh]">
+        <div className="bg-[var(--ecs-navy)] text-white px-5 py-3 rounded-t-xl flex items-center justify-between shrink-0">
           <span className="font-semibold text-lg">Edit Expense — {line.label}</span>
           <button type="button" onClick={() => setOpen(false)} className="text-white/90">✕</button>
         </div>
-        <form action={submit} className="p-5 space-y-4">
+        {/* Scrollable body (flex-1) between a pinned header and a sticky footer, so the whole modal fits
+            the window and the Save / Cancel controls stay in view at any height. */}
+        <form action={submit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
           {/* ── 1. SOURCE OF THE VALUE (leads the form) ──────────────────────── */}
           {line.manualEntry ? (
             // (a) A claimant-added out-of-pocket expense is RECEIPT-FIRST: the receipt is the source a future
@@ -153,7 +156,8 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--ecs-border)] bg-white rounded-b-xl shrink-0">
             <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel</button>
             <button type="submit" className="btn-primary">Save</button>
           </div>

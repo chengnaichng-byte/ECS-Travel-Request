@@ -66,12 +66,12 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
       {trigger}
       {createPortal(
         <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4 sm:p-6" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl my-2" onClick={(ev) => ev.stopPropagation()}>
-            <div className="bg-[var(--ecs-navy)] text-white px-5 py-3 rounded-t-xl flex items-center justify-between">
+          <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl my-2 flex flex-col max-h-[90vh]" onClick={(ev) => ev.stopPropagation()}>
+            <div className="bg-[var(--ecs-navy)] text-white px-5 py-3 rounded-t-xl flex items-center justify-between shrink-0">
               <span className="font-semibold text-lg">View Expense</span>
               <button type="button" onClick={() => setOpen(false)} className="text-white/90 text-xl leading-none">✕</button>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
               {/* ── RECEIPT FIRST — leads the form, matching the Add / Edit receipt-first flow. A pre-filled
                   allowance (ODA / per-diem) or centrally-billed (CTC) line shows its source; an out-of-pocket
                   line (hotel, reimbursable airfare, claimant-added) shows the receipt type + the attachment. */}
@@ -178,7 +178,7 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
               )}
 
             </div>
-            <div className="px-5 py-3 border-t border-[var(--ecs-border)] flex justify-end"><button type="button" onClick={() => setOpen(false)} className="btn-secondary">Close</button></div>
+            <div className="px-5 py-3 border-t border-[var(--ecs-border)] flex justify-end shrink-0"><button type="button" onClick={() => setOpen(false)} className="btn-secondary">Close</button></div>
           </div>
         </div>,
         document.body,
