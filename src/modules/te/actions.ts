@@ -380,11 +380,26 @@ export async function updateClaimExpenseLine(claimId: string, lineId: string, fd
   if (!line || line.claimId !== claimId) return;
   // A CTA / Reference line is centrally billed (shown for comparison) — the claimant does not edit it.
   if (line.treatment === 'REFERENCE') return;
-  const amount = num(fd, `amount`);
+  // §4.5 editable stay basis — an accommodation / ODA line carries an editable per-stay / per-city table.
+  // When the claimant submits it, the funded (personal-excluded) total DRIVES the line amount, and the
+  // edited rows are saved on the claim (accomBasisJson / odaBasisJson), overriding the TMC-feed seed.
+  const periods = readPeriodsForm(fd);
+  const basisData: { accomBasisJson?: string | null; odaBasisJson?: string | null } = {};
+  let amount = num(fd, `amount`);
+  if (fd.has('accomCount') && line.category === EXPENSE_CATEGORY.Accommodation) {
+    const accom = readAccomBasisForm(fd);
+    basisData.accomBasisJson = accom.length ? JSON.stringify(accom) : null;
+    amount = fundedAccomTotal(accom, periods);
+  } else if (fd.has('odaCount') && line.category === EXPENSE_CATEGORY.ODA) {
+    const oda = readOdaBasisForm(fd);
+    basisData.odaBasisJson = oda.length ? JSON.stringify(oda) : null;
+    amount = fundedOdaTotal(oda, periods);
+  }
   // Only a manually-added line may change its expense type (a TR budget line's type is fixed).
   const typeUpd = line.manualEntry
     ? (() => { const t = EcsReference.expenseType(str(fd, 'expenseTypeId')); return t ? { expenseTypeId: str(fd, 'expenseTypeId'), category: t.category } : {}; })()
     : {};
+  if (Object.keys(basisData).length) await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: basisData });
   await prisma.tEExpenseLine.update({ where: { id: lineId }, data: {
     actualSgd: amount, varianceSgd: Math.round((amount - line.approvedSgd) * 100) / 100,
     currency: str(fd, 'currency') || line.currency, foreignAmount: num(fd, 'foreignAmount') || amount,

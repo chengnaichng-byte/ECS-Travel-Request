@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExpenseDetailFields, type ExpenseTypeOpt } from '@/components/ExpenseDetailFields';
-import { StayBreakdown, type OdaRow, type AccomRow } from '@/components/StayBreakdown';
+import { EditableStayTable, type EditStayRow, type StayCityOpt } from '@/components/EditableStayTable';
 
 export interface EditLine {
   expenseTypeId: string; label: string; manualEntry: boolean;
@@ -20,19 +20,25 @@ export interface EditLine {
 const ICON_BTN = 'inline-grid place-items-center w-7 h-7 rounded hover:bg-[var(--ecs-panel-2)] text-[var(--ecs-navy-2)]';
 const RECEIPTS: [string, string][] = [['LOCAL_GST', 'Local Receipt (With GST)'], ['FOREIGN_NO_GST', 'Receipt (Foreign / Local Without GST)'], ['NO_RECEIPT', 'No Receipt']];
 
-export function EditExpenseModal({ action, removeReceipt, expenseTypes, currencies, line, oda, accom }: {
+export function EditExpenseModal({ action, removeReceipt, expenseTypes, currencies, line, oda, accom, cities, periods }: {
   action: (fd: FormData) => void;
   removeReceipt?: (fd: FormData) => void;
   expenseTypes: ExpenseTypeOpt[];
   currencies: string[];
   line: EditLine;
-  oda?: OdaRow[];       // §4.5 per-city ODA funded breakdown (ODA lines) — same data the View modal shows
-  accom?: AccomRow[];   // §4.5 per-stay accommodation breakdown (accommodation lines) — nights / dates / funded split
+  oda?: EditStayRow[];      // §4.5 editable per-city ODA funded basis (ODA lines)
+  accom?: EditStayRow[];    // §4.5 editable per-stay accommodation funded basis (accommodation lines)
+  cities?: StayCityOpt[];   // city options for the stay editor (add / change a city)
+  periods?: { start: string; end: string }[];   // personal periods — posted so the server recomputes funded
 }) {
   const [open, setOpen] = useState(false);
   const [receiptType, setReceiptType] = useState(line.receiptType);
   const [fileName, setFileName] = useState('');
   const hasReceipt = receiptType !== 'NO_RECEIPT';
+  // Editable stay basis — the accommodation / ODA funded breakdown drives the line amount.
+  const stayKind: 'accom' | 'oda' | null = accom && accom.length ? 'accom' : oda && oda.length ? 'oda' : null;
+  const stayRows: EditStayRow[] = stayKind === 'accom' ? accom! : stayKind === 'oda' ? oda! : [];
+  const [stayTotal, setStayTotal] = useState(line.actualSgd);
   async function submit(fd: FormData) { await action(fd); setOpen(false); }
   const trigger = (
     <button type="button" className={ICON_BTN} title="Edit this expense" onClick={() => setOpen(true)}>
@@ -130,25 +136,25 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
             expenseTypes={expenseTypes}
             currencies={currencies}
             labelFixed={line.label}
+            amountOverride={stayKind ? stayTotal : undefined}
             defaults={{ expenseTypeId: line.expenseTypeId, manualEntry: line.manualEntry, transactionDate: line.transactionDate, currency: line.currency, foreignAmount: line.foreignAmount, actualSgd: line.actualSgd, sponsorSgd: line.sponsorSgd, reason: line.reason }}
           />
 
-          {/* ── 3. STAY BREAKDOWN — placed AFTER the expense details to match the View modal order (the
-              per-stay / per-city table sits below the detail fields). Same columns + funded (personal-
-              excluded) split as the View. The stay dates, nights and nightly rate are edited in the claim's
-              "Funded basis" card; here they explain the amount (funded nights × rate). */}
-          {((accom && accom.length > 0) || (oda && oda.length > 0)) && (
+          {/* ── 3. STAY BREAKDOWN — EDITABLE, placed after the detail fields (matching the View order). The
+              dates, rate and cities are seeded from the TMC feed / approved TR but can be overridden to the
+              actual stay, and more stays added; the funded total becomes the claimed Amount on save. */}
+          {stayKind && (
             <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 space-y-2">
-              <div className="flex items-baseline justify-between gap-3">
-                <div className="text-sm font-semibold text-[var(--ecs-navy)]">
-                  {accom && accom.length > 0 ? 'Accommodation stay' : 'Overseas daily allowance'}
-                  <span className="font-normal text-[var(--ecs-muted)]"> — dates &amp; {accom && accom.length > 0 ? 'nights' : 'days'} from the approved TR &amp; TMC feed</span>
-                </div>
+              <div className="text-sm font-semibold text-[var(--ecs-navy)]">
+                {stayKind === 'accom' ? 'Accommodation stay' : 'Overseas daily allowance'}
+                <span className="font-normal text-[var(--ecs-muted)]"> — editable; seeded from the approved TR &amp; TMC feed</span>
               </div>
-              <StayBreakdown oda={oda} accom={accom} />
-              <p className="text-[11px] text-[var(--ecs-muted)]">
-                The <b>funded amount</b> is {accom && accom.length > 0 ? 'funded nights' : 'funded days'} × rate (personal time excluded). To change the stay dates, {accom && accom.length > 0 ? 'nights' : 'days'} or rate, use the <b>Funded basis</b> panel on the claim; enter the <b>actual amount paid</b> in Amount (SGD) above and attach the receipt.
-              </p>
+              <EditableStayTable kind={stayKind} rows={stayRows} cities={cities ?? []} onTotalChange={setStayTotal} />
+              {/* personal periods — posted so the server recomputes the funded (personal-excluded) total. */}
+              <input type="hidden" name="periodCount" value={(periods ?? []).length} />
+              {(periods ?? []).map((p, i) => (
+                <span key={i}><input type="hidden" name={`period_${i}_start`} value={p.start} /><input type="hidden" name={`period_${i}_end`} value={p.end} /></span>
+              ))}
             </div>
           )}
 

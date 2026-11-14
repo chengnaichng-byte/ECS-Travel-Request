@@ -17,11 +17,13 @@ export interface ExpenseDefaults {
 const fmt = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const RO = 'field bg-[var(--ecs-readonly,#f1f1f6)] text-[var(--ecs-navy-2)]';
 
-export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelFixed }: {
+export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelFixed, amountOverride }: {
   expenseTypes: ExpenseTypeOpt[];
   currencies: string[];
   defaults?: ExpenseDefaults;        // present = Edit (pre-filled); absent = Add (blank + required)
   labelFixed?: string;               // a budget line's fixed expense-type name (type not editable)
+  amountOverride?: number | null;    // when set (accommodation / ODA), the Amount (SGD) is DRIVEN by the stay
+                                      // breakdown below (funded nights/days × rate) — shown read-only, not typed.
 }) {
   const isAdd = !defaults;
   const [expenseTypeId, setExpenseTypeId] = useState(defaults?.expenseTypeId ?? '');
@@ -32,7 +34,8 @@ export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelF
 
   const type = expenseTypes.find((t) => t.id === expenseTypeId);
   const isForeign = currency !== 'SGD';
-  const sgd = parseFloat(amountSgd) || 0;
+  const overridden = amountOverride != null;                             // amount driven by the stay breakdown
+  const sgd = amountOverride != null ? amountOverride : (parseFloat(amountSgd) || 0);
   const fgn = parseFloat(foreign) || 0;
   const rate = type?.taxRatePct ?? 0;                                   // GST rate from the expense type
   const gstAmount = rate > 0 ? Math.round((sgd * rate / (100 + rate)) * 100) / 100 : 0;
@@ -72,7 +75,10 @@ export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelF
               </select>
             </div>
             <div><label className="label">Amount {req}</label>
-              {isForeign ? (
+              {overridden ? (
+                // amount is computed from the stay breakdown → read-only here
+                <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
+              ) : isForeign ? (
                 // foreign currency → the transaction-currency amount is entered here; the SGD amount sits on the right
                 <input name="foreignAmount" type="number" step="any" value={foreign} onChange={(e) => setForeign(e.target.value)} className="field text-right" placeholder="0.00" />
               ) : (
@@ -98,17 +104,25 @@ export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelF
             <div><label className="label">Base Amount</label><input className={`${RO} text-right`} value={fmt(baseAmount)} disabled /></div>
             <div><label className="label">Exchange Rate</label><input className={`${RO} text-right`} value={exchangeRate.toLocaleString('en-SG', { minimumFractionDigits: 5, maximumFractionDigits: 5 })} disabled /></div>
             <div><label className="label">Amount (SGD) {req}</label>
-              {isForeign ? (
+              {overridden ? (
+                <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
+              ) : isForeign ? (
                 <input name="amount" type="number" step="any" required={isAdd} value={amountSgd} onChange={(e) => setAmountSgd(e.target.value)} className="field text-right" placeholder="0.00" />
               ) : (
                 <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
               )}
+              {overridden && <p className="text-[10px] text-[var(--ecs-muted)] mt-0.5">Driven by the stay breakdown below.</p>}
             </div>
           </div>
         </div>
       </div>
-      {/* SGD line — post the foreign amount (= SGD) so the server always receives it. */}
-      {!isForeign && <input type="hidden" name="foreignAmount" value={amountSgd} />}
+      {/* Amount routing: when the stay breakdown drives the amount, post it (and the foreign = SGD) as hidden
+          fields; otherwise an SGD line still posts the foreign amount (= SGD) so the server always receives it. */}
+      {overridden ? (
+        <><input type="hidden" name="amount" value={sgd} /><input type="hidden" name="foreignAmount" value={sgd} /></>
+      ) : !isForeign ? (
+        <input type="hidden" name="foreignAmount" value={amountSgd} />
+      ) : null}
 
       {/* Sponsorship (for gross claims) — full width, matching the View. */}
       <div className="rounded-lg border border-[var(--ecs-border)] p-3">

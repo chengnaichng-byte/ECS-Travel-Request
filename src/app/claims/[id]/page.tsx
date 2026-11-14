@@ -167,10 +167,19 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const feedSynced = feedStops.length > 0;
   const feedStopFor = (city: string | null) => feedStops.find((s) => s.cityCode === city);
   // Override the TR-seeded stay dates with the actual feed windows (matched by city); the rate stays TR.
-  const effOda = effectiveOdaBasis(claim.odaBasisJson, odaBasis).map((o) => { const f = feedStopFor(o.city); return f ? { ...o, arrive: f.from, depart: f.to } : o; });
-  const effAccom = effectiveAccomBasis(claim.accomBasisJson, accomBasis, req.startDate, req.endDate).map((a) => { const f = feedStopFor(a.city); return f ? { ...a, checkIn: f.from, checkOut: f.to } : a; });
+  // The feed windows SEED the stay dates, but once the claimant has edited the basis (odaBasisJson /
+  // accomBasisJson saved) their dates are authoritative — the feed no longer overrides them.
+  const odaEdited = !!claim.odaBasisJson;
+  const accomEdited = !!claim.accomBasisJson;
+  const effOda = effectiveOdaBasis(claim.odaBasisJson, odaBasis).map((o) => { if (odaEdited) return o; const f = feedStopFor(o.city); return f ? { ...o, arrive: f.from, depart: f.to } : o; });
+  const effAccom = effectiveAccomBasis(claim.accomBasisJson, accomBasis, req.startDate, req.endDate).map((a) => { if (accomEdited) return a; const f = feedStopFor(a.city); return f ? { ...a, checkIn: f.from, checkOut: f.to } : a; });
   const effPeriods = effectivePeriods(claim.claimPersonalPeriodsJson, req.personalPeriodsJson);
   const basisEdited = !!claim.odaBasisJson || !!claim.accomBasisJson || !!claim.claimPersonalPeriodsJson;
+  // §4.5 editable stay rows for the per-line Edit modal + the city options; effPeriods is posted with the
+  // form so the server recomputes the funded (personal-excluded) total when the stay is edited.
+  const stayCityOpts = EcsReference.cities().filter((c) => c.code !== 'SIN').map((c) => ({ code: c.code, name: c.name, countryCode: c.countryCode, countryName: EcsReference.country(c.countryCode)?.name ?? c.countryCode }));
+  const accomEditRows = effAccom.map((a) => ({ city: a.city, from: a.checkIn, to: a.checkOut, rate: a.nightlyRate, personal: accomPersonalNights(a, effPeriods) }));
+  const odaEditRows = effOda.map((o) => ({ city: o.city ?? '', from: o.arrive, to: o.depart, rate: o.dailyRate, personal: odaPersonalDays(o, effPeriods) }));
   const basisPersonalDays = personalDaysTotal(effOda, effPeriods);
   const anyPersonalBasis = effPeriods.length > 0;
   // Stay windows per city — a personal extension is auto-matched to the stay its dates fall in (date
@@ -446,7 +455,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                           <ViewExpenseModal e={ev} />
                           {canEdit && !isRef(l) && (() => {
                             const rec = l.attachments.find((a) => a.docType === 'RECEIPT');
-                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} oda={ev.oda} accom={ev.accom} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}` } : null }} />;
+                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} cities={stayCityOpts} periods={effPeriods} oda={l.category === EXPENSE_CATEGORY.ODA ? odaEditRows : undefined} accom={l.category === EXPENSE_CATEGORY.Accommodation ? accomEditRows : undefined} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}` } : null }} />;
                           })()}
                           {canEdit && (l.manualEntry
                             ? <button formAction={removeClaimExpense.bind(null, id, l.id)} title="Remove line" className="inline-grid place-items-center w-7 h-7 rounded hover:bg-red-50 text-[var(--ecs-red)]"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></button>
