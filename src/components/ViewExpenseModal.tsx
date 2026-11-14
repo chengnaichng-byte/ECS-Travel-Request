@@ -36,8 +36,10 @@ function F({ label, value, isNew, strong, wide }: { label: ReactNode; value: Rea
     </div>
   );
 }
-// A read-only radio group showing the selected option (disabled, matching the ECS look).
-function Radios({ label, options, selected, isNew }: { label: string; options: [string, string][]; selected: string; isNew?: boolean }) {
+// A read-only radio group showing the selected option (disabled, matching the ECS look). A `selected`
+// value that matches no option leaves every radio unchecked (e.g. a CTA-billed line — neither a staff
+// reimbursement nor a personal corporate card); `hint` explains that case below the options.
+function Radios({ label, options, selected, isNew, hint }: { label: string; options: [string, string][]; selected: string; isNew?: boolean; hint?: string }) {
   return (
     <div>
       <label className="label">{label}{isNew && <NewTag />}</label>
@@ -48,6 +50,7 @@ function Radios({ label, options, selected, isNew }: { label: string; options: [
           </label>
         ))}
       </div>
+      {hint && <p className="text-[11px] text-[var(--ecs-muted)] mt-1">{hint}</p>}
     </div>
   );
 }
@@ -81,7 +84,7 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
                     <label className="label">Receipt</label>
                     <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: '#9cc3e6', background: '#eef5fc' }}>
                       <span className="font-medium text-[var(--ecs-navy)]">Pre-filled from the approved TR</span>
-                      <span className="text-[var(--ecs-navy-2)]"> — {e.isRef ? 'centrally billed (CTC)' : 'entitlement / per-diem'}; no receipt required.</span>
+                      <span className="text-[var(--ecs-navy-2)]"> — {e.isRef ? 'centrally billed (CTA)' : 'entitlement / per-diem'}; no receipt required.</span>
                     </div>
                   </div>
                 ) : (
@@ -127,7 +130,7 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
                 </div>
                 {/* RIGHT */}
                 <div className="space-y-4">
-                  <Radios label="Payment Type" options={[['SELF', 'Reimbursement To Staff'], ['CTC', 'NTU Corporate Card (CTC)']]} selected={e.paymentCtc ? 'CTC' : 'SELF'} isNew={e.isRef} />
+                  <Radios label="Payment Type" options={[['SELF', 'Reimbursement To Staff'], ['CTC', 'NTU Corporate Card (CTC)']]} selected={e.isRef ? '' : (e.paymentCtc ? 'CTC' : 'SELF')} isNew={e.isRef} hint={e.isRef ? 'Centrally billed via the CTA (corporate travel account) — neither a staff reimbursement nor a personal corporate card.' : undefined} />
                   <div className="grid grid-cols-2 gap-3">
                     <F label={<>GST Rate (%) <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstRatePct)}</span>} strong />
                     <F label={<>GST Amount <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstAmount)}</span>} strong />
