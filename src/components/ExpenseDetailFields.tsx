@@ -12,10 +12,13 @@ export interface ExpenseTypeOpt { id: string; name: string; gstCode: string; tax
 export interface ExpenseDefaults {
   expenseTypeId: string; manualEntry: boolean; transactionDate: string;
   currency: string; foreignAmount: number | null; actualSgd: number; sponsorSgd: number; reason: string;
+  merchant?: string | null; invoiceNo?: string | null;   // receipt datapoints — pre-filled from the receipt (claimant-entered)
 }
 
 const fmt = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const RO = 'field bg-[var(--ecs-readonly,#f1f1f6)] text-[var(--ecs-navy-2)]';
+const GREEN = { background: '#f0faf5', borderColor: '#a7dcc6' } as const;   // soft-green tint for a NEW datapoint
+const NewTag = () => <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold tracking-wide align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: '1px solid #a7dcc6' }}>NEW</span>;
 
 export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelFixed, amountOverride }: {
   expenseTypes: ExpenseTypeOpt[];
@@ -47,72 +50,85 @@ export function ExpenseDetailFields({ expenseTypes, currencies, defaults, labelF
     <div className="space-y-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-[var(--ecs-muted)]">Expense details</div>
 
-      {/* Two columns, in the SAME order as the read-only View modal. */}
-      <div className="grid md:grid-cols-2 gap-x-6 gap-y-4">
-        {/* LEFT — Transaction Date · Expense Type · Currency | Amount */}
-        <div className="space-y-4">
+      {/* ONE aligned 2-column grid, same field order as the View modal: cells emitted left,right,left,right…
+          so each left box lines up with its right box (Merchant ↔ GST, Currency|Amount ↔ Exchange|SGD). */}
+      <div className="grid md:grid-cols-2 gap-x-6 gap-y-4 items-start">
+        {/* Transaction Date | Invoice No.   ·   Payment Type */}
+        <div className="grid grid-cols-[8rem_1fr] gap-3">
           <div><label className="label">Transaction Date {req}</label>
             <input name="transactionDate" type="date" required={isAdd} defaultValue={defaults?.transactionDate} className="field" />
           </div>
-          <div><label className="label">Expense Type {req}</label>
-            {defaults && !defaults.manualEntry ? (
-              <>
-                <input className={RO} value={labelFixed ?? type?.name ?? ''} disabled />
-                <input type="hidden" name="expenseTypeId" value={expenseTypeId} />
-                <p className="text-[11px] text-[var(--ecs-muted)] mt-1">Budget line from the approved TR — type is fixed.</p>
-              </>
-            ) : (
-              <select name="expenseTypeId" required value={expenseTypeId} onChange={(e) => setExpenseTypeId(e.target.value)} className="field">
-                <option value="">Select…</option>
-                {expenseTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            )}
+          <div><label className="label">Invoice No.<NewTag /></label>
+            <input name="invoiceNo" defaultValue={defaults?.invoiceNo ?? ''} className="field" style={GREEN} placeholder="e.g. INV-88421" />
           </div>
-          <div className="grid grid-cols-[7rem_1fr] gap-3">
-            <div><label className="label">Currency {req}</label>
-              <select name="currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className="field">
-                {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div><label className="label">Amount {req}</label>
-              {overridden ? (
-                // amount is computed from the stay breakdown → read-only here
-                <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
-              ) : isForeign ? (
-                // foreign currency → the transaction-currency amount is entered here; the SGD amount sits on the right
-                <input name="foreignAmount" type="number" step="any" value={foreign} onChange={(e) => setForeign(e.target.value)} className="field text-right" placeholder="0.00" />
-              ) : (
-                // SGD → this IS the claimed amount
-                <input name="amount" type="number" step="any" required={isAdd} value={amountSgd} onChange={(e) => setAmountSgd(e.target.value)} className="field text-right" placeholder="0.00" />
-              )}
-            </div>
+        </div>
+        <div><label className="label">Payment Type</label>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 pt-1 text-sm">
+            <label className="flex items-center gap-1.5"><input type="radio" name="paymentType" value="SELF" defaultChecked /> Reimbursement To Staff</label>
+            <label className="flex items-center gap-1.5"><input type="radio" name="paymentType" value="CTC" /> NTU Corporate Travel Card (CTC)</label>
           </div>
         </div>
 
-        {/* RIGHT — Payment Type · GST (Rate, Amount, Code, Base) · Exchange Rate · Amount (SGD) */}
-        <div className="space-y-4">
-          <div><label className="label">Payment Type</label>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 pt-1 text-sm">
-              <label className="flex items-center gap-1.5"><input type="radio" name="paymentType" value="SELF" defaultChecked /> Reimbursement To Staff</label>
-              <label className="flex items-center gap-1.5"><input type="radio" name="paymentType" value="CTC" /> NTU Corporate Travel Card (CTC)</label>
-            </div>
+        {/* Merchant   ·   GST Rate | GST Amount */}
+        <div><label className="label">Merchant<NewTag /></label>
+          <input name="merchant" defaultValue={defaults?.merchant ?? ''} className="field" style={GREEN} placeholder="e.g. Singapore Airlines" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label">GST Rate (%)</label><input className={`${RO} text-right`} value={fmt(rate)} disabled /></div>
+          <div><label className="label">GST Amount</label><input className={`${RO} text-right`} value={fmt(gstAmount)} disabled /></div>
+        </div>
+
+        {/* Expense Type   ·   GST Code | Base Amount */}
+        <div><label className="label">Expense Type {req}</label>
+          {defaults && !defaults.manualEntry ? (
+            <>
+              <input className={RO} value={labelFixed ?? type?.name ?? ''} disabled />
+              <input type="hidden" name="expenseTypeId" value={expenseTypeId} />
+              <p className="text-[11px] text-[var(--ecs-muted)] mt-1">Budget line from the approved TR — type is fixed.</p>
+            </>
+          ) : (
+            <select name="expenseTypeId" required value={expenseTypeId} onChange={(e) => setExpenseTypeId(e.target.value)} className="field">
+              <option value="">Select…</option>
+              {expenseTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label">GST Code</label><input className={RO} value={type?.gstCode ?? '—'} disabled /></div>
+          <div><label className="label">Base Amount</label><input className={`${RO} text-right`} value={fmt(baseAmount)} disabled /></div>
+        </div>
+
+        {/* Currency | Amount   ·   Exchange Rate | Amount (SGD) */}
+        <div className="grid grid-cols-[8rem_1fr] gap-3">
+          <div><label className="label">Currency {req}</label>
+            <select name="currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className="field">
+              {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="label">GST Rate (%)</label><input className={`${RO} text-right`} value={fmt(rate)} disabled /></div>
-            <div><label className="label">GST Amount</label><input className={`${RO} text-right`} value={fmt(gstAmount)} disabled /></div>
-            <div><label className="label">GST Code</label><input className={RO} value={type?.gstCode ?? '—'} disabled /></div>
-            <div><label className="label">Base Amount</label><input className={`${RO} text-right`} value={fmt(baseAmount)} disabled /></div>
-            <div><label className="label">Exchange Rate</label><input className={`${RO} text-right`} value={exchangeRate.toLocaleString('en-SG', { minimumFractionDigits: 5, maximumFractionDigits: 5 })} disabled /></div>
-            <div><label className="label">Amount (SGD) {req}</label>
-              {overridden ? (
-                <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
-              ) : isForeign ? (
-                <input name="amount" type="number" step="any" required={isAdd} value={amountSgd} onChange={(e) => setAmountSgd(e.target.value)} className="field text-right" placeholder="0.00" />
-              ) : (
-                <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
-              )}
-              {overridden && <p className="text-[10px] text-[var(--ecs-muted)] mt-0.5">Driven by the stay breakdown below.</p>}
-            </div>
+          <div><label className="label">Amount {req}</label>
+            {overridden ? (
+              // amount is computed from the stay breakdown → read-only here
+              <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
+            ) : isForeign ? (
+              // foreign currency → the transaction-currency amount is entered here; the SGD amount sits on the right
+              <input name="foreignAmount" type="number" step="any" value={foreign} onChange={(e) => setForeign(e.target.value)} className="field text-right" placeholder="0.00" />
+            ) : (
+              // SGD → this IS the claimed amount
+              <input name="amount" type="number" step="any" required={isAdd} value={amountSgd} onChange={(e) => setAmountSgd(e.target.value)} className="field text-right" placeholder="0.00" />
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label">Exchange Rate</label><input className={`${RO} text-right`} value={exchangeRate.toLocaleString('en-SG', { minimumFractionDigits: 5, maximumFractionDigits: 5 })} disabled /></div>
+          <div><label className="label">Amount (SGD) {req}</label>
+            {overridden ? (
+              <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
+            ) : isForeign ? (
+              <input name="amount" type="number" step="any" required={isAdd} value={amountSgd} onChange={(e) => setAmountSgd(e.target.value)} className="field text-right" placeholder="0.00" />
+            ) : (
+              <input className={`${RO} text-right`} value={fmt(sgd)} disabled />
+            )}
+            {overridden && <p className="text-[10px] text-[var(--ecs-muted)] mt-0.5">Driven by the stay breakdown below.</p>}
           </div>
         </div>
       </div>

@@ -14,6 +14,7 @@ export interface EditLine {
   receiptRequired: boolean;   // true = traveller pays out-of-pocket and must attach a receipt (hotel, reimbursable
                               // airfare, claimant-added). false = ODA / per-diem allowance or centrally-billed (CTC).
   transactionDate: string; currency: string; foreignAmount: number | null; actualSgd: number; sponsorSgd: number; receiptType: string; reason: string;
+  merchant: string | null; invoiceNo: string | null;   // §2 receipt datapoints — claimant-entered on a reimbursable line
   receipt?: { id: string; fileName: string; href: string } | null;   // §2 the persisted per-line receipt
 }
 
@@ -134,7 +135,7 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
             currencies={currencies}
             labelFixed={line.label}
             amountOverride={stayKind ? stayTotal : undefined}
-            defaults={{ expenseTypeId: line.expenseTypeId, manualEntry: line.manualEntry, transactionDate: line.transactionDate, currency: line.currency, foreignAmount: line.foreignAmount, actualSgd: line.actualSgd, sponsorSgd: line.sponsorSgd, reason: line.reason }}
+            defaults={{ expenseTypeId: line.expenseTypeId, manualEntry: line.manualEntry, transactionDate: line.transactionDate, currency: line.currency, foreignAmount: line.foreignAmount, actualSgd: line.actualSgd, sponsorSgd: line.sponsorSgd, reason: line.reason, merchant: line.merchant, invoiceNo: line.invoiceNo }}
           />
 
           {/* ── 3. STAY BREAKDOWN — EDITABLE, placed after the detail fields (matching the View order). The

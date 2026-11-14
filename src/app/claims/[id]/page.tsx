@@ -23,6 +23,7 @@ import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
 import { expenseTypes } from '@/data/expenseTypes';
 import { currencies } from '@/data/fxRates';
 import { employees } from '@/data/employees';
+import { tmcProviders } from '@/data/tmcProviders';
 import { CLAIM_STATUS, APPROVER_ROLE, TE_TREATMENT, EXPENSE_CATEGORY } from '@/shared/enums';
 import { ChargingAccountEditor, type AccountOpt, type CostLineX } from '@/components/ChargingAccountEditor';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
@@ -133,6 +134,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const ctaPostings = booking ? await prisma.ctaPostingDocument.findMany({ where: { bookingId: booking.id } }) : [];
   const postingByType = new Map(ctaPostings.map((d) => [d.chargeType, d] as const));
   const postingFor = (cat: string) => postingByType.get(cat === 'AIRFARE' ? 'Airfare' : cat === 'ACCOMMODATION' ? 'Accommodation' : '');
+  // §2 Merchant on a CTA line comes from the TMC FEED — the provider that billed the central account
+  // (the booking's TMC, else the default provider). A reimbursable line's merchant is claimant-entered.
+  const ctaMerchant = tmcProviders.find((p) => p.id === booking?.tmcProviderId)?.name ?? tmcProviders.find((p) => p.isDefault)?.name ?? null;
   // The central (CTA) charge lines behind the "Less: charges paid by CTA" total (for the detail icon).
   const ctaLines = claim.lines.filter(isRef).map((l) => ({ label: labelOf(l), amount: l.actualSgd, posting: (() => { const p = postingFor(l.category); return p ? `${p.sapDocNo} (${p.status})` : ''; })() }));
 
@@ -263,6 +267,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
       reason: l.reason ?? '', receiptType: l.receiptType, currency: l.currency, foreignAmount: l.foreignAmount, sponsorSgd: l.sponsorSgd,
       paymentCtc: isRef(l), gstCode: et?.gstCode ?? '—', gstRatePct, gstAmount, baseAmount: Math.round((l.actualSgd - gstAmount) * 100) / 100,
       exchangeRate: l.foreignAmount && l.foreignAmount > 0 ? Math.round((l.actualSgd / l.foreignAmount) * 100000) / 100000 : 1,
+      // §2 CTA line → merchant/invoice from the TMC feed (provider name + CTA posting doc); reimbursable → claimant-entered.
+      merchant: isRef(l) ? ctaMerchant : (l.merchant ?? null),
+      invoiceNo: isRef(l) ? (postingFor(l.category)?.sapDocNo ?? null) : (l.invoiceNo ?? null),
       receipt: (() => { const rec = l.attachments.find((a) => a.docType === 'RECEIPT'); return rec ? { fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}`, contentType: rec.contentType } : null; })(),
     };
     const countryName = (code: string) => EcsReference.country(code)?.name ?? code;
@@ -485,7 +492,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                           <ViewExpenseModal e={ev} />
                           {canEdit && !isRef(l) && (() => {
                             const rec = l.attachments.find((a) => a.docType === 'RECEIPT');
-                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} cities={stayCityOpts} periods={effPeriods} oda={l.category === EXPENSE_CATEGORY.ODA ? odaEditRows : undefined} accom={l.category === EXPENSE_CATEGORY.Accommodation ? accomEditRows : undefined} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}` } : null }} />;
+                            return <EditExpenseModal action={updateClaimExpenseLine.bind(null, id, l.id)} removeReceipt={rec ? removeClaimAttachment.bind(null, id, rec.id) : undefined} expenseTypes={etModalOpts} currencies={currencies} cities={stayCityOpts} periods={effPeriods} oda={l.category === EXPENSE_CATEGORY.ODA ? odaEditRows : undefined} accom={l.category === EXPENSE_CATEGORY.Accommodation ? accomEditRows : undefined} line={{ expenseTypeId: l.expenseTypeId, label: labelOf(l), manualEntry: l.manualEntry, receiptRequired: l.category !== EXPENSE_CATEGORY.ODA && !isRef(l), transactionDate: d(l.transactionDate), currency: l.currency, foreignAmount: l.foreignAmount, actualSgd: l.actualSgd, sponsorSgd: l.sponsorSgd, receiptType: l.receiptType, reason: l.reason ?? '', merchant: l.merchant, invoiceNo: l.invoiceNo, receipt: rec ? { id: rec.id, fileName: rec.fileName, href: `/claims/${id}/attachments/${rec.id}` } : null }} />;
                           })()}
                           {canEdit && (l.manualEntry
                             ? <button formAction={removeClaimExpense.bind(null, id, l.id)} title="Remove line" className="inline-grid place-items-center w-7 h-7 rounded hover:bg-red-50 text-[var(--ecs-red)]"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg></button>

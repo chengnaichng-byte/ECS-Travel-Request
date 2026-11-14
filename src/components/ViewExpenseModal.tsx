@@ -15,6 +15,7 @@ export interface ExpenseView {
   label: string; date: string; isRef: boolean; manualEntry: boolean; receiptRequired: boolean; approvedSgd: number; actualSgd: number;
   reason: string; receiptType: string; currency: string; foreignAmount: number | null; sponsorSgd: number;
   paymentCtc: boolean; gstCode: string; gstRatePct: number; gstAmount: number; baseAmount: number; exchangeRate: number;
+  merchant?: string | null; invoiceNo?: string | null;   // NEW receipt datapoints — from the TMC feed (CTA) or entered by the claimant
   oda?: OdaRow[]; accom?: AccomRow[]; m6?: M6Split | null;
   receipt?: { fileName: string; href: string; contentType?: string | null } | null;   // the per-line receipt attachment (NEW — receipt-first capture)
 }
@@ -28,11 +29,12 @@ const RECEIPTS = ['LOCAL_GST', 'FOREIGN_NO_GST', 'NO_RECEIPT'];
 const NewTag = () => <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold tracking-wide align-middle" style={{ background: '#e1f5ee', color: '#0f6e56', border: `1px solid ${HIBORDER}` }}>NEW</span>;
 
 // A read-only field. `isNew` tints it green + tags it; `strong` right-aligns a numeric value like the ECS form.
-function F({ label, value, isNew, strong, wide }: { label: ReactNode; value: ReactNode; isNew?: boolean; strong?: boolean; wide?: boolean }) {
+function F({ label, value, isNew, strong, wide, hint }: { label: ReactNode; value: ReactNode; isNew?: boolean; strong?: boolean; wide?: boolean; hint?: ReactNode }) {
   return (
     <div className={wide ? 'md:col-span-2' : ''}>
       <label className="label">{label}{isNew && <NewTag />}</label>
       <div className="field" style={{ background: isNew ? HI : 'var(--ecs-readonly, #f1f1f6)', ...(isNew ? { borderColor: HIBORDER } : {}), ...(strong ? { textAlign: 'right' } : {}) }}>{value}</div>
+      {hint && <p className="text-[10px] text-[var(--ecs-muted)] mt-0.5">{hint}</p>}
     </div>
   );
 }
@@ -117,33 +119,40 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
                 ) : null}
               </div>
 
-              {/* ── ECS Expense Detail — two columns ── */}
-              <div className="grid md:grid-cols-2 gap-x-6 gap-y-4">
-                {/* LEFT */}
-                <div className="space-y-4">
+              {/* ── ECS Expense Detail — ONE aligned 2-column grid. Cells are emitted left,right,left,right…
+                  so each left box sits on the same row as its right box (Merchant ↔ GST, etc.). A source
+                  hint ("From TMC feed" / "Entered by claimant") sits BELOW its box, which no longer offsets
+                  the paired box (every box starts right after its single-line label). ── */}
+              <div className="grid md:grid-cols-2 gap-x-6 gap-y-4 items-start">
+                {/* Transaction Date | Invoice No.   ·   Payment Type */}
+                <div className="grid grid-cols-[8rem_1fr] gap-3">
                   <F label="Transaction Date" value={e.date || '—'} />
-                  <F label="Expense Type" value={e.label} />
-                  <div className="grid grid-cols-[7rem_1fr] gap-3">
-                    <F label="Currency" value={e.currency} />
-                    <F label="Amount" value={<span className="tabular-nums">{foreign ? fmt(e.foreignAmount!) : fmt(e.actualSgd)}</span>} strong />
-                  </div>
+                  <F label="Invoice No." value={e.invoiceNo || '—'} isNew hint={e.isRef ? 'From TMC feed' : 'Entered by claimant'} />
                 </div>
-                {/* RIGHT */}
-                <div className="space-y-4">
-                  <Radios label="Payment Type" options={[['SELF', 'Reimbursement To Staff'], ['CTC', 'NTU Corporate Travel Card (CTC)']]} selected={e.isRef ? '' : (e.paymentCtc ? 'CTC' : 'SELF')} isNew={e.isRef} hint={e.isRef ? 'Centrally billed via the CTA (corporate travel account) — neither a staff reimbursement nor a corporate travel card (CTC).' : undefined} />
-                  <div className="grid grid-cols-2 gap-3">
-                    <F label={<>GST Rate (%) <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstRatePct)}</span>} strong />
-                    <F label={<>GST Amount <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstAmount)}</span>} strong />
-                    <F label="GST Code" value={e.gstCode || '—'} />
-                    <F label="Base Amount" value={<span className="tabular-nums">{fmt(e.baseAmount)}</span>} strong />
-                    <F label="Exchange Rate" value={<span className="tabular-nums">{e.exchangeRate.toLocaleString('en-SG', { minimumFractionDigits: 5, maximumFractionDigits: 5 })}</span>} strong />
-                    <F label="Amount (SGD)" value={<span className="tabular-nums">{fmt(e.actualSgd)}</span>} strong />
-                  </div>
+                <Radios label="Payment Type" options={[['SELF', 'Reimbursement To Staff'], ['CTC', 'NTU Corporate Travel Card (CTC)']]} selected={e.isRef ? '' : (e.paymentCtc ? 'CTC' : 'SELF')} isNew={e.isRef} />
+                {/* Merchant   ·   GST Rate | GST Amount */}
+                <F label="Merchant" value={e.merchant || '—'} isNew hint={e.isRef ? 'From TMC feed' : 'Entered by claimant'} />
+                <div className="grid grid-cols-2 gap-3">
+                  <F label={<>GST Rate (%) <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstRatePct)}</span>} strong />
+                  <F label={<>GST Amount <span className="text-[var(--ecs-red)]">*</span></>} value={<span className="tabular-nums">{fmt(e.gstAmount)}</span>} strong />
                 </div>
-              </div>
-
-              {/* NEW — the approved TR estimate this line was pre-populated from (the funded reference). */}
-              <div className="grid md:grid-cols-2 gap-x-6">
+                {/* Expense Type   ·   GST Code | Base Amount */}
+                <F label="Expense Type" value={e.label} />
+                <div className="grid grid-cols-2 gap-3">
+                  <F label="GST Code" value={e.gstCode || '—'} />
+                  <F label="Base Amount" value={<span className="tabular-nums">{fmt(e.baseAmount)}</span>} strong />
+                </div>
+                {/* Currency | Amount   ·   Exchange Rate | Amount (SGD) */}
+                <div className="grid grid-cols-[8rem_1fr] gap-3">
+                  <F label="Currency" value={e.currency} />
+                  <F label="Amount" value={<span className="tabular-nums">{foreign ? fmt(e.foreignAmount!) : fmt(e.actualSgd)}</span>} strong />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <F label="Exchange Rate" value={<span className="tabular-nums">{e.exchangeRate.toLocaleString('en-SG', { minimumFractionDigits: 5, maximumFractionDigits: 5 })}</span>} strong />
+                  <F label="Amount (SGD)" value={<span className="tabular-nums">{fmt(e.actualSgd)}</span>} strong />
+                </div>
+                {/* Reason For Expense   ·   Approved estimate (SGD) */}
+                <F label="Reason For Expense" value={e.reason || '—'} />
                 <F label="Approved estimate (SGD)" value={e.approvedSgd > 0 ? fmt(e.approvedSgd) : '—'} isNew strong />
               </div>
 
@@ -161,7 +170,6 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
                 </div>
               ) : null}
 
-              <F label="Reason For Expense" value={e.reason || '—'} wide />
 
               {/* ODA per-city / accommodation per-stay breakdown — shared with the Edit modal so both show
                   identical columns + the Personal / Funded split (NEW). */}

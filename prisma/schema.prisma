@@ -771,6 +771,8 @@ model TEExpenseLine {
   currency      String  @default("SGD")
   foreignAmount Float?
   sponsorSgd    Float   @default(0)
+  merchant      String?                      // §2 merchant / supplier — claimant-entered on a reimbursable line; from the TMC feed on a CTA line (not stored there)
+  invoiceNo     String?                      // §2 invoice / document no. — claimant-entered on a reimbursable line; the CTA posting doc no on a CTA line (not stored there)
   chargingCode  String?                      // §17 per-item claim allocation (ITEM mode)
   allocJson     String?                      // §17 per-item MULTI-account split — JSON [{code,pct,io}] (overrides chargingCode)
   policyJustification String?                // §13.8 claim-time policy-violation justification (editable). A violation already

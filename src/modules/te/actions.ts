@@ -422,6 +422,7 @@ export async function addClaimExpense(claimId: string, fd: FormData) {
     currency: str(fd, 'currency') || 'SGD', foreignAmount: num(fd, 'foreignAmount') || amount,
     sponsorSgd: num(fd, 'sponsorship'), reason: str(fd, 'reason') || null,
     receiptType: str(fd, 'receiptType') || 'LOCAL_GST',
+    merchant: str(fd, 'merchant') || null, invoiceNo: str(fd, 'invoiceNo') || null,
   } });
   await storeLineReceipt(claimId, newLine.id, claim.claimantId, fd);
   await prisma.auditEvent.create({ data: { requestId: claim.requestId, actorId: claim.claimantId, kind: 'AMEND', summary: `Expense line added to claim ${claim.claimNumber}` } });
@@ -464,6 +465,7 @@ export async function updateClaimExpenseLine(claimId: string, lineId: string, fd
     sponsorSgd: num(fd, 'sponsorship'),
     receiptType: str(fd, 'receiptType') || line.receiptType,
     reason: str(fd, 'reason') || null,
+    merchant: str(fd, 'merchant') || null, invoiceNo: str(fd, 'invoiceNo') || null,
     transactionDate: str(fd, 'transactionDate') ? new Date(str(fd, 'transactionDate')) : line.transactionDate,
     ...typeUpd,
   } });
