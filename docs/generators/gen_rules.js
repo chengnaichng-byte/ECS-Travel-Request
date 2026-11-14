@@ -618,6 +618,11 @@ section('CLM', 'Expense claim (TE link)',
   { id: 'CLM-8', t: 'Each claim is linked to its Travel Request', ty: 'Business rule', b: 'Routing (link row + requestId)', c: 'ModuleSettings.teLinkageMandatory (defined but not enforced in code; linkage is implicit in the create path)', s: '13.8',
     en: 'server - te/actions.ts:createClaimFromRequest', w: 'A claim is always created from a request in the prototype, so linkage is effectively mandatory.',
     e: 'a claim created from TR-2026-000123 carries that requestId and a link row.', d: 'Submit requires the claim requestId. Cumulative follow-up claims net prior claimed amounts by category.' },
+  { id: 'CLM-9', t: 'Merchant and Invoice No. on an expense line come from the TMC feed on a CTA line and are claimant-entered otherwise', ty: 'Business rule', b: 'Auto-derive (CTA) or claimant input (reimbursable)', c: 'Fixed', s: 'DD-19 / 2',
+    en: 'server - app/claims/[id]/page.tsx:expenseView; te/actions.ts:addClaimExpense / updateClaimExpenseLine (TEExpenseLine.merchant, invoiceNo)',
+    w: 'A centrally-billed charge already carries its supplier and document number in the feed, so they are displayed rather than retyped; an out-of-pocket charge is evidenced by the claimant.',
+    e: 'a CTA airfare shows Merchant set to the booking TMC provider and Invoice No. set to the CTA posting document number, both read-only; a self-booked airfare takes a claimant-typed Merchant and Invoice No.',
+    d: 'A REFERENCE (CTA) line derives Merchant from the booking TMC provider name (falling back to the default provider) and Invoice No. from the CtaPostingDocument.sapDocNo for the charge type; both are read-only and not stored on the line. A reimbursable line keeps both as editable text persisted to TEExpenseLine.merchant and invoiceNo, shown as entered by claimant. The per-line Edit modal renders only for non-reference lines, so a CTA line is never claimant-editable.' },
 ]);
 
 // ======================================================================= APPENDIX
