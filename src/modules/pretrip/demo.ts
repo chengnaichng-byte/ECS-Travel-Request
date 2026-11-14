@@ -986,9 +986,33 @@ export async function seedLegacyBookings() {
   for (const r of rows) await prisma.legacyBooking.create({ data: r });
 }
 
+const DEMO_SENTINEL = 'DEMO_SEED_COMPLETE';
+/** True once a FULL demo seed has completed — a sentinel audit written at the very end. A partial seed
+ *  (interrupted, or a scenario that threw) leaves this false, so the demo can be re-seeded to heal it
+ *  instead of being stuck half-built (e.g. the CTA claim CLM-2026-000002 missing its reference lines). */
+export async function demoSeeded(): Promise<boolean> {
+  return (await prisma.auditEvent.count({ where: { kind: 'DEMO_SEED', summary: DEMO_SENTINEL } })) > 0;
+}
+/** Wipe every demo-created row so a re-seed can't duplicate or leave gaps. Claims first (they SetNull on a
+ *  request delete rather than cascade), then requests (cascade their children), then the standalone tables. */
+async function clearAllDemo(): Promise<void> {
+  await prisma.travelExpenseClaim.deleteMany({});
+  await prisma.travelRequest.deleteMany({});
+  await prisma.ctaPostingDocument.deleteMany({});
+  await prisma.legacyBooking.deleteMany({});
+  await prisma.auditEvent.deleteMany({});
+}
+/** Reset the demo: clear everything (incl. the sentinel) so the dashboard offers a fresh, full load. */
+export async function resetDemoData(): Promise<void> {
+  await clearAllDemo();
+  revalidatePath('/dashboard');
+}
+
 export async function seedDemoScenarios() {
-  const existing = await prisma.travelRequest.count();
-  if (existing > 0) { revalidatePath('/dashboard'); return; }
+  // Guard on a COMPLETION sentinel, not a row count — a partial/interrupted seed (rows exist but no
+  // sentinel) must still be re-seedable, else the demo stays half-built with no way to recover from the UI.
+  if (await demoSeeded()) { revalidatePath('/dashboard'); return; }
+  await clearAllDemo();   // remove any partial/previous seed before a clean, complete run
 
   // S01 — standard non-research conference trip: Singapore → Tokyo. Approved, booked, claimed.
   const s01 = await buildDraft({
@@ -1122,6 +1146,9 @@ export async function seedDemoScenarios() {
   // Claim-side exception claim with no Travel Request (so the no-TR scenario survives a full reset).
   await seedExceptionClaim();
 
+  // Completion sentinel — only now is the seed known to be FULL. Written last so an interrupted run
+  // leaves it absent and the demo re-seeds cleanly next time rather than persisting a partial state.
+  await prisma.auditEvent.create({ data: { requestId: null, actorId: 'E-SYS', kind: 'DEMO_SEED', summary: DEMO_SENTINEL } });
   revalidatePath('/dashboard');
 }
 

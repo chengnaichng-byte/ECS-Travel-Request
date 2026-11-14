@@ -12,7 +12,7 @@ import { computeSummary, fmtSgd } from '@/modules/pretrip/pricing';
 import { getSettings } from '@/modules/pretrip/settings';
 import { PageTitle, Card, Empty } from '@/components/ui';
 import { DashboardRequests, type DashRow } from '@/components/DashboardRequests';
-import { seedDemoScenarios, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoPersonalDraft, demoDoaReview, demoComplexDoaReview, demoPersonalDoaReview, demoGroupDoaReview, demoClaimEnhancements, demoExceptionClaim } from '@/modules/pretrip/demo';
+import { seedDemoScenarios, demoSeeded, resetDemoData, seedNonTermResearchDemo, demoIndividualDraft, demoGroupDraft, demoGuestDraft, demoEmergencyDraft, demoM6Draft, demoMultiCityDraft, demoGuestUpgradeDraft, demoClassHotelExceptionDraft, demoPersonalDraft, demoDoaReview, demoComplexDoaReview, demoPersonalDoaReview, demoGroupDoaReview, demoClaimEnhancements, demoExceptionClaim } from '@/modules/pretrip/demo';
 import { REQUEST_STATUS, BOOKING_STATUS } from '@/shared/enums';
 import { isRequestVisibleTo } from '@/modules/pretrip/scope';
 
@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 function fmtDate(d: Date | null) { return d ? d.toISOString().slice(0, 10) : '—'; }
 
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
-  const [requests, settings, persona, { view }] = await Promise.all([listRequests(), getSettings(), currentPersonaId(), searchParams]);
+  const [requests, settings, persona, { view }, seeded] = await Promise.all([listRequests(), getSettings(), currentPersonaId(), searchParams, demoSeeded()]);
   const isAdmin = EcsIdentity.hasRole(persona, 'TRAVEL_ADMIN') || EcsIdentity.hasRole(persona, 'SYSTEM_ADMIN');
   const canCreate = canCreateTravelRequest(persona);
 
@@ -81,7 +81,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           : 'Your travel requests — drafts, pending actions, upcoming travel, approved-unbooked and completed-unclaimed trips.'}
         actions={
           <>
-            {requests.length === 0 && <form action={seedDemoScenarios}><button className="btn-secondary">Load demonstration scenarios</button></form>}
+            {!seeded && <form action={seedDemoScenarios}><button className="btn-secondary">Load demonstration scenarios</button></form>}
+            {seeded && isAdmin && <form action={resetDemoData}><button className="btn-ghost text-[var(--ecs-muted)]" title="Clear all demo data, then re-enable a fresh full load">Reset demo data</button></form>}
             {canCreate && <Link href="/requests/new" className="btn-primary">＋ Create Travel Request</Link>}
           </>
         } />
