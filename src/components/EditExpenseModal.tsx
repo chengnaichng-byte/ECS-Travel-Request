@@ -123,8 +123,8 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
             // (c) A PRE-FILLED allowance with NO receipt — ODA / per-diem, or a centrally-billed (CTC) line.
             <div className="rounded-lg border p-3 space-y-1" style={{ borderColor: '#9cc3e6', background: '#eef5fc' }}>
               <input type="hidden" name="receiptType" value={line.receiptType} />
-              <div className="text-sm font-semibold text-[var(--ecs-navy)]">Pre-filled from the approved TR &amp; TMC feed</div>
-              <p className="text-[12px] text-[var(--ecs-navy-2)]">This is a budget line from the approved Travel Request. Its amount is seeded from the approved estimate, and the stay days / dates come from the <b>TMC feed</b> (booked PNRs). <b>Review</b> the values below — an entitlement / per-diem carries no receipt.</p>
+              <div className="text-sm font-semibold text-[var(--ecs-navy)]">Pre-filled from the approved TR</div>
+              <p className="text-[12px] text-[var(--ecs-navy-2)]">This is a budget line from the approved Travel Request. Its amount is seeded from the approved estimate, and the stay days / dates are <b>inferred from your booked flights</b> (the feed carries no hotel dates). <b>Review</b> the values below — an entitlement / per-diem carries no receipt.</p>
             </div>
           )}
 
@@ -144,7 +144,7 @@ export function EditExpenseModal({ action, removeReceipt, expenseTypes, currenci
             <div className="rounded-lg border border-[var(--ecs-border)] bg-[var(--ecs-panel)] p-3 space-y-2">
               <div className="text-sm font-semibold text-[var(--ecs-navy)]">
                 {stayKind === 'accom' ? 'Accommodation — claimable nights' : 'Overseas daily allowance — claimable days'}
-                <span className="font-normal text-[var(--ecs-muted)]"> — seeded from the booked stay, personal time excluded</span>
+                <span className="font-normal text-[var(--ecs-muted)]"> — stay inferred from your flights; confirm the actual {stayKind === 'accom' ? 'nights' : 'days'} (personal excluded)</span>
               </div>
               <EditableStayTable kind={stayKind} rows={stayRows} cities={cities ?? []} declaredPeriods={periods ?? []} onTotalChange={setStayTotal} />
             </div>

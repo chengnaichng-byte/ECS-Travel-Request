@@ -7,9 +7,10 @@
 // still counts, and is flagged). Rows post as accom_<i>_* / oda_<i>_* (+ accomCount / odaCount) that the
 // claim's updateClaimExpenseLine action stores and totals into the line amount.
 import { useEffect, useState } from 'react';
+import { SourceChip, type StaySrc } from '@/components/StayBreakdown';
 
 export interface StayCityOpt { code: string; name: string; countryCode: string; countryName: string }
-export interface EditStayRow { city: string; from: string; to: string; rate: number }
+export interface EditStayRow { city: string; from: string; to: string; rate: number; src?: StaySrc }
 export interface PeriodLite { start: string; end: string }
 
 const DAY = 86400000;
@@ -41,8 +42,9 @@ export function EditableStayTable({ kind, rows: initial, cities, declaredPeriods
   useEffect(() => { onTotalChange?.(total); }, [total, onTotalChange]);
 
   const cityOf = (code: string) => cities.find((c) => c.code === code);
-  const set = (i: number, patch: Partial<EditStayRow>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const addRow = () => setRows((rs) => [...rs, { city: '', from: '', to: '', rate: 0 }]);
+  // Any edit to a seeded row flips its provenance to "you confirmed"; a new row is claimant-entered.
+  const set = (i: number, patch: Partial<EditStayRow>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch, src: 'edited' as StaySrc } : r)));
+  const addRow = () => setRows((rs) => [...rs, { city: '', from: '', to: '', rate: 0, src: 'edited' }]);
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
 
   const unit = isAccom ? 'night' : 'day';
@@ -77,7 +79,7 @@ export function EditableStayTable({ kind, rows: initial, cities, declaredPeriods
               );
               return (
                 <tr key={i} style={warn ? { background: '#fdf6e3' } : undefined}>
-                  <td className="td text-[var(--ecs-muted)] whitespace-nowrap">{c?.countryName ?? '—'}</td>
+                  <td className="td text-[var(--ecs-muted)] whitespace-nowrap">{c?.countryName ?? '—'} <SourceChip src={r.src} /></td>
                   <td className="td" style={{ minWidth: 130 }}>
                     <select value={r.city} onChange={(e) => set(i, { city: e.target.value })} className="field">
                       <option value="">Select…</option>
@@ -119,7 +121,7 @@ export function EditableStayTable({ kind, rows: initial, cities, declaredPeriods
         <p className="text-[11px] text-amber-700">⚠ A row covers a date you declared personal — it will still be claimed and flagged for review.</p>
       )}
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] text-[var(--ecs-muted)]">Each row is a <b>claimable</b> segment (personal time excluded). Edit the dates, rate or city to the actual claim, or add another. A personal break mid-stay shows as two rows.</p>
+        <p className="text-[11px] text-[var(--ecs-muted)]">Each row is a <b>claimable</b> segment (personal time excluded). Dates tagged <b>from flights</b> are inferred from your itinerary — the feed carries no hotel dates, so confirm them; editing a row marks it <b>you confirmed</b>. A personal break mid-stay shows as two rows.</p>
         <button type="button" onClick={addRow} className="btn-secondary text-xs whitespace-nowrap">＋ Add {isAccom ? 'stay' : 'city'}</button>
       </div>
 

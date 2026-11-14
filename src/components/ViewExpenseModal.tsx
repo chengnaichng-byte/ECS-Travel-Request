@@ -80,7 +80,7 @@ export function ViewExpenseModal({ e }: { e: ExpenseView }) {
                   <div>
                     <label className="label">Receipt</label>
                     <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: '#9cc3e6', background: '#eef5fc' }}>
-                      <span className="font-medium text-[var(--ecs-navy)]">Pre-filled from the approved TR &amp; TMC feed</span>
+                      <span className="font-medium text-[var(--ecs-navy)]">Pre-filled from the approved TR</span>
                       <span className="text-[var(--ecs-navy-2)]"> — {e.isRef ? 'centrally billed (CTC)' : 'entitlement / per-diem'}; no receipt required.</span>
                     </div>
                   </div>

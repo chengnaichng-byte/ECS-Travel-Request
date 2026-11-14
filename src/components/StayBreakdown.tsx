@@ -6,10 +6,25 @@
 // therefore no "personal" or "funded" column — what you see is what is claimed.
 import type { ReactNode } from 'react';
 
-export interface OdaRow { country: string; city: string; arrive: string; depart: string; stay: number; rate: number; amount: number }
-export interface AccomRow { country: string; city: string; checkIn: string; checkOut: string; nights: number; rate: number; amount: number }
+// Where a stay row's dates came from — the feed never supplies hotel dates, so they are either inferred
+// from the booked flight itinerary, defaulted from the approved estimate, or confirmed/edited by the claimant.
+export type StaySrc = 'flights' | 'estimate' | 'edited';
+export interface OdaRow { country: string; city: string; arrive: string; depart: string; stay: number; rate: number; amount: number; src?: StaySrc }
+export interface AccomRow { country: string; city: string; checkIn: string; checkOut: string; nights: number; rate: number; amount: number; src?: StaySrc }
 
 const fmt = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const SRC_META: Record<StaySrc, { t: string; bg: string; fg: string; b: string }> = {
+  flights: { t: 'from flights', bg: '#eef5fc', fg: '#185fa5', b: '#9cc3e6' },
+  estimate: { t: 'from estimate', bg: '#f1f1f6', fg: '#555', b: '#dddde3' },
+  edited: { t: 'you confirmed', bg: '#e1f5ee', fg: '#0f6e56', b: '#a7dcc6' },
+};
+// Small badge showing a stay row's date provenance (flights / estimate / edited).
+export function SourceChip({ src }: { src?: StaySrc }) {
+  if (!src) return null;
+  const m = SRC_META[src];
+  return <span className="inline-block rounded px-1 py-0.5 text-[9px] font-semibold tracking-wide whitespace-nowrap" style={{ background: m.bg, color: m.fg, border: `1px solid ${m.b}` }}>{m.t}</span>;
+}
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="text-xs font-semibold text-[var(--ecs-muted)] uppercase tracking-wide mb-1">{children}</div>;
@@ -29,7 +44,7 @@ export function OdaTable({ oda }: { oda: OdaRow[] }) {
           <tbody>
             {oda.map((o, i) => (
               <tr key={i}>
-                <td className="td">{o.country}</td><td className="td">{o.city}</td><td className="td whitespace-nowrap">{o.arrive}</td><td className="td whitespace-nowrap">{o.depart}</td>
+                <td className="td whitespace-nowrap">{o.country} <SourceChip src={o.src} /></td><td className="td">{o.city}</td><td className="td whitespace-nowrap">{o.arrive}</td><td className="td whitespace-nowrap">{o.depart}</td>
                 <td className="td text-right whitespace-nowrap font-medium">{o.stay} day{o.stay === 1 ? '' : 's'}</td>
                 <td className="td text-right text-[var(--ecs-muted)]">{fmt(o.rate)}</td><td className="td text-right">{fmt(o.amount)}</td>
               </tr>
@@ -55,7 +70,7 @@ export function AccomTable({ accom }: { accom: AccomRow[] }) {
           <tbody>
             {accom.map((a, i) => (
               <tr key={i}>
-                <td className="td">{a.country}</td><td className="td">{a.city}</td><td className="td whitespace-nowrap">{a.checkIn}</td><td className="td whitespace-nowrap">{a.checkOut}</td>
+                <td className="td whitespace-nowrap">{a.country} <SourceChip src={a.src} /></td><td className="td">{a.city}</td><td className="td whitespace-nowrap">{a.checkIn}</td><td className="td whitespace-nowrap">{a.checkOut}</td>
                 <td className="td text-right whitespace-nowrap font-medium">{a.nights} night{a.nights === 1 ? '' : 's'}</td>
                 <td className="td text-right">{fmt(a.amount)}</td><td className="td text-right text-[var(--ecs-muted)]">{fmt(a.rate)}</td>
               </tr>

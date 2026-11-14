@@ -170,18 +170,20 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   const effPeriods = effectivePeriods(claim.claimPersonalPeriodsJson, req.personalPeriodsJson);
   // BOOKED stay windows — the full footprint from the approved TR, with the actual dates from the TMC feed
   // (feedStopFor) layered on. This is the gross stay; the feed never knows which nights were personal.
-  const fullOdaStays = seedOdaBasis(odaBasis).map((o) => { const f = feedStopFor(o.city); return f ? { ...o, arrive: f.from, depart: f.to } : o; });
-  const fullAccomStays = seedAccomBasis(accomBasis, req.startDate, req.endDate).map((a) => { const f = feedStopFor(a.city); return f ? { ...a, checkIn: f.from, checkOut: f.to } : a; });
+  // Tag each booked window with its date PROVENANCE: 'flights' when the stay window was inferred from the
+  // booked flight itinerary (the feed never carries hotel dates), else 'estimate' (the approved TR).
+  const fullOdaStays = seedOdaBasis(odaBasis).map((o) => { const f = feedStopFor(o.city); return f ? { ...o, arrive: f.from, depart: f.to, src: 'flights' as const } : { ...o, src: 'estimate' as const }; });
+  const fullAccomStays = seedAccomBasis(accomBasis, req.startDate, req.endDate).map((a) => { const f = feedStopFor(a.city); return f ? { ...a, checkIn: f.from, checkOut: f.to, src: 'flights' as const } : { ...a, src: 'estimate' as const }; });
   // CLAIMABLE segments — the claimant's stored rows if edited, else the booked windows with the DECLARED
   // personal periods carved out (auto-split: a mid-stay personal break becomes two rows). The declaration
   // is the only source of "personal" — the feed can't supply it — so claimable = booked − declared personal.
   const odaEdited = !!claim.odaBasisJson;
   const accomEdited = !!claim.accomBasisJson;
   const effOda = odaEdited
-    ? effectiveOdaBasis(claim.odaBasisJson, odaBasis)
+    ? effectiveOdaBasis(claim.odaBasisJson, odaBasis).map((o) => ({ ...o, src: 'edited' as const }))
     : fullOdaStays.flatMap((o) => carveClaimable(o.arrive, o.depart, effPeriods, 'day').map((s) => ({ ...o, arrive: s.from, depart: s.to })));
   const effAccom = accomEdited
-    ? effectiveAccomBasis(claim.accomBasisJson, accomBasis, req.startDate, req.endDate)
+    ? effectiveAccomBasis(claim.accomBasisJson, accomBasis, req.startDate, req.endDate).map((a) => ({ ...a, src: 'edited' as const }))
     : fullAccomStays.flatMap((a) => carveClaimable(a.checkIn, a.checkOut, effPeriods, 'night').map((s) => ({ ...a, checkIn: s.from, checkOut: s.to })));
   const basisEdited = !!claim.odaBasisJson || !!claim.accomBasisJson || !!claim.claimPersonalPeriodsJson;
   // Personal is the RESIDUAL — booked minus claimed. Flags (allow + flag): claiming MORE than was booked,
@@ -194,8 +196,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
   // §4.5 editable claimable rows for the per-line Edit modal + the city options; effPeriods drives the
   // per-row "covers a declared-personal date" warning in the editor.
   const stayCityOpts = EcsReference.cities().filter((c) => c.code !== 'SIN').map((c) => ({ code: c.code, name: c.name, countryCode: c.countryCode, countryName: EcsReference.country(c.countryCode)?.name ?? c.countryCode }));
-  const accomEditRows = effAccom.map((a) => ({ city: a.city, from: a.checkIn, to: a.checkOut, rate: a.nightlyRate }));
-  const odaEditRows = effOda.map((o) => ({ city: o.city ?? '', from: o.arrive, to: o.depart, rate: o.dailyRate }));
+  const accomEditRows = effAccom.map((a) => ({ city: a.city, from: a.checkIn, to: a.checkOut, rate: a.nightlyRate, src: a.src }));
+  const odaEditRows = effOda.map((o) => ({ city: o.city ?? '', from: o.arrive, to: o.depart, rate: o.dailyRate, src: o.src }));
   const basisPersonalDays = residualPersonalDays;   // personal = booked − claimed (residual)
   const anyPersonalBasis = effPeriods.length > 0;
   // Stay windows per city — a personal extension is auto-matched to the stay its dates fall in (date
@@ -259,9 +261,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
     };
     const countryName = (code: string) => EcsReference.country(code)?.name ?? code;
     if (l.category === EXPENSE_CATEGORY.ODA && effOda.length) {
-      v.oda = effOda.map((o) => ({ country: countryName(o.country), city: EcsReference.city(o.city ?? '')?.name ?? o.city ?? '—', arrive: o.arrive || '—', depart: o.depart || '—', stay: odaStayDays(o), rate: o.dailyRate, amount: Math.round(odaStayDays(o) * o.dailyRate * 100) / 100 }));
+      v.oda = effOda.map((o) => ({ country: countryName(o.country), city: EcsReference.city(o.city ?? '')?.name ?? o.city ?? '—', arrive: o.arrive || '—', depart: o.depart || '—', stay: odaStayDays(o), rate: o.dailyRate, amount: Math.round(odaStayDays(o) * o.dailyRate * 100) / 100, src: o.src }));
     } else if (l.category === EXPENSE_CATEGORY.Accommodation && effAccom.length) {
-      v.accom = effAccom.map((a) => ({ country: countryName(EcsReference.city(a.city)?.countryCode ?? ''), city: EcsReference.city(a.city)?.name ?? a.city, checkIn: a.checkIn || '—', checkOut: a.checkOut || '—', nights: accomStayNights(a), rate: a.nightlyRate, amount: Math.round(accomStayNights(a) * a.nightlyRate * 100) / 100 }));
+      v.accom = effAccom.map((a) => ({ country: countryName(EcsReference.city(a.city)?.countryCode ?? ''), city: EcsReference.city(a.city)?.name ?? a.city, checkIn: a.checkIn || '—', checkOut: a.checkOut || '—', nights: accomStayNights(a), rate: a.nightlyRate, amount: Math.round(accomStayNights(a) * a.nightlyRate * 100) / 100, src: a.src }));
     } else if (l.category === EXPENSE_CATEGORY.Airfare && !isRef(l) && m6DeltaSgd > 0) {
       const net = Math.max(l.actualSgd - l.sponsorSgd, 0);
       const diff = Math.min(m6DeltaSgd, net);
@@ -626,7 +628,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           stub={anyPersonalBasis ? 'Personal time excluded from the funded ODA / accommodation' : 'No personal days declared — funded = full stay'}
           className="border-l-4 border-l-emerald-400"
         >
-          <p className="text-xs text-[var(--ecs-muted)] mb-3">The <b>booked</b> ODA and accommodation stays (approved TR + TMC feed) with the declared personal days marked.{canEdit ? ' Declaring personal days here CARVES them out — the Expense items above then show only the CLAIMABLE segments (a mid-stay personal break auto-splits into two rows), and saving recomputes the claim amounts + the header personal-day count.' : ''}{anyPersonalBasis ? '' : ' No personal days are declared, so the whole booked stay is claimable.'}</p>
+          <p className="text-xs text-[var(--ecs-muted)] mb-3">The <b>booked</b> ODA and accommodation stays (approved TR; actual dates <b>inferred from your booked flights</b> — the feed carries no hotel dates) with the declared personal days marked.{canEdit ? ' Declaring personal days here CARVES them out — the Expense items above then show only the CLAIMABLE segments (a mid-stay personal break auto-splits into two rows), and saving recomputes the claim amounts + the header personal-day count.' : ''}{anyPersonalBasis ? '' : ' No personal days are declared, so the whole booked stay is claimable.'}</p>
           {overFundedLines.length > 0 && (
             <div className="mb-3 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
               <b>Check personal-day claiming:</b> {overFundedLines.map((l) => labelOf(l)).join(', ')} claimed above the funded (personal-excluded) approved amount. The funded day / night counts exclude personal time; the claimed ODA / accommodation should not exceed them.
@@ -639,7 +641,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
               <PersonalPeriodsEditor initial={effPeriods} stops={basisStops} canEdit={canEdit} />
               <p className="text-[10px] text-[var(--ecs-muted)] mt-2">Personal <b>days</b> (ODA) and <b>nights</b> (accommodation) are counted from these dates and matched to the city whose stay they fall in — they differ by a night because a stay&apos;s last day has no onward night. Saving recomputes the funded amounts, <b>updates the ODA / accommodation claim lines</b>, and the header personal-day count.</p>
             </div>
-            <p className="text-[11px] text-[var(--ecs-muted)] mb-2">{feedSynced ? <>The stay dates are the <b>actual booked dates</b> (from the TMC feed / PNRs); the rate is the TR-approved rate.</> : <>The stay dates are from the approved TR (no TMC booking received).</>} These are the <b>booked</b> stays; the <b>claimable</b> days/nights (booked − personal) drive the ODA / accommodation amounts in the Expense items above.</p>
+            <p className="text-[11px] text-[var(--ecs-muted)] mb-2">{feedSynced ? <>The stay dates are <b>inferred from your booked flights</b> (PNRs) — the feed carries no hotel dates; the rate is the TR-approved estimate.</> : <>The stay dates are from the approved TR (no flights booked through the TMC).</>} These are the <b>booked</b> stays; the <b>claimable</b> days/nights (booked − personal) drive the ODA / accommodation amounts in the Expense items above.</p>
             {fullOdaStays.length > 0 && (
               <div className="overflow-x-auto mb-4">
                 <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
