@@ -457,18 +457,17 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
           )}
           {claim.lines.length === 0 ? <Empty>No expense items — add one, or create the claim from an approved request.</Empty> : (
             <div className="overflow-x-auto">
-              {/* Fixed layout: the 12 key columns (Actions → Justification) fill the card width so
-                  Justification sits at the card edge; the 6 secondary columns overflow to the right,
-                  reached by horizontal scroll — keeping only the key information at eye level. */}
-              {/* Table is (card width + 860px) wide. Under fixed layout the 6 secondary columns take their
-                  860px; the 12 key columns are `auto`, so they split the remaining — exactly the card width —
-                  evenly, putting Justification at the card's right edge and the secondary columns off to the
-                  right (scroll to see). Adapts to any card width. */}
+              {/* Fixed layout, table = (card width + 860px). The 6 secondary columns (Verifier→Send back)
+                  take their fixed 860px and overflow to the RIGHT (scroll to see). The 12 key columns fill
+                  exactly the card: the tight ones (date / amount / approved-est / policy / %-exceeded, plus
+                  Actions/Select and the one-line Expense type) are FIXED, and Reason (col 5) + Justification
+                  (col 12) are AUTO — they split whatever card width is left, so both stay wide and
+                  Justification sits at the card's right edge. Secondary widths MUST sum to 860. */}
               <table className="text-sm" style={{ tableLayout: 'fixed', width: 'calc(100% + 860px)' }}>
                 <colgroup>
-                  {/* 1 Actions · 2 Select · 3 Txn date · 4 Expense type · 5 Reason (wide) · 6 Expense amount ·
-                      7 Approved est · 8 Policy violation (narrow Yes/No) · 9-12 limit/exceeded/%/justification */}
-                  <col /><col style={{ width: 40 }} /><col /><col /><col style={{ width: 190 }} /><col /><col /><col style={{ width: 68 }} /><col /><col /><col /><col />
+                  {/* 1 Actions · 2 Select · 3 Txn date · 4 Expense type · 5 Reason (AUTO, wide) · 6 Expense amount ·
+                      7 Approved est · 8 Policy violation · 9 Policy limit · 10 Total exceeded · 11 % Exceeded · 12 Justification (AUTO, wide) */}
+                  <col style={{ width: 90 }} /><col style={{ width: 40 }} /><col style={{ width: 108 }} /><col style={{ width: 260 }} /><col /><col style={{ width: 140 }} /><col style={{ width: 132 }} /><col style={{ width: 60 }} /><col style={{ width: 112 }} /><col style={{ width: 124 }} /><col style={{ width: 70 }} /><col />
                   <col style={{ width: 130 }} /><col style={{ width: 160 }} /><col style={{ width: 160 }} /><col style={{ width: 150 }} /><col style={{ width: 110 }} /><col style={{ width: 150 }} />
                 </colgroup>
                 <thead><tr>
@@ -501,7 +500,7 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
                       </td>
                       <td className="td"><input type="checkbox" disabled className="w-4 h-4" /></td>
                       <td className="td whitespace-nowrap">{d(l.transactionDate) || '—'}</td>
-                      <td className="td font-medium">{labelOf(l)}{isRef(l) && (() => { const p = postingFor(l.category); const tip = `Paid by CTA${booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed${p ? ` · posted to SAP ${p.sapDocNo} (${p.status})` : ''}`; return <span className="ml-1.5 inline-grid place-items-center w-5 h-5 rounded-full bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] text-[9px] font-semibold align-middle cursor-help" title={tip}>CTA</span>; })()}</td>
+                      <td className="td font-medium whitespace-nowrap">{labelOf(l)}{isRef(l) && (() => { const p = postingFor(l.category); const tip = `Paid by CTA${booking?.ctaAccountId ? ` · ${booking.ctaAccountId}` : ''} · reference — not reimbursed${p ? ` · posted to SAP ${p.sapDocNo} (${p.status})` : ''}`; return <span className="ml-1.5 inline-grid place-items-center w-5 h-5 rounded-full bg-[var(--ecs-panel-2)] text-[var(--ecs-muted)] text-[9px] font-semibold align-middle cursor-help" title={tip}>CTA</span>; })()}</td>
                       <td className="td">{canEdit && !isRef(l) ? <input key={`reason_${l.id}`} name={`reason_${l.id}`} defaultValue={l.reason ?? ''} className="field" /> : (l.reason ?? '—')}</td>
                       <td className={`td text-right whitespace-nowrap ${isRef(l) ? 'text-[var(--ecs-muted)]' : ''}`}>{canEdit && !isRef(l) ? <input key={`actual_${l.id}`} name={`actual_${l.id}`} type="number" step="any" defaultValue={l.actualSgd} className="field text-right" /> : fmtSgd(l.actualSgd)}</td>
                       <td className="td text-right whitespace-nowrap text-[var(--ecs-muted)]" style={{ background: '#f0faf5' }}>{l.approvedSgd > 0 ? fmtSgd(l.approvedSgd) : '—'}</td>
