@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { legacyBookingByPnr } from '@/modules/te/pnrLedger';
 import { updateClaimHeader, submitClaim, addClaimExpense, removeClaimExpense, saveClaimCharging, deleteClaim } from '@/modules/te/actions';
+import { ClaimOrigin } from '@/components/ClaimOrigin';
 import { EcsIdentity, EcsReference } from '@/shared/ecs/services';
 import { fmtSgd } from '@/modules/te/prepopulate';
 import { chargingCodes, companyCodes, businessAreas } from '@/data/charging';
@@ -19,7 +20,7 @@ const RECEIPT: Record<string, string> = { LOCAL_GST: 'Local (With GST)', FOREIGN
 const d = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : '');
 
 type ClaimLine = { id: string; category: string | null; expenseTypeId: string; actualSgd: number; sponsorSgd: number; reason: string | null; receiptType: string; transactionDate: Date | null; chargingCode: string | null; allocJson: string | null };
-type LegacyClaim = { id: string; claimNumber: string; status: string; legacyPnr: string | null; claimantId: string; travelStart: Date | null; travelEnd: Date | null; lessCorpCard: number; lessPersonal: number; chargingMode: string; chargingMainCode: string | null; chargingJson: string | null; lines: ClaimLine[] };
+type LegacyClaim = { id: string; claimNumber: string; status: string; legacyPnr: string | null; claimantId: string; trsNotBooked: boolean; travelStart: Date | null; travelEnd: Date | null; lessCorpCard: number; lessPersonal: number; chargingMode: string; chargingMainCode: string | null; chargingJson: string | null; lines: ClaimLine[] };
 
 export async function LegacyClaimView({ claim, persona }: { claim: LegacyClaim; persona: string }) {
   const booking = claim.legacyPnr ? await legacyBookingByPnr(claim.legacyPnr) : null;
@@ -60,6 +61,9 @@ export async function LegacyClaimView({ claim, persona }: { claim: LegacyClaim; 
       <p className="text-xs text-[var(--ecs-muted)] -mt-2">Legacy claim — raised on a pre-go-live TMC booking with no Pre-Trip request (TMC transition). The claimant enters the actuals; there is no approved estimate to reconcile against.</p>
 
       <Card title="Legacy travel booking (TMC transition)">
+        <div className="mb-4 pb-4 border-b border-[var(--ecs-border)]">
+          <ClaimOrigin mode="legacy" canEdit={canEdit} trsNotBooked={claim.trsNotBooked} />
+        </div>
         <div className="grid md:grid-cols-4 gap-4">
           <div><label className="label">Legacy PNR</label><input className="field font-mono" value={claim.legacyPnr ?? '—'} disabled /></div>
           <div><label className="label">TMC source</label><input className="field" value={booking?.tmcSource ?? 'Legacy TMC'} disabled /></div>

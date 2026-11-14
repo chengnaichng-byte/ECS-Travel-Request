@@ -108,6 +108,59 @@ export async function createClaimFromRequest(requestId: string) {
   redirect(`/claims/${claim.id}`);
 }
 
+/** Link a claim-side (exception) claim to an approved Travel Request and PRE-POPULATE it from that TR —
+ *  the same wiring as createClaimFromRequest, but applied to an existing Draft claim: its claimant-entered
+ *  lines are replaced by the TR's budget lines, the exception flags are cleared, and the claim becomes a
+ *  normal TR claim. Only an unlinked (requestId null, not legacy) Draft/SentBack claim may be linked. */
+export async function linkClaimToRequest(claimId: string, fd: FormData) {
+  const requestId = str(fd, 'linkRequestId');
+  if (!requestId) return;
+  const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId } });
+  if (!claim || claim.requestId || claim.legacyPnr) return;                       // only a claim-side claim
+  if (claim.status !== CLAIM_STATUS.Draft && claim.status !== CLAIM_STATUS.SentBack) return;
+  const req = await loadRequest(requestId);
+  if (!req) return;
+  // Same claim-sync contract gate as createClaimFromRequest (status ∈ {Approved, Closed} + TA issued).
+  const gate = evaluateFlow(req, 'TE_SYNC', await getGuardSettings());
+  if (!gate.ok) {
+    await prisma.auditEvent.create({ data: { requestId, actorId: claim.claimantId, kind: 'INTEGRATION', summary: `Claim ${claim.claimNumber} link blocked by contract filter — ${gate.checks.filter((c) => !c.pass).map((c) => `${c.rule} (is ${c.actual})`).join('; ')}` } });
+    return;
+  }
+  // The claimant must be the TR's traveller (or their delegate), as for a fresh claim.
+  const members = req.isGroup ? req.travellers.filter((t) => !isNonEmployeeMember(t)).map((t) => t.employeeId) : [req.travellerId];
+  const { travellerId: claimantId } = resolveClaimTraveller(members, claim.claimantId, EcsDelegation.canCreateTravelRequestFor(claim.claimantId));
+  if (!claimantId) {
+    await prisma.auditEvent.create({ data: { requestId, actorId: claim.claimantId, kind: 'TE_LINK', summary: `Claim ${claim.claimNumber} not linked — the claimant is not the traveller or their delegate for ${req.requestNumber}` } });
+    return;
+  }
+  const settings = await getSettings();
+  const prep = prepopulateClaim(req, claimantId, settings.airfareTreatment, prepopContract(await getContractSettings()));
+  if (prep.lines.length === 0) {
+    await prisma.auditEvent.create({ data: { requestId, actorId: claimantId, kind: 'TE_LINK', summary: `Claim ${claim.claimNumber} not linked — ${req.requestNumber} is already fully claimed` } });
+    return;
+  }
+  const mainAlloc = req.allocations.find((a) => a.isMain) ?? req.allocations[0];
+  const chargingMode = req.allocations.length > 1 ? 'CLAIM' : 'MAIN';
+  const chargingJson = JSON.stringify({ rows: req.allocations.map((a) => ({ code: a.chargingCode, percent: a.percent, amount: a.amountSgd ?? 0, io: a.internalOrder ?? '', isMain: a.isMain })), lineMap: {} });
+  // Replace the claimant-entered lines with the TR budget lines; drop the now-irrelevant exception data.
+  await prisma.tEExpenseLine.deleteMany({ where: { claimId } });
+  await prisma.travelExpenseClaim.update({ where: { id: claimId }, data: {
+    requestId, noTrException: false, noTrReason: null, exBookingRef: null,
+    trsNotBooked: req.bookings.length === 0,
+    travelStart: req.startDate, travelEnd: req.endDate, additionalApprover1: req.additionalApproverId,
+    chargingMode, chargingMainCode: mainAlloc?.chargingCode ?? null, chargingJson,
+    lines: { create: prep.lines.map((l) => ({
+      category: l.category, expenseTypeId: l.expenseTypeId, treatment: l.treatment,
+      approvedSgd: l.approvedSgd, bookedSgd: l.bookedSgd, actualSgd: l.actualSgd,
+      transactionDate: req.startDate, currency: 'SGD', foreignAmount: l.approvedSgd,
+      reason: EcsReference.travelPurpose(req.purposeId ?? '')?.name ?? req.description ?? null,
+    })) },
+  } });
+  await prisma.travelExpenseLink.create({ data: { requestId, claimId, travellerId: claimantId } });
+  await prisma.auditEvent.create({ data: { requestId, actorId: claim.claimantId, kind: 'TE_LINK', summary: `Claim ${claim.claimNumber} linked to ${req.requestNumber} — pre-populated from the approved Travel Request (no longer an exception claim)` } });
+  redirect(`/claims/${claimId}`);
+}
+
 /** Claimant edits actual amounts; recompute variance (TR-17). */
 export async function updateClaimActuals(claimId: string, fd: FormData) {
   const claim = await prisma.travelExpenseClaim.findUnique({ where: { id: claimId }, include: { lines: true } });

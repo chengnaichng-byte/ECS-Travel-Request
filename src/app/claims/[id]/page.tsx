@@ -31,6 +31,7 @@ import { LegacyClaimView } from '@/components/LegacyClaimView';
 import { ExceptionClaimView } from '@/components/ExceptionClaimView';
 import { ViewExpenseModal, type ExpenseView } from '@/components/ViewExpenseModal';
 import { EditExpenseModal } from '@/components/EditExpenseModal';
+import { ClaimOrigin } from '@/components/ClaimOrigin';
 import { CtaDetailModal } from '@/components/CtaDetailModal';
 import { Card, CollapsibleCard, Empty } from '@/components/ui';
 
@@ -385,10 +386,9 @@ export default async function ClaimPage({ params }: { params: Promise<{ id: stri
         </Card>
 
         <Card title="Travel Booking Details">
-          <label className="flex items-center gap-2 text-sm mb-4">
-            <input type="checkbox" name="trsNotBooked" defaultChecked={claim.trsNotBooked} disabled={!canEdit} className="w-4 h-4" />
-            Booking not made on NTU&apos;s Travel Reservation System (TRS)
-          </label>
+          <div className="mb-4 pb-4 border-b border-[var(--ecs-border)]">
+            <ClaimOrigin mode="tr" canEdit={canEdit} trsNotBooked={claim.trsNotBooked} />
+          </div>
           <div className="grid md:grid-cols-3 gap-4">
             <div>
               <label className="label">Travel Booking Reference {pnrs.length > 1 && newTag()}</label>
